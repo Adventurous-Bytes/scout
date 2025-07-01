@@ -26,12 +26,12 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jettblu/adventure_labs.git"
+    "url": "https://github.com/Adventurous-Bytes/scout.git"
   },
   "bugs": {
-    "url": "https://github.com/jettblu/adventure_labs/issues"
+    "url": "https://github.com/Adventurous-Bytes/scout/issues"
   },
-  "homepage": "https://github.com/jettblu/adventure_labs#readme",
+  "homepage": "https://github.com/Adventurous-Bytes/scout#readme",
   "peerDependencies": {
     "react": ">=18.0.0",
     "react-dom": ">=18.0.0",
