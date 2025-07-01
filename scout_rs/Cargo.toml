@@ -9,6 +9,7 @@ repository = "https://github.com/Adventurous-Bytes/scout"
 keywords = ["scout", "api", "conservation", "wildlife", "monitoring", "upload"]
 categories = ["api-bindings", "web-programming::http-client"]
 readme = "README.md"
+exclude = ["src/bin/*"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -22,3 +23,4 @@ clap = { version = "4.0", features = ["derive"] }
 # Logging and diagnostics
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 tracing = "0.1.37"
+
