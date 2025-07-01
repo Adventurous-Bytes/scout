@@ -1,0 +1,52 @@
+{
+  "name": "@adventurelabs/scout-core",
+  "version": "1.0.24",
+  "description": "Core utilities and helpers for Adventure Labs Scout applications",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "yarn build",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "scout",
+    "adventurelabs",
+    "conservation",
+    "wildlife",
+    "monitoring",
+    "typescript"
+  ],
+  "author": "Adventure Labs",
+  "license": "GPL-3.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jettblu/adventure_labs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jettblu/adventure_labs/issues"
+  },
+  "homepage": "https://github.com/jettblu/adventure_labs#readme",
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
+    "next": ">=15.0.0",
+    "react-redux": ">=9.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.6",
+    "@supabase/ssr": "^0.5.1",
+    "@reduxjs/toolkit": "^2.0.0",
+    "zustand": "^4.0.0"
+  }
+}

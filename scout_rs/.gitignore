@@ -1,0 +1,11 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock
+# IDEs
+.idea/
+.vscode/
+# OS
+.DS_Store
+# Test output
+/test_output.txt 
