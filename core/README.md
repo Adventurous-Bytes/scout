@@ -13,26 +13,26 @@ yarn add @adventurelabs/scout-core
 ## Usage
 
 ```typescript
-import {
-  HerdModule,
-  IDevice,
-  IEvent,
-  isEmailValidForLogin,
-  useScoutDbListener,
-  useScoutRefresh,
-} from "@adventurelabs/scout-core";
+import "../../app/globals.css";
+import StoreProvider from "../../components/Store/StoreProvider";
+import { ScoutRefreshProvider } from "@adventurelabs/scout-core";
 
-// Use the HerdModule class
-const herdModule = new HerdModule(herd, devices, events, Date.now());
+export default function ScoutLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    {/* Store provider for state management */}
+    <StoreProvider>
+      {/* Listen for updates and refresh data in background */}
+      <ScoutRefreshProvider>
+        <div className="">{children}</div>
+      </ScoutRefreshProvider>
 
-// Use helper functions
-const isValidEmail = isEmailValidForLogin("user@adventurelabs.earth");
-
-// Use React hooks for real-time database listening
-useScoutDbListener(); // Automatically listens for changes to plans, devices, and tags
-
-// Use refresh hook
-const { handleRefresh } = useScoutRefresh({ autoRefresh: true });
+    </StoreProvider>
+  );
+}
 ```
 
 ## Available Modules
