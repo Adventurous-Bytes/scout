@@ -362,6 +362,105 @@ The client supports both individual and batch upload endpoints:
 
 The batch endpoint is more efficient for uploading multiple files as it reduces network overhead and server load.
 
+## Testing
+
+### Setting Up Environment Variables
+
+To run the tests, you need to set up your Scout API key as an environment variable. Create a `.env` file in the project root:
+
+```bash
+# Create .env file
+echo "SCOUT_API_KEY=your_actual_api_key_here" > .env
+```
+
+**Important**: The `.env` file is already added to `.gitignore` to prevent accidentally committing your API key.
+
+### Running Tests
+
+```bash
+# Run all tests
+cargo test
+
+# Run only unit tests (no API calls)
+cargo test --lib
+
+# Run integration tests with API calls
+cargo test --test scout_client
+
+# Run specific test
+cargo test test_session_api_integration
+
+# Run all session-related tests
+cargo test session
+
+# Run session creation tests specifically
+cargo test test_session_creation_api
+
+# Run tests with verbose output
+cargo test -- --nocapture
+```
+
+### Test Categories
+
+- **Unit Tests**: Test individual functions without API calls
+- **Integration Tests**: Test API interactions (require valid API key)
+- **Error Handling Tests**: Test error scenarios with invalid API keys
+- **Session Tests**: Test session creation, retrieval, and management functionality
+
+### Test Environment Variables
+
+The tests automatically load environment variables from the `.env` file. If no `SCOUT_API_KEY` is found, integration tests will be skipped with a message.
+
+### Session Testing
+
+The client includes comprehensive tests for session management functionality:
+
+#### Session Creation Tests
+
+- **`test_session_creation_api`**: Tests creating sessions with realistic data and validates the returned session ID
+- **`test_session_creation_error_handling`**: Tests error handling with invalid data (negative device IDs, invalid timestamps, etc.)
+- **`test_session_api_integration`**: Tests the full session lifecycle including creation, retrieval, and cleanup
+
+#### Session Management Tests
+
+- **`test_sessions_by_herd`**: Tests retrieving sessions by herd ID
+- **`test_session_update_methods`**: Tests session update functionality
+- **`test_session_with_id`**: Tests session creation with pre-assigned IDs
+
+#### Running Session Tests
+
+```bash
+# Run all session-related tests
+cargo test session
+
+# Run specific session creation test
+cargo test test_session_creation_api
+
+# Run session error handling tests
+cargo test test_session_creation_error_handling
+
+# Run with verbose output to see detailed logs
+cargo test test_session_creation_api -- --nocapture
+```
+
+#### Session Test Features
+
+- **Realistic Data**: Tests use realistic GPS coordinates, altitude, and velocity data
+- **Validation**: Tests validate that created sessions have correct data and positive IDs
+- **Cleanup**: Tests automatically clean up created sessions to avoid test pollution
+- **Error Handling**: Tests verify proper error handling for invalid inputs
+- **Environment Variables**: Tests use environment variables for API configuration
+
+### Example .env File
+
+```env
+# Scout API Key for testing
+SCOUT_API_KEY=your_actual_api_key_here
+
+# Optional: Custom Scout URL for testing
+SCOUT_URL=https://www.adventurelabs.earth/api/scout
+```
+
 ## License
 
 GPL-3.0

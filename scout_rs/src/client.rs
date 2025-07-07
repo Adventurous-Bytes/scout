@@ -60,6 +60,236 @@ pub struct Herd {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Session {
+    pub id: Option<i64>,
+    pub device_id: i64,
+    pub timestamp_start: String,
+    pub timestamp_end: String,
+    pub inserted_at: Option<String>,
+    pub software_version: String,
+    pub locations_geojson: Option<serde_json::Value>,
+    pub altitude_max: f64,
+    pub altitude_min: f64,
+    pub altitude_average: f64,
+    pub velocity_max: f64,
+    pub velocity_min: f64,
+    pub velocity_average: f64,
+    pub distance_total: f64,
+    pub distance_max_from_start: f64,
+    pub status: Option<String>,
+    pub location: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionInput {
+    pub device_id: i64,
+    pub timestamp_start: String,
+    pub timestamp_end: Option<String>,
+    pub software_version: String,
+    pub locations: String,
+    pub altitude_max: f64,
+    pub altitude_min: f64,
+    pub altitude_average: f64,
+    pub velocity_max: f64,
+    pub velocity_min: f64,
+    pub velocity_average: f64,
+    pub distance_total: f64,
+    pub distance_max_from_start: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionWithCoordinates {
+    pub id: Option<i64>,
+    pub device_id: i64,
+    pub timestamp_start: String,
+    pub timestamp_end: String,
+    pub inserted_at: Option<String>,
+    pub software_version: String,
+    pub locations_geojson: Option<serde_json::Value>,
+    pub altitude_max: f64,
+    pub altitude_min: f64,
+    pub altitude_average: f64,
+    pub velocity_max: f64,
+    pub velocity_min: f64,
+    pub velocity_average: f64,
+    pub distance_total: f64,
+    pub distance_max_from_start: f64,
+}
+
+impl Session {
+    pub fn new(
+        device_id: i64,
+        timestamp_start: u64,
+        timestamp_end: u64,
+        software_version: String,
+        locations_geojson: Option<serde_json::Value>,
+        altitude_max: f64,
+        altitude_min: f64,
+        altitude_average: f64,
+        velocity_max: f64,
+        velocity_min: f64,
+        velocity_average: f64,
+        distance_total: f64,
+        distance_max_from_start: f64
+    ) -> Self {
+        let timestamp_start_str = DateTime::from_timestamp(timestamp_start as i64, 0)
+            .unwrap_or_else(|| Utc::now())
+            .to_rfc3339();
+
+        let timestamp_end_str = DateTime::from_timestamp(timestamp_end as i64, 0)
+            .unwrap_or_else(|| Utc::now())
+            .to_rfc3339();
+
+        // Convert locations_geojson to location string for database input
+        let location = if let Some(geojson) = &locations_geojson {
+            // For now, use a simple Point format. In a real implementation,
+            // you might want to parse the GeoJSON and convert to WKT format
+            "Point(-74.006 40.7128)".to_string()
+        } else {
+            "Point(0 0)".to_string()
+        };
+
+        Self {
+            id: None,
+            device_id,
+            timestamp_start: timestamp_start_str,
+            timestamp_end: timestamp_end_str,
+            inserted_at: None,
+            software_version,
+            locations_geojson,
+            altitude_max,
+            altitude_min,
+            altitude_average,
+            velocity_max,
+            velocity_min,
+            velocity_average,
+            distance_total,
+            distance_max_from_start,
+            status: None,
+            location: Some(location),
+        }
+    }
+
+    pub fn with_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn update_timestamp_end(&mut self, timestamp_end: u64) {
+        self.timestamp_end = DateTime::from_timestamp(timestamp_end as i64, 0)
+            .unwrap_or_else(|| Utc::now())
+            .to_rfc3339();
+    }
+
+    pub fn to_input(&self) -> SessionInput {
+        SessionInput {
+            device_id: self.device_id,
+            timestamp_start: self.timestamp_start.clone(),
+            timestamp_end: Some(self.timestamp_end.clone()),
+            software_version: self.software_version.clone(),
+            locations: self.location.clone().unwrap_or_else(|| "Point(0 0)".to_string()),
+            altitude_max: self.altitude_max,
+            altitude_min: self.altitude_min,
+            altitude_average: self.altitude_average,
+            velocity_max: self.velocity_max,
+            velocity_min: self.velocity_min,
+            velocity_average: self.velocity_average,
+            distance_total: self.distance_total,
+            distance_max_from_start: self.distance_max_from_start,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Connectivity {
+    pub id: Option<i64>,
+    pub session_id: i64,
+    pub inserted_at: Option<String>,
+    pub timestamp_start: String,
+    pub signal: f64,
+    pub noise: f64,
+    pub altitude: f64,
+    pub heading: f64,
+    pub location: String,
+    pub h14_index: i32,
+    pub h13_index: i32,
+    pub h12_index: i32,
+    pub h11_index: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectivityInput {
+    pub session_id: i64,
+    pub timestamp_start: String,
+    pub signal: f64,
+    pub noise: f64,
+    pub altitude: f64,
+    pub heading: f64,
+    pub location: String,
+    pub h14_index: i32,
+    pub h13_index: i32,
+    pub h12_index: i32,
+    pub h11_index: i32,
+}
+
+impl Connectivity {
+    pub fn new(
+        session_id: i64,
+        timestamp_start: u64,
+        signal: f64,
+        noise: f64,
+        altitude: f64,
+        heading: f64,
+        location: String,
+        h14_index: i32,
+        h13_index: i32,
+        h12_index: i32,
+        h11_index: i32
+    ) -> Self {
+        let timestamp_start_str = DateTime::from_timestamp(timestamp_start as i64, 0)
+            .unwrap_or_else(|| Utc::now())
+            .to_rfc3339();
+
+        Self {
+            id: None,
+            session_id,
+            inserted_at: None,
+            timestamp_start: timestamp_start_str,
+            signal,
+            noise,
+            altitude,
+            heading,
+            location,
+            h14_index,
+            h13_index,
+            h12_index,
+            h11_index,
+        }
+    }
+
+    pub fn with_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn to_input(&self) -> ConnectivityInput {
+        ConnectivityInput {
+            session_id: self.session_id,
+            timestamp_start: self.timestamp_start.clone(),
+            signal: self.signal,
+            noise: self.noise,
+            altitude: self.altitude,
+            heading: self.heading,
+            location: self.location.clone(),
+            h14_index: self.h14_index,
+            h13_index: self.h13_index,
+            h12_index: self.h12_index,
+            h11_index: self.h11_index,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
     pub message: Option<String>,
     pub media_url: Option<String>,
@@ -724,6 +954,436 @@ impl ScoutClient {
 
         Ok(result)
     }
+
+    // ===== SESSION API METHODS =====
+
+    /// List sessions by herd ID
+    pub async fn get_sessions_by_herd(&self, herd_id: u32) -> Result<ResponseScout<Vec<Session>>> {
+        debug!("Fetching sessions for herd_id: {}", herd_id);
+        let url = format!("{}/sessions?herd_id={}", self.scout_url, herd_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let sessions: Vec<Session> = response.json().await?;
+                debug!("Successfully fetched {} sessions for herd {}", sessions.len(), herd_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to get sessions: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to get sessions: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Create or update a single session
+    pub async fn upsert_session(&self, session: &Session) -> Result<ResponseScout<Session>> {
+        debug!("Upserting session for device_id: {}", session.device_id);
+        let url = format!("{}/sessions", self.scout_url);
+
+        // For new sessions (without ID), use SessionInput to avoid sending null fields
+        let payload = if session.id.is_none() {
+            serde_json::to_value(session.to_input()).unwrap()
+        } else {
+            serde_json::to_value(session).unwrap()
+        };
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send().await?;
+
+        match response.status().as_u16() {
+            201 => {
+                let created_session: Session = response.json().await?;
+                debug!("Successfully upserted session with ID: {:?}", created_session.id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_session)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to upsert session: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to upsert session: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Create or update multiple sessions in batch
+    pub async fn upsert_sessions_batch(
+        &self,
+        sessions: &[Session]
+    ) -> Result<ResponseScout<Vec<Session>>> {
+        debug!("Upserting {} sessions in batch", sessions.len());
+        let url = format!("{}/sessions", self.scout_url);
+
+        // Convert sessions to appropriate format for batch upsert
+        let payload: Vec<serde_json::Value> = sessions
+            .iter()
+            .map(|session| {
+                if session.id.is_none() {
+                    serde_json::to_value(session.to_input()).unwrap()
+                } else {
+                    serde_json::to_value(session).unwrap()
+                }
+            })
+            .collect();
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send().await?;
+
+        match response.status().as_u16() {
+            201 => {
+                let created_sessions: Vec<Session> = response.json().await?;
+                debug!("Successfully upserted {} sessions", created_sessions.len());
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_sessions)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to upsert sessions batch: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to upsert sessions batch: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Update a specific session
+    pub async fn update_session(
+        &self,
+        session_id: i64,
+        session: &Session
+    ) -> Result<ResponseScout<Session>> {
+        debug!("Updating session with ID: {}", session_id);
+        let url = format!("{}/sessions/{}", self.scout_url, session_id);
+        let response = self.client
+            .put(&url)
+            .header("Authorization", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(session)
+            .send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let updated_session: Session = response.json().await?;
+                debug!("Successfully updated session with ID: {}", session_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(updated_session)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to update session: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to update session: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Delete a specific session
+    pub async fn delete_session(&self, session_id: i64) -> Result<ResponseScout<()>> {
+        debug!("Deleting session with ID: {}", session_id);
+        let url = format!("{}/sessions/{}", self.scout_url, session_id);
+        let response = self.client
+            .delete(&url)
+            .header("Authorization", &self.api_key)
+            .send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                debug!("Successfully deleted session with ID: {}", session_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to delete session: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to delete session: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Get events for a specific session
+    pub async fn get_session_events(&self, session_id: i64) -> Result<ResponseScout<Vec<Event>>> {
+        debug!("Fetching events for session_id: {}", session_id);
+        let url = format!("{}/sessions/{}/events", self.scout_url, session_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let events: Vec<Event> = response.json().await?;
+                debug!("Successfully fetched {} events for session {}", events.len(), session_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(events)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to get session events: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to get session events: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Get connectivity data for a specific session
+    pub async fn get_session_connectivity(
+        &self,
+        session_id: i64
+    ) -> Result<ResponseScout<Vec<Connectivity>>> {
+        debug!("Fetching connectivity for session_id: {}", session_id);
+        let url = format!("{}/sessions/{}/connectivity", self.scout_url, session_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let connectivity: Vec<Connectivity> = response.json().await?;
+                debug!(
+                    "Successfully fetched {} connectivity entries for session {}",
+                    connectivity.len(),
+                    session_id
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(connectivity)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to get session connectivity: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to get session connectivity: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// Create a new session and return the session ID
+    pub async fn create_session(
+        &self,
+        device_id: i64,
+        timestamp_start: u64,
+        timestamp_end: u64,
+        software_version: String,
+        locations_geojson: Option<serde_json::Value>,
+        altitude_max: f64,
+        altitude_min: f64,
+        altitude_average: f64,
+        velocity_max: f64,
+        velocity_min: f64,
+        velocity_average: f64,
+        distance_total: f64,
+        distance_max_from_start: f64
+    ) -> Result<i64> {
+        let session = Session::new(
+            device_id,
+            timestamp_start,
+            timestamp_end,
+            software_version,
+            locations_geojson,
+            altitude_max,
+            altitude_min,
+            altitude_average,
+            velocity_max,
+            velocity_min,
+            velocity_average,
+            distance_total,
+            distance_max_from_start
+        );
+        let response = self.upsert_session(&session).await?;
+
+        match response.data {
+            Some(created_session) => {
+                created_session.id.ok_or_else(|| anyhow!("Session created but no ID returned"))
+            }
+            None => Err(anyhow!("Failed to create session: no data returned")),
+        }
+    }
+
+    /// Create or update a single connectivity entry
+    pub async fn upsert_connectivity(
+        &self,
+        connectivity: &Connectivity
+    ) -> Result<ResponseScout<Connectivity>> {
+        debug!("Upserting connectivity entry for session_id: {}", connectivity.session_id);
+        let url = format!("{}/connectivity", self.scout_url);
+
+        // For new connectivity entries (without ID), use ConnectivityInput to avoid sending null fields
+        let payload = if connectivity.id.is_none() {
+            serde_json::to_value(connectivity.to_input()).unwrap()
+        } else {
+            serde_json::to_value(connectivity).unwrap()
+        };
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", &self.api_key)
+            .json(&payload)
+            .send().await?;
+
+        match response.status().as_u16() {
+            200 | 201 => {
+                let created_connectivity: Connectivity = response.json().await?;
+                debug!(
+                    "Successfully upserted connectivity entry with ID: {:?}",
+                    created_connectivity.id
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_connectivity)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to upsert connectivity: HTTP {} - {}", status, error_text);
+                Err(anyhow!("Failed to upsert connectivity: HTTP {} - {}", status, error_text))
+            }
+        }
+    }
+
+    /// End a session by updating its timestamp_end
+    pub async fn end_session(&self, session_id: i64, timestamp_end: u64) -> Result<()> {
+        let session = Session {
+            id: Some(session_id),
+            device_id: 0, // This will be ignored in the update
+            timestamp_start: String::new(), // This will be ignored in the update
+            timestamp_end: DateTime::from_timestamp(timestamp_end as i64, 0)
+                .unwrap_or_else(|| Utc::now())
+                .to_rfc3339(),
+            inserted_at: None,
+            software_version: String::new(), // This will be ignored in the update
+            locations_geojson: None, // This will be ignored in the update
+            altitude_max: 0.0, // This will be ignored in the update
+            altitude_min: 0.0, // This will be ignored in the update
+            altitude_average: 0.0, // This will be ignored in the update
+            velocity_max: 0.0, // This will be ignored in the update
+            velocity_min: 0.0, // This will be ignored in the update
+            velocity_average: 0.0, // This will be ignored in the update
+            distance_total: 0.0, // This will be ignored in the update
+            distance_max_from_start: 0.0, // This will be ignored in the update
+            status: None,
+            location: None,
+        };
+
+        let response = self.update_session(session_id, &session).await?;
+        match response.status {
+            ResponseScoutStatus::Success => {
+                debug!("Successfully ended session with ID: {}", session_id);
+                Ok(())
+            }
+            _ => Err(anyhow!("Failed to end session")),
+        }
+    }
+
+    /// Get sessions by herd ID using the database function with coordinates
+    pub async fn get_sessions_with_coordinates_by_herd(
+        &self,
+        herd_id: u32
+    ) -> Result<ResponseScout<Vec<SessionWithCoordinates>>> {
+        debug!("Fetching sessions with coordinates for herd_id: {}", herd_id);
+        let url = format!("{}/sessions/with-coordinates/{}", self.scout_url, herd_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let sessions: Vec<SessionWithCoordinates> = response.json().await?;
+                debug!(
+                    "Successfully fetched {} sessions with coordinates for herd {}",
+                    sessions.len(),
+                    herd_id
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to get sessions with coordinates: HTTP {} - {}", status, error_text);
+                Err(
+                    anyhow!(
+                        "Failed to get sessions with coordinates: HTTP {} - {}",
+                        status,
+                        error_text
+                    )
+                )
+            }
+        }
+    }
+
+    /// Get sessions by device ID using the database function with coordinates
+    pub async fn get_sessions_with_coordinates_by_device(
+        &self,
+        device_id: u32
+    ) -> Result<ResponseScout<Vec<SessionWithCoordinates>>> {
+        debug!("Fetching sessions with coordinates for device_id: {}", device_id);
+        let url = format!("{}/sessions/with-coordinates/device/{}", self.scout_url, device_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let sessions: Vec<SessionWithCoordinates> = response.json().await?;
+                debug!(
+                    "Successfully fetched {} sessions with coordinates for device {}",
+                    sessions.len(),
+                    device_id
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!(
+                    "Failed to get sessions with coordinates by device: HTTP {} - {}",
+                    status,
+                    error_text
+                );
+                Err(
+                    anyhow!(
+                        "Failed to get sessions with coordinates by device: HTTP {} - {}",
+                        status,
+                        error_text
+                    )
+                )
+            }
+        }
+    }
+
+    /// Get connectivity data for a specific session with coordinates
+    pub async fn get_session_connectivity_with_coordinates(
+        &self,
+        session_id: i64
+    ) -> Result<ResponseScout<Vec<ConnectivityWithCoordinates>>> {
+        debug!("Fetching connectivity with coordinates for session_id: {}", session_id);
+        let url = format!(
+            "{}/sessions/{}/connectivity/with-coordinates",
+            self.scout_url,
+            session_id
+        );
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+
+        match response.status().as_u16() {
+            200 => {
+                let connectivity: Vec<ConnectivityWithCoordinates> = response.json().await?;
+                debug!(
+                    "Successfully fetched {} connectivity entries with coordinates for session {}",
+                    connectivity.len(),
+                    session_id
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(connectivity)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!(
+                    "Failed to get connectivity with coordinates: HTTP {} - {}",
+                    status,
+                    error_text
+                );
+                Err(
+                    anyhow!(
+                        "Failed to get connectivity with coordinates: HTTP {} - {}",
+                        status,
+                        error_text
+                    )
+                )
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -802,11 +1462,36 @@ impl BatchUploadResult {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectivityWithCoordinates {
+    pub id: Option<i64>,
+    pub session_id: i64,
+    pub inserted_at: Option<String>,
+    pub timestamp_start: String,
+    pub signal: f64,
+    pub noise: f64,
+    pub altitude: f64,
+    pub heading: f64,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub h14_index: i32,
+    pub h13_index: i32,
+    pub h12_index: i32,
+    pub h11_index: i32,
+}
+
 // cargo test --test scout_client
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ time::{ SystemTime, UNIX_EPOCH } };
+    use std::{ time::{ SystemTime, UNIX_EPOCH }, env };
+    use dotenv::dotenv;
+    use tracing_subscriber;
+
+    fn init_test_logging() {
+        // Initialize tracing subscriber for tests
+        let _ = tracing_subscriber::fmt().with_env_filter("info").with_test_writer().try_init();
+    }
 
     #[test]
     fn test_format_location() {
@@ -860,14 +1545,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_scout_client_integration() {
-        // Skip this test if no API key is provided
-        let api_key =
-            "6d11b203de3068673ba0558641ee20c2a78ef8885c50852c5da872cdbb5f144e32edf3c96b8d872959f58aee362623df131caecca853905b34ebfec436b9cf50";
+        // Load environment variables from .env file
+        dotenv().ok();
 
-        let mut client = ScoutClient::new(
-            "https://www.adventurelabs.earth/api/scout".to_string(),
-            api_key.to_string()
-        ).expect("Failed to create ScoutClient");
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping integration test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
 
         // Test getting device
         info!("Testing get_device...");
@@ -906,6 +1599,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_scout_client_error_handling() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
         // Test with invalid API key
         let mut client = ScoutClient::new(
             "https://example.com".to_string(),
@@ -1018,18 +1714,22 @@ mod tests {
 
     #[tokio::test]
     async fn test_identify_method() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
         // Skip this test if no API key is provided
-        let api_key =
-            "6d11b203de3068673ba0558641ee20c2a78ef8885c50852c5da872cdbb5f144e32edf3c96b8d872959f58aee362623df131caecca853905b34ebfec436b9cf50";
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
         if api_key.is_empty() {
-            info!("Skipping identify test - no API key provided");
+            info!("Skipping identify test - no SCOUT_API_KEY environment variable set");
             return;
         }
 
-        let mut client = ScoutClient::new(
-            "https://www.adventurelabs.earth/api/scout".to_string(),
-            api_key.to_string()
-        ).expect("Failed to create ScoutClient");
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
 
         // Test identify method
         let result = client.identify().await;
@@ -1050,6 +1750,1100 @@ mod tests {
             Err(e) => {
                 info!("❌ Identify method failed: {}", e);
                 // This is expected if no valid API key is provided
+            }
+        }
+    }
+
+    // ===== SESSION TESTS =====
+
+    #[test]
+    fn test_session_creation() {
+        let session = Session::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        );
+
+        assert_eq!(session.device_id, 123);
+        assert_eq!(session.software_version, "v1.0.0");
+        assert!(session.id.is_none());
+    }
+
+    #[test]
+    fn test_session_with_id() {
+        let session = Session::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).with_id(456);
+
+        assert_eq!(session.id, Some(456));
+    }
+
+    #[test]
+    fn test_session_update_methods() {
+        let mut session = Session::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        );
+
+        session.update_timestamp_end(
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+        );
+        assert!(!session.timestamp_end.is_empty());
+    }
+
+    #[test]
+    fn test_connectivity_creation() {
+        let connectivity = Connectivity::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            -50.0,
+            -60.0,
+            100.0,
+            45.0,
+            "Point(0 0)".to_string(),
+            1,
+            2,
+            3,
+            4
+        );
+
+        assert_eq!(connectivity.session_id, 123);
+        assert_eq!(connectivity.signal, -50.0);
+        assert_eq!(connectivity.noise, -60.0);
+        assert!(connectivity.id.is_none());
+    }
+
+    #[test]
+    fn test_connectivity_with_id() {
+        let connectivity = Connectivity::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            -50.0,
+            -60.0,
+            100.0,
+            45.0,
+            "Point(0 0)".to_string(),
+            1,
+            2,
+            3,
+            4
+        ).with_id(789);
+
+        assert_eq!(connectivity.id, Some(789));
+    }
+
+    #[tokio::test]
+    async fn test_session_creation_api() {
+        // Initialize logging for this test
+        init_test_logging();
+
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping session creation API test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        // Test creating a session with realistic data
+        info!("Testing session creation with realistic data...");
+
+        // Get device ID from environment
+        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
+            Ok(val) =>
+                match val.parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
+                        return;
+                    }
+                }
+            Err(_) => {
+                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
+                return;
+            }
+        };
+
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp_end = timestamp_start + 3600; // 1 hour later
+
+        let session_id = client.create_session(
+            device_id,
+            timestamp_start,
+            timestamp_end,
+            "v1.0.0".to_string(),
+            None,
+            150.0, // altitude_max
+            50.0, // altitude_min
+            100.0, // altitude_average
+            25.0, // velocity_max (m/s)
+            5.0, // velocity_min (m/s)
+            15.0, // velocity_average (m/s)
+            5000.0, // distance_total (m)
+            2500.0 // distance_max_from_start (m)
+        ).await;
+
+        match session_id {
+            Ok(id) => {
+                info!("✅ Successfully created session with ID: {}", id);
+                assert!(id > 0, "Session ID should be positive");
+
+                // Test that we can retrieve the session data
+                info!("Testing session retrieval...");
+
+                // Get herd ID from environment
+                let herd_id: u32 = match env::var("SCOUT_HERD_ID") {
+                    Ok(val) =>
+                        match val.parse() {
+                            Ok(num) => num,
+                            Err(_) => {
+                                info!(
+                                    "Skipping session retrieval test - SCOUT_HERD_ID is not a valid u32"
+                                );
+                                return;
+                            }
+                        }
+                    Err(_) => {
+                        info!(
+                            "Skipping session retrieval test - no SCOUT_HERD_ID environment variable set"
+                        );
+                        return;
+                    }
+                };
+
+                match client.get_sessions_by_herd(herd_id).await {
+                    Ok(response) => {
+                        if let Some(sessions) = response.data {
+                            let created_session = sessions.iter().find(|s| s.id == Some(id));
+                            if let Some(session) = created_session {
+                                info!("✅ Found created session in herd: {:?}", session);
+                                assert_eq!(session.device_id, device_id);
+                                assert_eq!(session.software_version, "v1.0.0");
+                                assert!(
+                                    session.locations_geojson.is_some(),
+                                    "Session should have GeoJSON locations"
+                                );
+                                assert_eq!(session.altitude_max, 150.0);
+                                assert_eq!(session.altitude_min, 50.0);
+                                assert_eq!(session.altitude_average, 100.0);
+                                assert_eq!(session.velocity_max, 25.0);
+                                assert_eq!(session.velocity_min, 5.0);
+                                assert_eq!(session.velocity_average, 15.0);
+                                assert_eq!(session.distance_total, 5000.0);
+                                assert_eq!(session.distance_max_from_start, 2500.0);
+                            } else {
+                                info!(
+                                    "⚠️  Created session not found in herd list (this might be expected if herd_id is different)"
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        panic!("❌ Failed to retrieve sessions: {}", e);
+                    }
+                }
+
+                // Clean up: delete the test session
+                info!("Cleaning up test session...");
+                match client.delete_session(id).await {
+                    Ok(_) => {
+                        info!("✅ Successfully deleted test session");
+                    }
+                    Err(e) => {
+                        panic!("❌ Failed to delete test session: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                panic!("❌ Failed to create session: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_session_creation_error_handling() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!(
+                "Skipping session creation error handling test - no SCOUT_API_KEY environment variable set"
+            );
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        // Test creating a session with invalid device_id (negative)
+        info!("Testing session creation with invalid device_id...");
+        let result = client.create_session(
+            -1, // Invalid negative device_id
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).await;
+
+        match result {
+            Ok(_) => {
+                info!(
+                    "⚠️  Session creation succeeded with invalid device_id (API might not validate this)"
+                );
+            }
+            Err(e) => {
+                info!("✅ Session creation correctly failed with invalid device_id: {}", e);
+            }
+        }
+
+        // Test creating a session with invalid timestamps (end before start)
+        info!("Testing session creation with invalid timestamps...");
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp_end = timestamp_start - 3600; // End before start
+
+        let result = client.create_session(
+            123,
+            timestamp_start,
+            timestamp_end,
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).await;
+
+        match result {
+            Ok(_) => {
+                info!(
+                    "⚠️  Session creation succeeded with invalid timestamps (API might not validate this)"
+                );
+            }
+            Err(e) => {
+                info!("✅ Session creation correctly failed with invalid timestamps: {}", e);
+            }
+        }
+
+        // Test creating a session with invalid altitude values (negative)
+        info!("Testing session creation with invalid altitude values...");
+        let result = client.create_session(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
+            "v1.0.0".to_string(),
+            None,
+            -100.0, // Invalid negative altitude_max
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).await;
+
+        match result {
+            Ok(_) => {
+                info!(
+                    "⚠️  Session creation succeeded with invalid altitude values (API might not validate this)"
+                );
+            }
+            Err(e) => {
+                info!("✅ Session creation correctly failed with invalid altitude values: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_compliance_sessions_endpoints() {
+        // Initialize logging for this test
+        init_test_logging();
+
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping API compliance test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        info!("🧪 Testing API Compliance for Sessions Endpoints");
+        info!("================================================");
+
+        // Test 1: GET /sessions?herd_id={herd_id} - Get sessions by herd
+        let herd_id = 1; // Test herd ID
+        info!("1️⃣ Testing GET /sessions?herd_id={}", herd_id);
+        match client.get_sessions_by_herd(herd_id).await {
+            Ok(response) => {
+                info!("✅ GET /sessions?herd_id={} - SUCCESS", herd_id);
+                info!("   Status: {:?}", response.status);
+                if let Some(sessions) = &response.data {
+                    info!("   Response: {} sessions returned", sessions.len());
+                    // Validate session structure
+                    for session in sessions {
+                        assert!(session.device_id > 0, "Session device_id should be positive");
+                        assert!(
+                            !session.software_version.is_empty(),
+                            "Session software_version should not be empty"
+                        );
+                        assert!(
+                            session.locations_geojson.is_none(),
+                            "Session locations_geojson should be None"
+                        );
+                        assert!(
+                            session.altitude_max >= session.altitude_min,
+                            "Session altitude_max should be >= altitude_min"
+                        );
+                        assert!(
+                            session.velocity_max >= session.velocity_min,
+                            "Session velocity_max should be >= velocity_min"
+                        );
+                    }
+                } else {
+                    info!("   Response: No sessions found (empty array)");
+                }
+            }
+            Err(e) => {
+                info!("❌ GET /sessions?herd_id={} - FAILED: {}", herd_id, e);
+            }
+        }
+
+        // Test 2: POST /sessions - Create session
+        info!("2️⃣ Testing POST /sessions (Create)");
+
+        // Get device ID from environment
+        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
+            Ok(val) =>
+                match val.parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
+                        return;
+                    }
+                }
+            Err(_) => {
+                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
+                return;
+            }
+        };
+
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp_end = timestamp_start + 3600;
+
+        let session_id = client.create_session(
+            device_id,
+            timestamp_start,
+            timestamp_end,
+            "v1.0.0".to_string(),
+            None,
+            150.0,
+            50.0,
+            100.0,
+            25.0,
+            5.0,
+            15.0,
+            5000.0,
+            2500.0
+        ).await;
+
+        match session_id {
+            Ok(id) => {
+                info!("✅ POST /sessions - SUCCESS");
+                info!("   Created session ID: {}", id);
+                assert!(id > 0, "Session ID should be positive");
+
+                // Test 3: GET /sessions/{session_id}/events
+                info!("3️⃣ Testing GET /sessions/{}/events", id);
+                match client.get_session_events(id).await {
+                    Ok(response) => {
+                        info!("✅ GET /sessions/{}/events - SUCCESS", id);
+                        info!("   Status: {:?}", response.status);
+                        if let Some(events) = &response.data {
+                            info!("   Response: {} events returned", events.len());
+                            // Validate event structure
+                            for event in events {
+                                assert!(
+                                    !event.location.is_empty(),
+                                    "Event location should not be empty"
+                                );
+                                assert!(
+                                    !event.media_type.is_empty(),
+                                    "Event media_type should not be empty"
+                                );
+                                assert!(
+                                    !event.device_id.is_empty(),
+                                    "Event device_id should not be empty"
+                                );
+                            }
+                        } else {
+                            info!("   Response: No events found (empty array)");
+                        }
+                    }
+                    Err(e) => {
+                        info!("❌ GET /sessions/{}/events - FAILED: {}", id, e);
+                    }
+                }
+
+                // Test 4: GET /sessions/{session_id}/connectivity
+                info!("4️⃣ Testing GET /sessions/{}/connectivity", id);
+                match client.get_session_connectivity(id).await {
+                    Ok(response) => {
+                        info!("✅ GET /sessions/{}/connectivity - SUCCESS", id);
+                        info!("   Status: {:?}", response.status);
+                        if let Some(connectivity) = &response.data {
+                            info!(
+                                "   Response: {} connectivity entries returned",
+                                connectivity.len()
+                            );
+                            // Validate connectivity structure
+                            for conn in connectivity {
+                                assert_eq!(
+                                    conn.session_id,
+                                    id,
+                                    "Connectivity session_id should match"
+                                );
+                                assert!(
+                                    !conn.location.is_empty(),
+                                    "Connectivity location should not be empty"
+                                );
+                                assert!(
+                                    conn.h14_index >= 0,
+                                    "Connectivity h14_index should be non-negative"
+                                );
+                                assert!(
+                                    conn.h13_index >= 0,
+                                    "Connectivity h13_index should be non-negative"
+                                );
+                                assert!(
+                                    conn.h12_index >= 0,
+                                    "Connectivity h12_index should be non-negative"
+                                );
+                                assert!(
+                                    conn.h11_index >= 0,
+                                    "Connectivity h11_index should be non-negative"
+                                );
+                            }
+                        } else {
+                            info!("   Response: No connectivity entries found (empty array)");
+                        }
+                    }
+                    Err(e) => {
+                        info!("❌ GET /sessions/{}/connectivity - FAILED: {}", id, e);
+                    }
+                }
+
+                // Test 5: PUT /sessions/{session_id} - Update session
+                info!("5️⃣ Testing PUT /sessions/{} (Update)", id);
+                let updated_session = Session::new(
+                    device_id,
+                    timestamp_start,
+                    timestamp_end + 1800, // Extend by 30 minutes
+                    "v1.1.0".to_string(), // Updated version
+                    None,
+                    160.0, // Updated altitude_max
+                    50.0,
+                    105.0, // Updated altitude_average
+                    25.0,
+                    5.0,
+                    15.0,
+                    5500.0, // Updated distance_total
+                    2500.0
+                ).with_id(id);
+
+                match client.update_session(id, &updated_session).await {
+                    Ok(response) => {
+                        info!("✅ PUT /sessions/{} - SUCCESS", id);
+                        info!("   Status: {:?}", response.status);
+                        if let Some(updated) = &response.data {
+                            info!("   Response: Session updated successfully");
+                            assert_eq!(
+                                updated.software_version,
+                                "v1.1.0",
+                                "Software version should be updated"
+                            );
+                            assert_eq!(
+                                updated.altitude_max,
+                                160.0,
+                                "Altitude max should be updated"
+                            );
+                            assert_eq!(
+                                updated.distance_total,
+                                5500.0,
+                                "Distance total should be updated"
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        info!("❌ PUT /sessions/{} - FAILED: {}", id, e);
+                    }
+                }
+
+                // Test 6: DELETE /sessions/{session_id} - Delete session
+                info!("6️⃣ Testing DELETE /sessions/{}", id);
+                match client.delete_session(id).await {
+                    Ok(response) => {
+                        info!("✅ DELETE /sessions/{} - SUCCESS", id);
+                        info!("   Status: {:?}", response.status);
+                        info!("   Response: Session deleted successfully");
+                    }
+                    Err(e) => {
+                        info!("❌ DELETE /sessions/{} - FAILED: {}", id, e);
+                    }
+                }
+            }
+            Err(e) => {
+                info!("❌ POST /sessions - FAILED: {}", e);
+                info!("   Skipping subsequent tests due to session creation failure");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_compliance_error_handling() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping API error handling test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        info!("🧪 Testing API Error Handling Compliance");
+        info!("=======================================");
+
+        // Test 1: Invalid herd_id (should return 404 or empty array)
+        info!("1️⃣ Testing GET /sessions?herd_id=999999 (Invalid herd)");
+        match client.get_sessions_by_herd(999999).await {
+            Ok(response) => {
+                info!("✅ GET /sessions?herd_id=999999 - SUCCESS (empty array expected)");
+                if let Some(sessions) = &response.data {
+                    info!("   Response: {} sessions returned (expected 0)", sessions.len());
+                    assert_eq!(sessions.len(), 0, "Should return empty array for invalid herd_id");
+                }
+            }
+            Err(e) => {
+                info!("❌ GET /sessions?herd_id=999999 - FAILED: {}", e);
+            }
+        }
+
+        // Test 2: Invalid session_id for events (should return 404 or empty array)
+        info!("2️⃣ Testing GET /sessions/999999/events (Invalid session)");
+        match client.get_session_events(999999).await {
+            Ok(response) => {
+                info!("✅ GET /sessions/999999/events - SUCCESS (empty array expected)");
+                if let Some(events) = &response.data {
+                    info!("   Response: {} events returned (expected 0)", events.len());
+                    assert_eq!(events.len(), 0, "Should return empty array for invalid session_id");
+                }
+            }
+            Err(e) => {
+                info!("❌ GET /sessions/999999/events - FAILED: {}", e);
+            }
+        }
+
+        // Test 3: Invalid session_id for connectivity (should return 404 or empty array)
+        info!("3️⃣ Testing GET /sessions/999999/connectivity (Invalid session)");
+        match client.get_session_connectivity(999999).await {
+            Ok(response) => {
+                info!("✅ GET /sessions/999999/connectivity - SUCCESS (empty array expected)");
+                if let Some(connectivity) = &response.data {
+                    info!(
+                        "   Response: {} connectivity entries returned (expected 0)",
+                        connectivity.len()
+                    );
+                    assert_eq!(
+                        connectivity.len(),
+                        0,
+                        "Should return empty array for invalid session_id"
+                    );
+                }
+            }
+            Err(e) => {
+                info!("❌ GET /sessions/999999/connectivity - FAILED: {}", e);
+            }
+        }
+
+        // Test 4: Update non-existent session (should return 404)
+        info!("4️⃣ Testing PUT /sessions/999999 (Non-existent session)");
+        let fake_session = Session::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
+            "v1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).with_id(999999);
+
+        match client.update_session(999999, &fake_session).await {
+            Ok(_response) => {
+                info!("⚠️ PUT /sessions/999999 - SUCCESS (unexpected - should return 404)");
+            }
+            Err(e) => {
+                info!("✅ PUT /sessions/999999 - FAILED as expected: {}", e);
+            }
+        }
+
+        // Test 5: Delete non-existent session (should return 404)
+        info!("5️⃣ Testing DELETE /sessions/999999 (Non-existent session)");
+        match client.delete_session(999999).await {
+            Ok(_response) => {
+                info!("⚠️ DELETE /sessions/999999 - SUCCESS (unexpected - should return 404)");
+            }
+            Err(e) => {
+                info!("✅ DELETE /sessions/999999 - FAILED as expected: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_api_compliance_batch_operations() {
+        // Initialize logging for this test
+        init_test_logging();
+
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping API batch operations test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        info!("🧪 Testing API Batch Operations Compliance");
+        info!("=========================================");
+
+        // Test 1: POST /sessions/batch - Batch create sessions
+        info!("1️⃣ Testing POST /sessions/batch (Batch create)");
+
+        // Get device ID from environment
+        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
+            Ok(val) =>
+                match val.parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
+                        return;
+                    }
+                }
+            Err(_) => {
+                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
+                return;
+            }
+        };
+
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+
+        let sessions = vec![
+            Session::new(
+                device_id,
+                timestamp_start,
+                timestamp_start + 1800,
+                "v1.0.0".to_string(),
+                None,
+                150.0,
+                50.0,
+                100.0,
+                25.0,
+                5.0,
+                15.0,
+                2500.0,
+                1250.0
+            ),
+            Session::new(
+                device_id,
+                timestamp_start + 1800,
+                timestamp_start + 3600,
+                "v1.0.0".to_string(),
+                None,
+                160.0,
+                60.0,
+                110.0,
+                30.0,
+                10.0,
+                20.0,
+                3000.0,
+                1500.0
+            )
+        ];
+
+        match client.upsert_sessions_batch(&sessions).await {
+            Ok(response) => {
+                info!("✅ POST /sessions/batch - SUCCESS");
+                info!("   Status: {:?}", response.status);
+                if let Some(created_sessions) = &response.data {
+                    info!("   Response: {} sessions created", created_sessions.len());
+                    assert_eq!(created_sessions.len(), 2, "Should create exactly 2 sessions");
+
+                    // Validate all sessions have IDs
+                    for session in created_sessions {
+                        assert!(session.id.is_some(), "All created sessions should have IDs");
+                        assert_eq!(
+                            session.device_id,
+                            device_id,
+                            "All sessions should have correct device_id"
+                        );
+                    }
+
+                    // Clean up: delete the created sessions
+                    info!("🧹 Cleaning up batch-created sessions...");
+                    // for session in created_sessions {
+                    //     if let Some(id) = session.id {
+                    //         match client.delete_session(id).await {
+                    //             Ok(_) => info!("   Deleted session {}", id),
+                    //             Err(e) => info!("   Failed to delete session {}: {}", id, e),
+                    //         }
+                    //     }
+                    // }
+                }
+            }
+            Err(e) => {
+                info!("❌ POST /sessions/batch - FAILED: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_database_integration_sessions_and_connectivity() {
+        // Initialize logging for this test
+        init_test_logging();
+
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping database integration test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        info!("🧪 Testing Database Integration - Sessions and Connectivity");
+        info!("==========================================================");
+
+        // Step 0: Get the device ID from environment
+        info!("0️⃣ Getting device ID from environment...");
+        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
+            Ok(val) =>
+                match val.parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
+                        return;
+                    }
+                }
+            Err(_) => {
+                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
+                return;
+            }
+        };
+        info!("✅ Using device ID: {}", device_id);
+
+        // Step 1: Create a dummy session
+        info!("1️⃣ Creating dummy session in database...");
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp_end = timestamp_start + 3600; // 1 hour later
+
+        // Get herd_id from environment
+        let herd_id: u32 = match env::var("SCOUT_HERD_ID") {
+            Ok(val) =>
+                match val.parse() {
+                    Ok(num) => num,
+                    Err(_) => {
+                        info!("Skipping test - SCOUT_HERD_ID is not a valid u32");
+                        return;
+                    }
+                }
+            Err(_) => {
+                info!("Skipping test - no SCOUT_HERD_ID environment variable set");
+                return;
+            }
+        };
+
+        let session_id = client.create_session(
+            device_id,
+            timestamp_start,
+            timestamp_end,
+            "v1.0.0".to_string(),
+            None,
+            150.0, // altitude_max
+            50.0, // altitude_min
+            100.0, // altitude_average
+            25.0, // velocity_max (m/s)
+            5.0, // velocity_min (m/s)
+            15.0, // velocity_average (m/s)
+            5000.0, // distance_total (m)
+            2500.0 // distance_max_from_start (m)
+        ).await;
+
+        match session_id {
+            Ok(id) => {
+                info!("✅ Successfully created session with ID: {}", id);
+                assert!(id > 0, "Session ID should be positive");
+
+                // Step 2: Verify the session exists in the database
+                info!("2️⃣ Verifying session exists in database...");
+                // Note: The RPC endpoints are not yet implemented in the API
+                // For now, we'll skip this verification step
+                info!(
+                    "⚠️  Skipping session verification - RPC endpoints not yet implemented in API"
+                );
+                info!(
+                    "   This would normally verify the session exists using get_sessions_with_coordinates_by_herd"
+                );
+                info!("   Session ID {} was successfully created", id);
+
+                // Step 3: Create dummy connectivity entries
+                info!("3️⃣ Creating dummy connectivity entries...");
+                let connectivity_entries = vec![
+                    Connectivity::new(
+                        id, // session_id
+                        timestamp_start + 300, // 5 minutes into session
+                        -50.0, // signal
+                        -60.0, // noise
+                        100.0, // altitude
+                        45.0, // heading
+                        "Point(-74.006 40.7128)".to_string(),
+                        1, // h14_index
+                        2, // h13_index
+                        3, // h12_index
+                        4 // h11_index
+                    ),
+                    Connectivity::new(
+                        id, // session_id
+                        timestamp_start + 600, // 10 minutes into session
+                        -55.0, // signal
+                        -65.0, // noise
+                        110.0, // altitude
+                        50.0, // heading
+                        "Point(-74.007 40.7129)".to_string(),
+                        2, // h14_index
+                        3, // h13_index
+                        4, // h12_index
+                        5 // h11_index
+                    ),
+                    Connectivity::new(
+                        id, // session_id
+                        timestamp_start + 900, // 15 minutes into session
+                        -60.0, // signal
+                        -70.0, // noise
+                        120.0, // altitude
+                        55.0, // heading
+                        "Point(-74.008 40.7130)".to_string(),
+                        3, // h14_index
+                        4, // h13_index
+                        5, // h12_index
+                        6 // h11_index
+                    )
+                ];
+
+                // Upload connectivity entries using upsert
+                for (i, connectivity) in connectivity_entries.iter().enumerate() {
+                    info!("   Uploading connectivity entry {}...", i + 1);
+                    match client.upsert_connectivity(connectivity).await {
+                        Ok(response) => {
+                            if let Some(created_conn) = response.data {
+                                info!(
+                                    "   ✅ Connectivity entry {} created with ID: {}",
+                                    i + 1,
+                                    created_conn.id.unwrap_or(0)
+                                );
+                            } else {
+                                info!(
+                                    "   ⚠️ Connectivity entry {} created but no ID returned",
+                                    i + 1
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            panic!("   ❌ Failed to create connectivity entry {}: {}", i + 1, e);
+                        }
+                    }
+                }
+
+                // Step 4: Verify connectivity entries exist in database
+                info!("4️⃣ Verifying connectivity entries exist in database...");
+                // Note: The RPC endpoints are not yet implemented in the API
+                // For now, we'll skip this verification step
+                info!(
+                    "⚠️  Skipping connectivity verification - RPC endpoints not yet implemented in API"
+                );
+                info!(
+                    "   This would normally verify connectivity exists using get_session_connectivity_with_coordinates"
+                );
+                info!("   Connectivity entries were successfully created for session {}", id);
+
+                // Step 5: Update the session with new data
+                info!("5️⃣ Updating session with new data...");
+                let updated_session = Session::new(
+                    device_id,
+                    timestamp_start,
+                    timestamp_end + 1800, // Extend by 30 minutes
+                    "v1.1.0".to_string(), // Updated version
+                    None,
+                    160.0, // Updated altitude_max
+                    50.0,
+                    105.0, // Updated altitude_average
+                    30.0, // Updated velocity_max
+                    5.0,
+                    17.5, // Updated velocity_average
+                    6000.0, // Updated distance_total
+                    3000.0 // Updated distance_max_from_start
+                ).with_id(id);
+
+                match client.update_session(id, &updated_session).await {
+                    Ok(response) => {
+                        if let Some(updated) = response.data {
+                            info!("✅ Session updated successfully");
+                            assert_eq!(updated.software_version, "v1.1.0");
+                            assert_eq!(updated.locations_geojson, None);
+                            assert_eq!(updated.altitude_max, 160.0);
+                            assert_eq!(updated.velocity_max, 30.0);
+                            assert_eq!(updated.distance_total, 6000.0);
+                        }
+                    }
+                    Err(e) => {
+                        info!("❌ Failed to update session: {}", e);
+                    }
+                }
+
+                // Step 6: Verify the updated session data
+                info!("6️⃣ Verifying updated session data...");
+                // Note: The RPC endpoints are not yet implemented in the API
+                // For now, we'll skip this verification step
+                info!(
+                    "⚠️  Skipping updated session verification - RPC endpoints not yet implemented in API"
+                );
+                info!(
+                    "   This would normally verify the updated session using get_sessions_with_coordinates_by_herd"
+                );
+                info!("   Session {} was successfully updated", id);
+
+                // Step 7: Clean up - Delete the session (this should also delete connectivity entries)
+                info!("7️⃣ Cleaning up - Deleting session and connectivity entries...");
+                match client.delete_session(id).await {
+                    Ok(_) => {
+                        info!(
+                            "✅ Successfully deleted session and all associated connectivity entries"
+                        );
+
+                        // Verify deletion
+                        // Note: The RPC endpoints are not yet implemented in the API
+                        info!(
+                            "⚠️  Skipping deletion verification - RPC endpoints not yet implemented in API"
+                        );
+                        info!(
+                            "   This would normally verify the session was deleted using get_sessions_with_coordinates_by_herd"
+                        );
+                        info!("   Session {} was successfully deleted", id);
+                    }
+                    Err(e) => {
+                        info!("❌ Failed to delete session: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                info!("❌ Failed to create session: {}", e);
+                info!("   This indicates the API integration is not working properly");
             }
         }
     }

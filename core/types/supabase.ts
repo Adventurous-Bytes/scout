@@ -7,6 +7,11 @@ export type Json =
   | Json[];
 
 export type Database = {
+  // Allows to automatically instanciate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "12.2.3 (519615d)";
+  };
   graphql_public: {
     Tables: {
       [_ in never]: never;
@@ -69,6 +74,62 @@ export type Database = {
             columns: ["zone_id"];
             isOneToOne: false;
             referencedRelation: "zones_and_actions";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      connectivity: {
+        Row: {
+          altitude: number;
+          h11_index: number;
+          h12_index: number;
+          h13_index: number;
+          h14_index: number;
+          heading: number;
+          id: number;
+          inserted_at: string;
+          location: unknown;
+          noise: number;
+          session_id: number;
+          signal: number;
+          timestamp_start: string;
+        };
+        Insert: {
+          altitude: number;
+          h11_index: number;
+          h12_index: number;
+          h13_index: number;
+          h14_index: number;
+          heading: number;
+          id?: number;
+          inserted_at?: string;
+          location: unknown;
+          noise: number;
+          session_id: number;
+          signal: number;
+          timestamp_start: string;
+        };
+        Update: {
+          altitude?: number;
+          h11_index?: number;
+          h12_index?: number;
+          h13_index?: number;
+          h14_index?: number;
+          heading?: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown;
+          noise?: number;
+          session_id?: number;
+          signal?: number;
+          timestamp_start?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "connectivity_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
             referencedColumns: ["id"];
           }
         ];
@@ -150,6 +211,7 @@ export type Database = {
           media_type: Database["public"]["Enums"]["media_type"];
           media_url: string | null;
           message: string | null;
+          session_id: number | null;
           timestamp_observation: string;
         };
         Insert: {
@@ -165,6 +227,7 @@ export type Database = {
           media_type?: Database["public"]["Enums"]["media_type"];
           media_url?: string | null;
           message?: string | null;
+          session_id?: number | null;
           timestamp_observation?: string;
         };
         Update: {
@@ -180,6 +243,7 @@ export type Database = {
           media_type?: Database["public"]["Enums"]["media_type"];
           media_url?: string | null;
           message?: string | null;
+          session_id?: number | null;
           timestamp_observation?: string;
         };
         Relationships: [
@@ -188,6 +252,13 @@ export type Database = {
             columns: ["device_id"];
             isOneToOne: false;
             referencedRelation: "devices";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
             referencedColumns: ["id"];
           }
         ];
@@ -270,6 +341,68 @@ export type Database = {
             columns: ["herd_id"];
             isOneToOne: false;
             referencedRelation: "herds";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      sessions: {
+        Row: {
+          altitude_average: number;
+          altitude_max: number;
+          altitude_min: number;
+          device_id: number;
+          distance_max_from_start: number;
+          distance_total: number;
+          id: number;
+          inserted_at: string;
+          locations: unknown;
+          software_version: string;
+          timestamp_end: string;
+          timestamp_start: string;
+          velocity_average: number;
+          velocity_max: number;
+          velocity_min: number;
+        };
+        Insert: {
+          altitude_average: number;
+          altitude_max: number;
+          altitude_min: number;
+          device_id: number;
+          distance_max_from_start: number;
+          distance_total: number;
+          id?: number;
+          inserted_at?: string;
+          locations: unknown;
+          software_version: string;
+          timestamp_end: string;
+          timestamp_start: string;
+          velocity_average: number;
+          velocity_max: number;
+          velocity_min: number;
+        };
+        Update: {
+          altitude_average?: number;
+          altitude_max?: number;
+          altitude_min?: number;
+          device_id?: number;
+          distance_max_from_start?: number;
+          distance_total?: number;
+          id?: number;
+          inserted_at?: string;
+          locations?: unknown;
+          software_version?: string;
+          timestamp_end?: string;
+          timestamp_start?: string;
+          velocity_average?: number;
+          velocity_max?: number;
+          velocity_min?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "sessions_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
             referencedColumns: ["id"];
           }
         ];
@@ -486,6 +619,10 @@ export type Database = {
         Args: { event: Json };
         Returns: Json;
       };
+      get_connectivity_with_coordinates: {
+        Args: { session_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][];
+      };
       get_device_by_id: {
         Args: { device_id_caller: number };
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
@@ -543,6 +680,7 @@ export type Database = {
           media_type: Database["public"]["Enums"]["media_type"];
           media_url: string | null;
           message: string | null;
+          session_id: number | null;
           timestamp_observation: string;
         }[];
       };
@@ -557,6 +695,14 @@ export type Database = {
           limit_caller: number;
         };
         Returns: Database["public"]["CompositeTypes"]["event_with_tags"][];
+      };
+      get_sessions_with_coordinates: {
+        Args: { herd_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][];
+      };
+      get_sessions_with_coordinates_by_device: {
+        Args: { device_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][];
       };
       get_total_events_for_herd: {
         Args: { herd_id_caller: number };
@@ -593,6 +739,22 @@ export type Database = {
       user_status: "ONLINE" | "OFFLINE";
     };
     CompositeTypes: {
+      connectivity_with_coordinates: {
+        id: number | null;
+        session_id: number | null;
+        inserted_at: string | null;
+        timestamp_start: string | null;
+        signal: number | null;
+        noise: number | null;
+        altitude: number | null;
+        heading: number | null;
+        latitude: number | null;
+        longitude: number | null;
+        h14_index: number | null;
+        h13_index: number | null;
+        h12_index: number | null;
+        h11_index: number | null;
+      };
       device_pretty_location: {
         id: number | null;
         inserted_at: string | null;
@@ -673,6 +835,23 @@ export type Database = {
         is_public: boolean | null;
         tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
       };
+      session_with_coordinates: {
+        id: number | null;
+        device_id: number | null;
+        timestamp_start: string | null;
+        timestamp_end: string | null;
+        inserted_at: string | null;
+        software_version: string | null;
+        locations_geojson: Json | null;
+        altitude_max: number | null;
+        altitude_min: number | null;
+        altitude_average: number | null;
+        velocity_max: number | null;
+        velocity_min: number | null;
+        velocity_average: number | null;
+        distance_total: number | null;
+        distance_max_from_start: number | null;
+      };
       zones_and_actions_pretty_location: {
         id: number | null;
         inserted_at: string | null;
@@ -684,21 +863,28 @@ export type Database = {
   };
 };
 
-type DefaultSchema = Database[Extract<keyof Database, "public">];
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<
+  keyof Database,
+  "public"
+>];
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    | { schema: keyof Database },
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof Database;
+    schema: keyof DatabaseWithoutInternals;
   }
-    ? keyof (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-        Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
-  ? (Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
-      Database[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
       Row: infer R;
     }
     ? R
@@ -716,14 +902,16 @@ export type Tables<
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
-    | { schema: keyof Database },
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof Database;
+    schema: keyof DatabaseWithoutInternals;
   }
-    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
-  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Insert: infer I;
     }
     ? I
@@ -739,14 +927,16 @@ export type TablesInsert<
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
-    | { schema: keyof Database },
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof Database;
+    schema: keyof DatabaseWithoutInternals;
   }
-    ? keyof Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never
-> = DefaultSchemaTableNameOrOptions extends { schema: keyof Database }
-  ? Database[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
       Update: infer U;
     }
     ? U
@@ -762,14 +952,16 @@ export type TablesUpdate<
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
-    | { schema: keyof Database },
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof Database;
+    schema: keyof DatabaseWithoutInternals;
   }
-    ? keyof Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never
-> = DefaultSchemaEnumNameOrOptions extends { schema: keyof Database }
-  ? Database[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
   ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
   : never;
@@ -777,14 +969,16 @@ export type Enums<
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof Database },
+    | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof Database;
+    schema: keyof DatabaseWithoutInternals;
   }
-    ? keyof Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never
-> = PublicCompositeTypeNameOrOptions extends { schema: keyof Database }
-  ? Database[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals;
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
   ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
   : never;

@@ -8,6 +8,7 @@ export * from "./gps";
 export * from "./herds";
 export * from "./location";
 export * from "./plans";
+export * from "./sessions";
 export * from "./tags";
 export * from "./time";
 export * from "./ui";

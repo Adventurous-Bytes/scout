@@ -8,4 +8,7 @@ Cargo.lock
 # OS
 .DS_Store
 # Test output
-/test_output.txt 
+/test_output.txt
+# Environment variables
+.env
+.env.local 

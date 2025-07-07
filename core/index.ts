@@ -23,6 +23,7 @@ export * from "./helpers/gps";
 export * from "./helpers/herds";
 export * from "./helpers/location";
 export * from "./helpers/plans";
+export * from "./helpers/sessions";
 export * from "./helpers/tags";
 export * from "./helpers/time";
 export * from "./helpers/ui";
