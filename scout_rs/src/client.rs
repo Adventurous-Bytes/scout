@@ -281,10 +281,10 @@ impl Connectivity {
             altitude: self.altitude,
             heading: self.heading,
             location: self.location.clone(),
-            h14_index: self.h14_index,
-            h13_index: self.h13_index,
-            h12_index: self.h12_index,
-            h11_index: self.h11_index,
+            h14_index: self.h14_index.clone(),
+            h13_index: self.h13_index.clone(),
+            h12_index: self.h12_index.clone(),
+            h11_index: self.h11_index.clone(),
         }
     }
 }
