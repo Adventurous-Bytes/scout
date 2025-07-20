@@ -81,10 +81,10 @@ export type Database = {
       connectivity: {
         Row: {
           altitude: number;
-          h11_index: number;
-          h12_index: number;
-          h13_index: number;
-          h14_index: number;
+          h11_index: string;
+          h12_index: string;
+          h13_index: string;
+          h14_index: string;
           heading: number;
           id: number;
           inserted_at: string;
@@ -96,10 +96,10 @@ export type Database = {
         };
         Insert: {
           altitude: number;
-          h11_index: number;
-          h12_index: number;
-          h13_index: number;
-          h14_index: number;
+          h11_index: string;
+          h12_index: string;
+          h13_index: string;
+          h14_index: string;
           heading: number;
           id?: number;
           inserted_at?: string;
@@ -111,10 +111,10 @@ export type Database = {
         };
         Update: {
           altitude?: number;
-          h11_index?: number;
-          h12_index?: number;
-          h13_index?: number;
-          h14_index?: number;
+          h11_index?: string;
+          h12_index?: string;
+          h13_index?: string;
+          h14_index?: string;
           heading?: number;
           id?: number;
           inserted_at?: string;
@@ -750,10 +750,10 @@ export type Database = {
         heading: number | null;
         latitude: number | null;
         longitude: number | null;
-        h14_index: number | null;
-        h13_index: number | null;
-        h12_index: number | null;
-        h11_index: number | null;
+        h14_index: string | null;
+        h13_index: string | null;
+        h12_index: string | null;
+        h11_index: string | null;
       };
       device_pretty_location: {
         id: number | null;

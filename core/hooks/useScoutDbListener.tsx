@@ -172,6 +172,37 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
         { event: "UPDATE", schema: "public", table: "tags" },
         handleTagUpdates
       )
+
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "connectivity" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "connectivity" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "connectivity" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "sessions" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "sessions" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "sessions" },
+        handleTagUpdates
+      )
       .subscribe((status: any) => {
         console.log("[DB Listener] Subscription status:", status);
         if (status === "SUBSCRIBED") {

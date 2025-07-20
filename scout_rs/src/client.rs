@@ -211,10 +211,10 @@ pub struct Connectivity {
     pub altitude: f64,
     pub heading: f64,
     pub location: String,
-    pub h14_index: i32,
-    pub h13_index: i32,
-    pub h12_index: i32,
-    pub h11_index: i32,
+    pub h14_index: String,
+    pub h13_index: String,
+    pub h12_index: String,
+    pub h11_index: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -226,10 +226,10 @@ pub struct ConnectivityInput {
     pub altitude: f64,
     pub heading: f64,
     pub location: String,
-    pub h14_index: i32,
-    pub h13_index: i32,
-    pub h12_index: i32,
-    pub h11_index: i32,
+    pub h14_index: String,
+    pub h13_index: String,
+    pub h12_index: String,
+    pub h11_index: String,
 }
 
 impl Connectivity {
@@ -241,10 +241,10 @@ impl Connectivity {
         altitude: f64,
         heading: f64,
         location: String,
-        h14_index: i32,
-        h13_index: i32,
-        h12_index: i32,
-        h11_index: i32
+        h14_index: String,
+        h13_index: String,
+        h12_index: String,
+        h11_index: String
     ) -> Self {
         let timestamp_start_str = DateTime::from_timestamp(timestamp_start as i64, 0)
             .unwrap_or_else(|| Utc::now())
@@ -2128,10 +2128,10 @@ pub struct ConnectivityWithCoordinates {
     pub heading: f64,
     pub latitude: f64,
     pub longitude: f64,
-    pub h14_index: i32,
-    pub h13_index: i32,
-    pub h12_index: i32,
-    pub h11_index: i32,
+    pub h14_index: String,
+    pub h13_index: String,
+    pub h12_index: String,
+    pub h11_index: String,
 }
 
 // cargo test --test scout_client
@@ -2488,10 +2488,10 @@ mod tests {
             100.0,
             45.0,
             "Point(0 0)".to_string(),
-            1,
-            2,
-            3,
-            4
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string()
         );
 
         assert_eq!(connectivity.session_id, 123);
@@ -2510,10 +2510,10 @@ mod tests {
             100.0,
             45.0,
             "Point(0 0)".to_string(),
-            1,
-            2,
-            3,
-            4
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string()
         ).with_id(789);
 
         assert_eq!(connectivity.id, Some(789));
@@ -2930,20 +2930,20 @@ mod tests {
                                     "Connectivity location should not be empty"
                                 );
                                 assert!(
-                                    conn.h14_index >= 0,
-                                    "Connectivity h14_index should be non-negative"
+                                    !conn.h14_index.is_empty(),
+                                    "Connectivity h14_index should not be empty"
                                 );
                                 assert!(
-                                    conn.h13_index >= 0,
-                                    "Connectivity h13_index should be non-negative"
+                                    !conn.h13_index.is_empty(),
+                                    "Connectivity h13_index should not be empty"
                                 );
                                 assert!(
-                                    conn.h12_index >= 0,
-                                    "Connectivity h12_index should be non-negative"
+                                    !conn.h12_index.is_empty(),
+                                    "Connectivity h12_index should not be empty"
                                 );
                                 assert!(
-                                    conn.h11_index >= 0,
-                                    "Connectivity h11_index should be non-negative"
+                                    !conn.h11_index.is_empty(),
+                                    "Connectivity h11_index should not be empty"
                                 );
                             }
                         } else {
@@ -3362,10 +3362,10 @@ mod tests {
                         100.0, // altitude
                         45.0, // heading
                         "Point(-74.006 40.7128)".to_string(),
-                        1, // h14_index
-                        2, // h13_index
-                        3, // h12_index
-                        4 // h11_index
+                        "1".to_string(), // h14_index
+                        "2".to_string(), // h13_index
+                        "3".to_string(), // h12_index
+                        "4".to_string() // h11_index
                     ),
                     Connectivity::new(
                         id, // session_id
@@ -3375,10 +3375,10 @@ mod tests {
                         110.0, // altitude
                         50.0, // heading
                         "Point(-74.007 40.7129)".to_string(),
-                        2, // h14_index
-                        3, // h13_index
-                        4, // h12_index
-                        5 // h11_index
+                        "2".to_string(), // h14_index
+                        "3".to_string(), // h13_index
+                        "4".to_string(), // h12_index
+                        "5".to_string() // h11_index
                     ),
                     Connectivity::new(
                         id, // session_id
@@ -3388,10 +3388,10 @@ mod tests {
                         120.0, // altitude
                         55.0, // heading
                         "Point(-74.008 40.7130)".to_string(),
-                        3, // h14_index
-                        4, // h13_index
-                        5, // h12_index
-                        6 // h11_index
+                        "3".to_string(), // h14_index
+                        "4".to_string(), // h13_index
+                        "5".to_string(), // h12_index
+                        "6".to_string() // h11_index
                     )
                 ];
 
