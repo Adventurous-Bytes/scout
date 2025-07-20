@@ -234,6 +234,39 @@ export const scoutSlice = createSlice({
         herd_module.events_page_index = new_page_index;
       }
     },
+    addSessionToStore: (state, action) => {
+      const session = action.payload;
+      // Find the herd module that contains the device for this session
+      for (const herd_module of state.herd_modules) {
+        const device = herd_module.devices.find(
+          (d) => d.id === session.device_id
+        );
+        if (device) {
+          herd_module.sessions = [session, ...herd_module.sessions];
+          return;
+        }
+      }
+    },
+    deleteSessionFromStore: (state, action) => {
+      const sessionId = action.payload.id;
+      for (const herd_module of state.herd_modules) {
+        herd_module.sessions = herd_module.sessions.filter(
+          (session) => session.id !== sessionId
+        );
+      }
+    },
+    updateSessionInStore: (state, action) => {
+      const updatedSession = action.payload;
+      for (const herd_module of state.herd_modules) {
+        const sessionIndex = herd_module.sessions.findIndex(
+          (session) => session.id === updatedSession.id
+        );
+        if (sessionIndex !== -1) {
+          herd_module.sessions[sessionIndex] = updatedSession;
+          return;
+        }
+      }
+    },
     setUser: (state, action) => {
       state.user = action.payload;
     },
@@ -263,6 +296,9 @@ export const {
   addPlan,
   deletePlan,
   updatePlan,
+  addSessionToStore,
+  deleteSessionFromStore,
+  updateSessionInStore,
 } = scoutSlice.actions;
 
 export default scoutSlice.reducer;

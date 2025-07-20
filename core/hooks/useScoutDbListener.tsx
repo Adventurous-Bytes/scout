@@ -6,11 +6,14 @@ import {
   addDevice,
   addPlan,
   addTag,
+  addSessionToStore,
   deleteDevice,
   deletePlan,
+  deleteSessionFromStore,
   deleteTag,
   updateDevice,
   updatePlan,
+  updateSessionInStore,
   updateTag,
 } from "../store/scout";
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -85,6 +88,39 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
   function handlePlanUpdates(payload: any) {
     console.log("[DB Listener] Plan UPDATE received:", payload.new);
     dispatch(updatePlan(payload.new));
+  }
+
+  function handleSessionInserts(payload: any) {
+    console.log("[DB Listener] Session INSERT received:", payload.new);
+    dispatch(addSessionToStore(payload.new));
+  }
+
+  function handleSessionDeletes(payload: any) {
+    console.log("[DB Listener] Session DELETE received:", payload.old);
+    dispatch(deleteSessionFromStore(payload.old));
+  }
+
+  function handleSessionUpdates(payload: any) {
+    console.log("[DB Listener] Session UPDATE received:", payload.new);
+    dispatch(updateSessionInStore(payload.new));
+  }
+
+  function handleConnectivityInserts(payload: any) {
+    console.log("[DB Listener] Connectivity INSERT received:", payload.new);
+    // For now, we'll just log connectivity changes since they're related to sessions
+    // In the future, we might want to update session connectivity data
+  }
+
+  function handleConnectivityDeletes(payload: any) {
+    console.log("[DB Listener] Connectivity DELETE received:", payload.old);
+    // For now, we'll just log connectivity changes since they're related to sessions
+    // In the future, we might want to update session connectivity data
+  }
+
+  function handleConnectivityUpdates(payload: any) {
+    console.log("[DB Listener] Connectivity UPDATE received:", payload.new);
+    // For now, we'll just log connectivity changes since they're related to sessions
+    // In the future, we might want to update session connectivity data
   }
 
   useEffect(() => {
@@ -176,32 +212,32 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "connectivity" },
-        handleTagUpdates
+        handleConnectivityInserts
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "connectivity" },
-        handleTagUpdates
+        handleConnectivityDeletes
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "connectivity" },
-        handleTagUpdates
+        handleConnectivityUpdates
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "sessions" },
-        handleTagUpdates
+        handleSessionInserts
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "sessions" },
-        handleTagUpdates
+        handleSessionDeletes
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "sessions" },
-        handleTagUpdates
+        handleSessionUpdates
       )
       .subscribe((status: any) => {
         console.log("[DB Listener] Subscription status:", status);
