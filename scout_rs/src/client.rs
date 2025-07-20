@@ -2035,6 +2035,83 @@ impl ScoutClient {
         }
     }
 
+    /// Upserts multiple connectivity entries in a single batch request.
+    ///
+    /// This method sends an array of connectivity entries to the API endpoint,
+    /// which will handle batch upserting them. The API automatically detects
+    /// whether to create new entries or update existing ones based on the
+    /// presence of an ID field.
+    ///
+    /// # Arguments
+    ///
+    /// * `connectivities` - A slice of connectivity entries to upsert
+    ///
+    /// # Returns
+    ///
+    /// A `Result<ResponseScout<Vec<Connectivity>>>` containing the upserted connectivity entries or an error
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use scout_rs::client::{ScoutClient, Connectivity};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
+    /// let connectivities = vec![
+    ///     Connectivity::new(123, 1640995200, -50.0, -90.0, 100.0, 45.0, "Point(-74.006 40.7128)".to_string(), "h14".to_string(), "h13".to_string(), "h12".to_string(), "h11".to_string()),
+    ///     Connectivity::new(123, 1640995260, -55.0, -85.0, 105.0, 50.0, "Point(-74.007 40.7129)".to_string(), "h14".to_string(), "h13".to_string(), "h12".to_string(), "h11".to_string()),
+    /// ];
+    /// let response = client.upsert_connectivity_batch(&connectivities).await?;
+    /// if let Some(upserted) = response.data {
+    ///     println!("Successfully upserted {} connectivity entries", upserted.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn upsert_connectivity_batch(
+        &self,
+        connectivities: &[Connectivity]
+    ) -> Result<ResponseScout<Vec<Connectivity>>> {
+        debug!("Upserting {} connectivity entries in batch", connectivities.len());
+        let url = format!("{}/connectivity", self.scout_url);
+
+        // Prepare the payload - use ConnectivityInput for new entries, full Connectivity for existing ones
+        let payload: Vec<serde_json::Value> = connectivities
+            .iter()
+            .map(|conn| {
+                if conn.id.is_none() {
+                    serde_json::to_value(conn.to_input()).unwrap()
+                } else {
+                    serde_json::to_value(conn).unwrap()
+                }
+            })
+            .collect();
+
+        let response = self.client
+            .post(&url)
+            .header("Authorization", &self.api_key)
+            .json(&payload)
+            .send().await?;
+
+        match response.status().as_u16() {
+            200 | 201 => {
+                let upserted_connectivities: Vec<Connectivity> = response.json().await?;
+                debug!(
+                    "Successfully upserted {} connectivity entries in batch",
+                    upserted_connectivities.len()
+                );
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(upserted_connectivities)))
+            }
+            _ => {
+                let status = response.status();
+                let error_text = response.text().await?;
+                error!("Failed to upsert connectivity batch: HTTP {} - {}", status, error_text);
+                Err(
+                    anyhow!("Failed to upsert connectivity batch: HTTP {} - {}", status, error_text)
+                )
+            }
+        }
+    }
+
     /// Ends a session by updating its timestamp_end.
     ///
     /// This method updates an existing session to mark it as completed by
@@ -3927,6 +4004,188 @@ mod tests {
             Err(e) => {
                 info!("❌ Failed to create session: {}", e);
                 info!("   This indicates the API integration is not working properly");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_connectivity_batch_upsert() {
+        // Initialize logging for this test
+        init_test_logging();
+
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!(
+                "Skipping connectivity batch upsert test - no SCOUT_API_KEY environment variable set"
+            );
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+        let client = ScoutClient::new(scout_url, api_key).expect("Failed to create ScoutClient");
+
+        // First, create a session to associate connectivity entries with
+        let device_id: i64 = env
+            ::var("SCOUT_DEVICE_ID")
+            .unwrap_or_else(|_| "123".to_string())
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be a valid integer");
+
+        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let timestamp_end = timestamp_start + 3600; // 1 hour session
+
+        let session_id = match
+            client.create_session(
+                device_id,
+                timestamp_start,
+                timestamp_end,
+                "v1.0.0".to_string(),
+                None,
+                150.0,
+                50.0,
+                100.0,
+                25.0,
+                5.0,
+                15.0,
+                2500.0,
+                1250.0
+            ).await
+        {
+            Ok(id) => {
+                info!("✅ Created test session with ID: {}", id);
+                id
+            }
+            Err(e) => {
+                info!("❌ Failed to create test session: {}", e);
+                info!("   Skipping connectivity batch upsert test");
+                return;
+            }
+        };
+
+        // Create multiple connectivity entries for batch upsert
+        let connectivities = vec![
+            Connectivity::new(
+                session_id,
+                timestamp_start,
+                -50.0,
+                -90.0,
+                100.0,
+                45.0,
+                "Point(-74.006 40.7128)".to_string(),
+                "h14".to_string(),
+                "h13".to_string(),
+                "h12".to_string(),
+                "h11".to_string()
+            ),
+            Connectivity::new(
+                session_id,
+                timestamp_start + 60,
+                -55.0,
+                -85.0,
+                105.0,
+                50.0,
+                "Point(-74.007 40.7129)".to_string(),
+                "h14".to_string(),
+                "h13".to_string(),
+                "h12".to_string(),
+                "h11".to_string()
+            ),
+            Connectivity::new(
+                session_id,
+                timestamp_start + 120,
+                -60.0,
+                -80.0,
+                110.0,
+                55.0,
+                "Point(-74.008 40.7130)".to_string(),
+                "h14".to_string(),
+                "h13".to_string(),
+                "h12".to_string(),
+                "h11".to_string()
+            )
+        ];
+
+        info!("🔄 Testing connectivity batch upsert with {} entries...", connectivities.len());
+
+        match client.upsert_connectivity_batch(&connectivities).await {
+            Ok(response) => {
+                info!("✅ POST /connectivity (batch) - SUCCESS");
+                info!("   Status: {:?}", response.status);
+                if let Some(upserted_connectivities) = &response.data {
+                    info!(
+                        "   Response: {} connectivity entries upserted",
+                        upserted_connectivities.len()
+                    );
+                    assert_eq!(
+                        upserted_connectivities.len(),
+                        3,
+                        "Should upsert exactly 3 connectivity entries"
+                    );
+
+                    // Validate all connectivity entries have IDs
+                    for (i, connectivity) in upserted_connectivities.iter().enumerate() {
+                        assert!(
+                            connectivity.id.is_some(),
+                            "Connectivity entry {} should have an ID",
+                            i + 1
+                        );
+                        assert_eq!(
+                            connectivity.session_id,
+                            session_id,
+                            "Connectivity entry {} should have correct session_id",
+                            i + 1
+                        );
+                        info!(
+                            "   ✅ Connectivity entry {}: ID = {}",
+                            i + 1,
+                            connectivity.id.unwrap()
+                        );
+                    }
+
+                    // Test updating one of the connectivity entries
+                    if let Some(first_connectivity) = upserted_connectivities.first() {
+                        let mut updated_connectivity = first_connectivity.clone();
+                        updated_connectivity.signal = -45.0; // Update signal strength
+                        updated_connectivity.noise = -95.0; // Update noise level
+
+                        info!("🔄 Testing single connectivity update...");
+                        match client.upsert_connectivity(&updated_connectivity).await {
+                            Ok(update_response) => {
+                                if let Some(updated) = update_response.data {
+                                    info!("✅ Single connectivity update successful");
+                                    assert_eq!(updated.signal, -45.0);
+                                    assert_eq!(updated.noise, -95.0);
+                                    assert_eq!(updated.id, first_connectivity.id);
+                                }
+                            }
+                            Err(e) => {
+                                info!("❌ Single connectivity update failed: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                info!("❌ POST /connectivity (batch) - FAILED: {}", e);
+            }
+        }
+
+        // Clean up: delete the test session (this should also delete connectivity entries)
+        info!("🧹 Cleaning up test session and connectivity entries...");
+        match client.delete_session(session_id).await {
+            Ok(_) => {
+                info!(
+                    "✅ Successfully deleted test session and all associated connectivity entries"
+                );
+            }
+            Err(e) => {
+                warn!("⚠️ Failed to delete test session: {} (non-critical)", e);
             }
         }
     }
