@@ -67,7 +67,6 @@ pub struct Session {
     pub timestamp_end: String,
     pub inserted_at: Option<String>,
     pub software_version: String,
-    pub locations_geojson: Option<serde_json::Value>,
     pub altitude_max: f64,
     pub altitude_min: f64,
     pub altitude_average: f64,
@@ -105,7 +104,6 @@ pub struct SessionWithCoordinates {
     pub timestamp_end: String,
     pub inserted_at: Option<String>,
     pub software_version: String,
-    pub locations_geojson: Option<serde_json::Value>,
     pub altitude_max: f64,
     pub altitude_min: f64,
     pub altitude_average: f64,
@@ -122,7 +120,7 @@ impl Session {
         timestamp_start: u64,
         timestamp_end: u64,
         software_version: String,
-        locations_geojson: Option<serde_json::Value>,
+        locations_wkt: Option<String>,
         altitude_max: f64,
         altitude_min: f64,
         altitude_average: f64,
@@ -140,14 +138,8 @@ impl Session {
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
 
-        // Convert locations_geojson to location string for database input
-        let location = if let Some(geojson) = &locations_geojson {
-            // For now, use a simple Point format. In a real implementation,
-            // you might want to parse the GeoJSON and convert to WKT format
-            "Point(-74.006 40.7128)".to_string()
-        } else {
-            "Point(0 0)".to_string()
-        };
+        // Use the provided WKT location or default to a point at origin
+        let location = locations_wkt.unwrap_or_else(|| "Point(0 0)".to_string());
 
         Self {
             id: None,
@@ -156,7 +148,6 @@ impl Session {
             timestamp_end: timestamp_end_str,
             inserted_at: None,
             software_version,
-            locations_geojson,
             altitude_max,
             altitude_min,
             altitude_average,
@@ -179,6 +170,48 @@ impl Session {
         self.timestamp_end = DateTime::from_timestamp(timestamp_end as i64, 0)
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
+    }
+
+    /// Creates a new session with WKT location validation
+    pub fn new_with_wkt_validation(
+        device_id: i64,
+        timestamp_start: u64,
+        timestamp_end: u64,
+        software_version: String,
+        locations_wkt: Option<String>,
+        altitude_max: f64,
+        altitude_min: f64,
+        altitude_average: f64,
+        velocity_max: f64,
+        velocity_min: f64,
+        velocity_average: f64,
+        distance_total: f64,
+        distance_max_from_start: f64
+    ) -> Result<Self> {
+        // Validate WKT format if provided
+        if let Some(ref wkt) = locations_wkt {
+            if !Event::validate_wkt_format(wkt) {
+                return Err(anyhow!("Invalid WKT format: {}", wkt));
+            }
+        }
+
+        Ok(
+            Self::new(
+                device_id,
+                timestamp_start,
+                timestamp_end,
+                software_version,
+                locations_wkt,
+                altitude_max,
+                altitude_min,
+                altitude_average,
+                velocity_max,
+                velocity_min,
+                velocity_average,
+                distance_total,
+                distance_max_from_start
+            )
+        )
     }
 
     pub fn to_input(&self) -> SessionInput {
@@ -287,6 +320,42 @@ impl Connectivity {
             h11_index: self.h11_index.clone(),
         }
     }
+
+    /// Creates a new connectivity record with WKT location validation
+    pub fn new_with_wkt_validation(
+        session_id: i64,
+        timestamp_start: u64,
+        signal: f64,
+        noise: f64,
+        altitude: f64,
+        heading: f64,
+        location: String,
+        h14_index: String,
+        h13_index: String,
+        h12_index: String,
+        h11_index: String
+    ) -> Result<Self> {
+        // Validate WKT format
+        if !Event::validate_wkt_format(&location) {
+            return Err(anyhow!("Invalid WKT format: {}", location));
+        }
+
+        Ok(
+            Self::new(
+                session_id,
+                timestamp_start,
+                signal,
+                noise,
+                altitude,
+                heading,
+                location,
+                h14_index,
+                h13_index,
+                h12_index,
+                h11_index
+            )
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -341,6 +410,47 @@ impl Event {
 
     pub fn format_location(latitude: f64, longitude: f64) -> String {
         format!("Point({} {})", longitude, latitude)
+    }
+
+    /// Validates that a location string follows acceptable WKT format
+    pub fn validate_wkt_format(location: &str) -> bool {
+        // Check for common WKT geometry types
+        if location.starts_with("POINT(") || location.starts_with("Point(") {
+            // Point format: Point(longitude latitude)
+            let coords = location
+                .trim_start_matches("POINT(")
+                .trim_start_matches("Point(")
+                .trim_end_matches(")");
+            return Self::validate_coordinate_pair(coords);
+        } else if location.starts_with("LINESTRING(") || location.starts_with("LineString(") {
+            // LineString format: LineString(longitude1 latitude1, longitude2 latitude2, ...)
+            let coords = location
+                .trim_start_matches("LINESTRING(")
+                .trim_start_matches("LineString(")
+                .trim_end_matches(")");
+            return coords.split(',').all(|pair| Self::validate_coordinate_pair(pair.trim()));
+        } else if location.starts_with("POLYGON(") || location.starts_with("Polygon(") {
+            // Polygon format: Polygon((longitude1 latitude1, longitude2 latitude2, ...))
+            let coords = location
+                .trim_start_matches("POLYGON(")
+                .trim_start_matches("Polygon(")
+                .trim_end_matches(")");
+            // Remove outer parentheses for polygon
+            let coords = coords.trim_start_matches("(").trim_end_matches(")");
+            return coords.split(',').all(|pair| Self::validate_coordinate_pair(pair.trim()));
+        }
+        false
+    }
+
+    /// Validates a single coordinate pair (longitude latitude)
+    fn validate_coordinate_pair(coords: &str) -> bool {
+        let parts: Vec<&str> = coords.split_whitespace().collect();
+        if parts.len() != 2 {
+            return false;
+        }
+
+        // Check if both parts can be parsed as f64
+        parts[0].parse::<f64>().is_ok() && parts[1].parse::<f64>().is_ok()
     }
 
     pub fn set_observation_time(&mut self, timestamp_observation: u64) {
@@ -1767,7 +1877,7 @@ impl ScoutClient {
     /// * `timestamp_start` - Unix timestamp when the session started
     /// * `timestamp_end` - Unix timestamp when the session ended
     /// * `software_version` - Version of the software that created this session
-    /// * `locations_geojson` - Optional GeoJSON location data
+    /// * `locations_wkt` - Optional WKT (Well-Known Text) location data
     /// * `altitude_max` - Maximum altitude during the session
     /// * `altitude_min` - Minimum altitude during the session
     /// * `altitude_average` - Average altitude during the session
@@ -1812,7 +1922,7 @@ impl ScoutClient {
         timestamp_start: u64,
         timestamp_end: u64,
         software_version: String,
-        locations_geojson: Option<serde_json::Value>,
+        locations_wkt: Option<String>,
         altitude_max: f64,
         altitude_min: f64,
         altitude_average: f64,
@@ -1827,7 +1937,7 @@ impl ScoutClient {
             timestamp_start,
             timestamp_end,
             software_version,
-            locations_geojson,
+            locations_wkt,
             altitude_max,
             altitude_min,
             altitude_average,
@@ -1964,7 +2074,7 @@ impl ScoutClient {
                 .to_rfc3339(),
             inserted_at: None,
             software_version: String::new(), // This will be ignored in the update
-            locations_geojson: None, // This will be ignored in the update
+            // WKT location will be handled by the session's location field
             altitude_max: 0.0, // This will be ignored in the update
             altitude_min: 0.0, // This will be ignored in the update
             altitude_average: 0.0, // This will be ignored in the update
@@ -1990,7 +2100,7 @@ impl ScoutClient {
     /// Retrieves sessions by herd ID with coordinate data using database functions.
     ///
     /// This method uses a database RPC function to fetch sessions with enhanced
-    /// coordinate information, including GeoJSON locations and extracted latitude/longitude.
+    /// coordinate information, including WKT locations and extracted latitude/longitude.
     /// This provides more detailed location data than the standard sessions endpoint.
     ///
     /// # Arguments
@@ -2010,7 +2120,7 @@ impl ScoutClient {
     /// let response = client.get_sessions_with_coordinates_by_herd(123).await?;
     /// if let Some(sessions) = response.data {
     ///     for session in sessions {
-    ///         println!("Session {} has coordinates: {:?}", session.id.unwrap_or(0), session.locations_geojson);
+    ///         println!("Session {} has coordinates", session.id.unwrap_or(0));
     ///     }
     /// }
     /// # Ok(())
@@ -2052,7 +2162,7 @@ impl ScoutClient {
     /// Retrieves sessions by device ID with coordinate data using database functions.
     ///
     /// This method uses a database RPC function to fetch sessions for a specific device
-    /// with enhanced coordinate information, including GeoJSON locations and extracted latitude/longitude.
+    /// with enhanced coordinate information, including WKT locations and extracted latitude/longitude.
     ///
     /// # Arguments
     ///
@@ -2294,6 +2404,34 @@ mod tests {
     fn test_format_location() {
         let location = Event::format_location(40.7128, -74.006);
         assert_eq!(location, "Point(-74.006 40.7128)");
+    }
+
+    #[test]
+    fn test_validate_wkt_format() {
+        // Valid Point formats
+        assert!(Event::validate_wkt_format("Point(-74.006 40.7128)"));
+        assert!(Event::validate_wkt_format("POINT(-74.006 40.7128)"));
+
+        // Valid LineString formats
+        assert!(Event::validate_wkt_format("LineString(-118.4079 33.9434, 2.5559 49.0083)"));
+        assert!(Event::validate_wkt_format("LINESTRING(-118.4079 33.9434, 2.5559 49.0083)"));
+
+        // Valid Polygon formats
+        assert!(
+            Event::validate_wkt_format(
+                "Polygon((-74.006 40.7128, -74.007 40.7128, -74.007 40.7129, -74.006 40.7129, -74.006 40.7128))"
+            )
+        );
+        assert!(
+            Event::validate_wkt_format(
+                "POLYGON((-74.006 40.7128, -74.007 40.7128, -74.007 40.7129, -74.006 40.7129, -74.006 40.7128))"
+            )
+        );
+
+        // Invalid formats
+        assert!(!Event::validate_wkt_format("Invalid"));
+        assert!(!Event::validate_wkt_format("Point(invalid coordinates)"));
+        assert!(!Event::validate_wkt_format("LineString(-118.4079 33.9434, invalid)"));
     }
 
     #[test]
@@ -2616,6 +2754,74 @@ mod tests {
     }
 
     #[test]
+    fn test_session_creation_with_wkt() {
+        let session = Session::new(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            Some("Point(-74.006 40.7128)".to_string()),
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        );
+
+        assert_eq!(session.device_id, 123);
+        assert_eq!(session.software_version, "v1.0.0");
+        assert_eq!(session.location, Some("Point(-74.006 40.7128)".to_string()));
+    }
+
+    #[test]
+    fn test_session_creation_with_wkt_validation() {
+        // Valid WKT
+        let session = Session::new_with_wkt_validation(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            Some("LineString(-118.4079 33.9434, 2.5559 49.0083)".to_string()),
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        ).unwrap();
+
+        assert_eq!(session.device_id, 123);
+        assert_eq!(
+            session.location,
+            Some("LineString(-118.4079 33.9434, 2.5559 49.0083)".to_string())
+        );
+
+        // Invalid WKT should fail
+        let result = Session::new_with_wkt_validation(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            "v1.0.0".to_string(),
+            Some("Invalid WKT".to_string()),
+            100.0,
+            50.0,
+            75.0,
+            10.0,
+            5.0,
+            7.5,
+            1000.0,
+            500.0
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_session_with_id() {
         let session = Session::new(
             123,
@@ -2680,6 +2886,44 @@ mod tests {
         assert_eq!(connectivity.signal, -50.0);
         assert_eq!(connectivity.noise, -60.0);
         assert!(connectivity.id.is_none());
+    }
+
+    #[test]
+    fn test_connectivity_creation_with_wkt_validation() {
+        // Valid WKT
+        let connectivity = Connectivity::new_with_wkt_validation(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            -50.0,
+            -60.0,
+            100.0,
+            45.0,
+            "Point(-74.006 40.7128)".to_string(),
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string()
+        ).unwrap();
+
+        assert_eq!(connectivity.session_id, 123);
+        assert_eq!(connectivity.location, "Point(-74.006 40.7128)");
+
+        // Invalid WKT should fail
+        let result = Connectivity::new_with_wkt_validation(
+            123,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            -50.0,
+            -60.0,
+            100.0,
+            45.0,
+            "Invalid WKT".to_string(),
+            "1".to_string(),
+            "2".to_string(),
+            "3".to_string(),
+            "4".to_string()
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -2798,8 +3042,8 @@ mod tests {
                                 assert_eq!(session.device_id, device_id);
                                 assert_eq!(session.software_version, "v1.0.0");
                                 assert!(
-                                    session.locations_geojson.is_some(),
-                                    "Session should have GeoJSON locations"
+                                    session.location.is_some(),
+                                    "Session should have WKT location"
                                 );
                                 assert_eq!(session.altitude_max, 150.0);
                                 assert_eq!(session.altitude_min, 50.0);
@@ -2992,10 +3236,7 @@ mod tests {
                             !session.software_version.is_empty(),
                             "Session software_version should not be empty"
                         );
-                        assert!(
-                            session.locations_geojson.is_none(),
-                            "Session locations_geojson should be None"
-                        );
+                        assert!(session.location.is_none(), "Session location should be None");
                         assert!(
                             session.altitude_max >= session.altitude_min,
                             "Session altitude_max should be >= altitude_min"
@@ -3637,7 +3878,7 @@ mod tests {
                         if let Some(updated) = response.data {
                             info!("✅ Session updated successfully");
                             assert_eq!(updated.software_version, "v1.1.0");
-                            assert_eq!(updated.locations_geojson, None);
+                            assert_eq!(updated.location, None);
                             assert_eq!(updated.altitude_max, 160.0);
                             assert_eq!(updated.velocity_max, 30.0);
                             assert_eq!(updated.distance_total, 6000.0);
