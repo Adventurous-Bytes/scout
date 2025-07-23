@@ -1,6 +1,6 @@
 {
   "name": "@adventurelabs/scout-core",
-  "version": "1.0.33",
+  "version": "1.0.35",
   "description": "Core utilities and helpers for Adventure Labs Scout applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -26,7 +26,7 @@
   "license": "GPL-3.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Adventurous-Bytes/scout.git"
+    "url": "git+https://github.com/Adventurous-Bytes/scout.git"
   },
   "bugs": {
     "url": "https://github.com/Adventurous-Bytes/scout/issues"
