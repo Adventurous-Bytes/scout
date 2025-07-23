@@ -2,7 +2,10 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 import { LABELS } from "../constants/annotator";
 import { get_devices_by_herd } from "../helpers/devices";
-import { server_get_total_events_by_herd } from "../helpers/events";
+import {
+  EnumSessionsVisibility,
+  server_get_total_events_by_herd,
+} from "../helpers/events";
 import { server_get_plans_by_herd } from "../helpers/plans";
 import { server_get_events_and_tags_for_device } from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
@@ -142,7 +145,10 @@ export class HerdModule {
           console.warn("Failed to get user roles:", error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
-        server_get_total_events_by_herd(herd.id).catch((error) => {
+        server_get_total_events_by_herd(
+          herd.id,
+          EnumSessionsVisibility.Exclude
+        ).catch((error) => {
           console.warn("Failed to get total events count:", error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
