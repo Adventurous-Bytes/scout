@@ -6,6 +6,7 @@ import {
   IEvent,
   ISessionWithCoordinates,
   IConnectivityWithCoordinates,
+  IEventAndTagsPrettyLocation,
 } from "../types/db";
 
 // Input types for upsert operations
@@ -90,6 +91,47 @@ export async function getEventsBySessionId(
   }
 
   return data || [];
+}
+
+// Get events with tags by session id using RPC function
+export async function getEventsAndTagsBySessionId(
+  supabase: SupabaseClient<Database>,
+  sessionId: number,
+  limit: number = 50,
+  offset: number = 0
+): Promise<IEventAndTagsPrettyLocation[]> {
+  const { data, error } = await supabase.rpc(
+    "get_events_and_tags_for_session",
+    {
+      session_id_caller: sessionId,
+      limit_caller: limit,
+      offset_caller: offset,
+    }
+  );
+
+  if (error) {
+    throw new Error(
+      `Failed to get events and tags by session id: ${error.message}`
+    );
+  }
+
+  return data || [];
+}
+
+// Get total count of events for a session
+export async function getTotalEventsForSession(
+  supabase: SupabaseClient<Database>,
+  sessionId: number
+): Promise<number> {
+  const { data, error } = await supabase.rpc("get_total_events_for_session", {
+    session_id_caller: sessionId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to get total events for session: ${error.message}`);
+  }
+
+  return data || 0;
 }
 
 // Create or update session
@@ -267,49 +309,71 @@ export async function upsertConnectivityBatch(
 // Get session with connectivity and events using RPC functions
 export async function getSessionWithConnectivityAndEvents(
   supabase: SupabaseClient<Database>,
-  sessionId: number
+  sessionId: number,
+  herdId?: number
 ): Promise<{
   session: ISessionWithCoordinates | null;
   connectivity: IConnectivityWithCoordinates[];
   events: IEvent[];
 }> {
-  // Get the session from the sessions table first to get the device_id
-  const { data: sessionData, error: sessionError } = await supabase
-    .from("sessions")
-    .select("*")
-    .eq("id", sessionId)
-    .single();
+  let sessionWithCoords: ISessionWithCoordinates | null = null;
 
-  if (sessionError) {
-    throw new Error(`Failed to get session: ${sessionError.message}`);
+  if (herdId) {
+    // Use provided herd ID directly
+    // Get sessions with coordinates for the herd and find our specific session
+    const { data: allSessionsWithCoords, error: sessionsError } =
+      await supabase.rpc("get_sessions_with_coordinates", {
+        herd_id_caller: herdId,
+      });
+
+    if (sessionsError) {
+      throw new Error(
+        `Failed to get session with coordinates: ${sessionsError.message}`
+      );
+    }
+
+    // Find the specific session in the results
+    sessionWithCoords =
+      allSessionsWithCoords?.find((s) => s.id === sessionId) || null;
+  } else {
+    // Get the session from the sessions table first to get the device_id
+    const { data: sessionData, error: sessionError } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .single();
+
+    if (sessionError) {
+      throw new Error(`Failed to get session: ${sessionError.message}`);
+    }
+
+    // Get the device to find its herd_id
+    const { data: device, error: deviceError } = await supabase
+      .from("devices")
+      .select("herd_id")
+      .eq("id", sessionData.device_id)
+      .single();
+
+    if (deviceError) {
+      throw new Error(`Failed to get device: ${deviceError.message}`);
+    }
+
+    // Get sessions with coordinates for the herd and find our specific session
+    const { data: allSessionsWithCoords, error: sessionsError } =
+      await supabase.rpc("get_sessions_with_coordinates", {
+        herd_id_caller: device.herd_id,
+      });
+
+    if (sessionsError) {
+      throw new Error(
+        `Failed to get session with coordinates: ${sessionsError.message}`
+      );
+    }
+
+    // Find the specific session in the results
+    sessionWithCoords =
+      allSessionsWithCoords?.find((s) => s.id === sessionId) || null;
   }
-
-  // Get the device to find its herd_id
-  const { data: device, error: deviceError } = await supabase
-    .from("devices")
-    .select("herd_id")
-    .eq("id", sessionData.device_id)
-    .single();
-
-  if (deviceError) {
-    throw new Error(`Failed to get device: ${deviceError.message}`);
-  }
-
-  // Get sessions with coordinates for the herd and find our specific session
-  const { data: allSessionsWithCoords, error: sessionsError } =
-    await supabase.rpc("get_sessions_with_coordinates", {
-      herd_id_caller: device.herd_id,
-    });
-
-  if (sessionsError) {
-    throw new Error(
-      `Failed to get session with coordinates: ${sessionsError.message}`
-    );
-  }
-
-  // Find the specific session in the results
-  const sessionWithCoords =
-    allSessionsWithCoords?.find((s) => s.id === sessionId) || null;
 
   const [connectivityResult, eventsResult] = await Promise.all([
     getConnectivityBySessionId(supabase, sessionId),
@@ -320,6 +384,98 @@ export async function getSessionWithConnectivityAndEvents(
     session: sessionWithCoords,
     connectivity: connectivityResult,
     events: eventsResult,
+  };
+}
+
+// Get session with connectivity and events with tags using RPC functions
+export async function getSessionWithConnectivityAndEventsWithTags(
+  supabase: SupabaseClient<Database>,
+  sessionId: number,
+  limit: number = 50,
+  offset: number = 0,
+  herdId?: number
+): Promise<{
+  session: ISessionWithCoordinates | null;
+  connectivity: IConnectivityWithCoordinates[];
+  eventsWithTags: IEventAndTagsPrettyLocation[];
+  totalEvents: number;
+}> {
+  let sessionWithCoords: ISessionWithCoordinates | null = null;
+  let actualHerdId: number;
+
+  if (herdId) {
+    // Use provided herd ID directly
+    actualHerdId = herdId;
+
+    // Get sessions with coordinates for the herd and find our specific session
+    const { data: allSessionsWithCoords, error: sessionsError } =
+      await supabase.rpc("get_sessions_with_coordinates", {
+        herd_id_caller: actualHerdId,
+      });
+
+    if (sessionsError) {
+      throw new Error(
+        `Failed to get session with coordinates: ${sessionsError.message}`
+      );
+    }
+
+    // Find the specific session in the results
+    sessionWithCoords =
+      allSessionsWithCoords?.find((s) => s.id === sessionId) || null;
+  } else {
+    // Get the session from the sessions table first to get the device_id
+    const { data: sessionData, error: sessionError } = await supabase
+      .from("sessions")
+      .select("*")
+      .eq("id", sessionId)
+      .single();
+
+    if (sessionError) {
+      throw new Error(`Failed to get session: ${sessionError.message}`);
+    }
+
+    // Get the device to find its herd_id
+    const { data: device, error: deviceError } = await supabase
+      .from("devices")
+      .select("herd_id")
+      .eq("id", sessionData.device_id)
+      .single();
+
+    if (deviceError) {
+      throw new Error(`Failed to get device: ${deviceError.message}`);
+    }
+
+    actualHerdId = device.herd_id;
+
+    // Get sessions with coordinates for the herd and find our specific session
+    const { data: allSessionsWithCoords, error: sessionsError } =
+      await supabase.rpc("get_sessions_with_coordinates", {
+        herd_id_caller: actualHerdId,
+      });
+
+    if (sessionsError) {
+      throw new Error(
+        `Failed to get session with coordinates: ${sessionsError.message}`
+      );
+    }
+
+    // Find the specific session in the results
+    sessionWithCoords =
+      allSessionsWithCoords?.find((s) => s.id === sessionId) || null;
+  }
+
+  const [connectivityResult, eventsWithTagsResult, totalEventsResult] =
+    await Promise.all([
+      getConnectivityBySessionId(supabase, sessionId),
+      getEventsAndTagsBySessionId(supabase, sessionId, limit, offset),
+      getTotalEventsForSession(supabase, sessionId),
+    ]);
+
+  return {
+    session: sessionWithCoords,
+    connectivity: connectivityResult,
+    eventsWithTags: eventsWithTagsResult,
+    totalEvents: totalEventsResult,
   };
 }
 

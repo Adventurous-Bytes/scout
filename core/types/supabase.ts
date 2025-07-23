@@ -458,6 +458,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "events_with_tags";
             referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "tags_event_id_fkey";
+            columns: ["event_id"];
+            isOneToOne: false;
+            referencedRelation: "events_with_tags_by_session";
+            referencedColumns: ["id"];
           }
         ];
       };
@@ -561,6 +568,7 @@ export type Database = {
           media_type: Database["public"]["Enums"]["media_type"] | null;
           media_url: string | null;
           message: string | null;
+          session_id: number | null;
           tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
           timestamp_observation: string | null;
         };
@@ -577,6 +585,56 @@ export type Database = {
             columns: ["device_id"];
             isOneToOne: false;
             referencedRelation: "devices";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      events_with_tags_by_session: {
+        Row: {
+          altitude: number | null;
+          device_id: number | null;
+          earthranger_url: string | null;
+          file_path: string | null;
+          heading: number | null;
+          herd_id: number | null;
+          id: number | null;
+          inserted_at: string | null;
+          is_public: boolean | null;
+          location: unknown | null;
+          media_type: Database["public"]["Enums"]["media_type"] | null;
+          media_url: string | null;
+          message: string | null;
+          session_id: number | null;
+          tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+          timestamp_observation: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "devices_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "events_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
             referencedColumns: ["id"];
           }
         ];
@@ -665,6 +723,14 @@ export type Database = {
         };
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
       };
+      get_events_and_tags_for_session: {
+        Args: {
+          session_id_caller: number;
+          limit_caller: number;
+          offset_caller: number;
+        };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
       get_events_for_herd: {
         Args: { herd_id_in: number };
         Returns: {
@@ -706,6 +772,10 @@ export type Database = {
       };
       get_total_events_for_herd: {
         Args: { herd_id_caller: number };
+        Returns: number;
+      };
+      get_total_events_for_session: {
+        Args: { session_id_caller: number };
         Returns: number;
       };
       get_zones_and_actions_for_herd: {
