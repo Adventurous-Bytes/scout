@@ -59,7 +59,7 @@ export async function server_get_more_events_by_herd(
   herd_id: number,
   offset: number,
   page_count: number = 10,
-  includeSessionEvents: boolean
+  sessions_visibility: EnumSessionsVisibility
 ): Promise<IWebResponseCompatible<IEvent[]>> {
   const from = offset * page_count;
   const to = from + page_count - 1;
@@ -78,11 +78,10 @@ export async function server_get_more_events_by_herd(
     .eq("devices.herd_id", herd_id)
     .range(from, to);
 
-  if (includeSessionEvents) {
-    // Include only events that have a session_id
+  // Apply session filter based on sessions_visibility
+  if (sessions_visibility === EnumSessionsVisibility.Only) {
     query = query.not("session_id", "is", null);
-  } else {
-    // Include only events that don't have a session_id
+  } else if (sessions_visibility === EnumSessionsVisibility.Exclude) {
     query = query.is("session_id", null);
   }
 
