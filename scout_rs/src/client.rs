@@ -371,6 +371,7 @@ pub struct Event {
     pub earthranger_url: Option<String>,
     pub timestamp_observation: String,
     pub is_public: bool,
+    pub session_id: Option<i64>,
 }
 
 impl Event {
@@ -386,7 +387,8 @@ impl Event {
         media_type: String,
         device_id: u32,
         timestamp_observation: u64,
-        is_public: bool
+        is_public: bool,
+        session_id: Option<i64>
     ) -> Self {
         let location = Self::format_location(latitude, longitude);
         let timestamp_observation = DateTime::from_timestamp(timestamp_observation as i64, 0)
@@ -405,6 +407,7 @@ impl Event {
             earthranger_url,
             timestamp_observation,
             is_public,
+            session_id,
         }
     }
 
@@ -770,7 +773,8 @@ impl ScoutClient {
     ///     "image".to_string(),
     ///     123,
     ///     1733351509,
-    ///     false
+    ///     false,
+    ///     None
     /// );
     /// let tags = vec![Tag::new(
     ///     1,
@@ -973,7 +977,8 @@ impl ScoutClient {
     ///         "image".to_string(),
     ///         123,
     ///         1733351509,
-    ///         false
+    ///         false,
+    ///         None
     ///     ), vec![Tag::new(
     ///         1,
     ///         100.0,
@@ -996,7 +1001,8 @@ impl ScoutClient {
     ///         "image".to_string(),
     ///         123,
     ///         1733351510,
-    ///         false
+    ///         false,
+    ///         None
     ///     ), vec![Tag::new(
     ///         1,
     ///         150.0,
@@ -1327,7 +1333,8 @@ impl ScoutClient {
                 "image".to_string(),
                 final_device_id,
                 timestamp,
-                is_public
+                is_public,
+                None
             );
 
             let file_path_str = file_path.to_str().ok_or_else(|| anyhow!("Invalid file path"))?;
@@ -2525,7 +2532,8 @@ mod tests {
             "image".to_string(),
             1,
             SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            false
+            false,
+            None
         );
 
         assert_eq!(event.message, Some("Test message".to_string()));

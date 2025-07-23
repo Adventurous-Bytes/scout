@@ -52,7 +52,8 @@ let event = Event::new(
     "image".to_string(),
     1,        // device_id
     timestamp_observation,
-    false     // is_public
+    false,    // is_public
+    None      // session_id (optional)
 );
 
 let tags = vec![
