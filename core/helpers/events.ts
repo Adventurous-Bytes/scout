@@ -8,12 +8,7 @@ import {
   IWebResponseCompatible,
 } from "../types/requests";
 import { addSignedUrlsToEvents } from "./storage";
-
-export enum EnumSessionsVisibility {
-  Only = 0,
-  Exclude = 1,
-  Combine = 2,
-}
+import { EnumSessionsVisibility } from "../types/events";
 
 export async function server_get_events_by_herd(
   herd_id: number,

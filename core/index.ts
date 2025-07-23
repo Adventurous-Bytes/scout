@@ -11,6 +11,7 @@ export * from "./types/requests";
 export * from "./types/gps";
 export * from "./types/supabase";
 export * from "./types/bounding_boxes";
+export * from "./types/events";
 
 // Helpers
 export * from "./helpers/auth";
@@ -65,3 +66,4 @@ export type {
   IUserAndRole,
   IApiKeyScout,
 } from "./types/db";
+export { EnumSessionsVisibility } from "./types/events";

@@ -2,10 +2,8 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 import { LABELS } from "../constants/annotator";
 import { get_devices_by_herd } from "../helpers/devices";
-import {
-  EnumSessionsVisibility,
-  server_get_total_events_by_herd,
-} from "../helpers/events";
+import { server_get_total_events_by_herd } from "../helpers/events";
+import { EnumSessionsVisibility } from "./events";
 import { server_get_plans_by_herd } from "../helpers/plans";
 import { server_get_events_and_tags_for_device } from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
