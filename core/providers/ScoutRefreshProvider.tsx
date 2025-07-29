@@ -58,26 +58,24 @@ export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
   }
 
   // Use the enhanced DB listener with connection status
-  const connectionStatus = useScoutDbListener(supabaseRef.current);
+  useScoutDbListener(supabaseRef.current);
   useScoutRefresh();
 
-  // Log connection status changes for debugging
-  if (connectionStatus.lastError) {
-    console.warn(
-      "[ScoutRefreshProvider] DB Listener error:",
-      connectionStatus.lastError
-    );
-  }
+  // // Log connection status changes for debugging
+  // if (connectionStatus.lastError) {
+  //   console.warn(
+  //     "[ScoutRefreshProvider] DB Listener error:",
+  //     connectionStatus.lastError
+  //   );
+  // }
 
-  if (connectionStatus.isConnected) {
-    console.log("[ScoutRefreshProvider] ✅ DB Listener connected");
-  }
+  // if (connectionStatus.isConnected) {
+  //   console.log("[ScoutRefreshProvider] ✅ DB Listener connected");
+  // }
 
   return (
     <SupabaseContext.Provider value={supabaseRef.current}>
-      <ConnectionStatusContext.Provider value={connectionStatus}>
-        {children}
-      </ConnectionStatusContext.Provider>
+      {children}
     </SupabaseContext.Provider>
   );
 }

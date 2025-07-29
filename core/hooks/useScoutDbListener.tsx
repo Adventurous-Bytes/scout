@@ -40,7 +40,6 @@ enum ConnectionState {
   DISCONNECTED = "disconnected",
   CONNECTING = "connecting",
   CONNECTED = "connected",
-  RECONNECTING = "reconnecting",
   ERROR = "error",
 }
 
@@ -160,200 +159,104 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
     }
   }, []);
 
-  // Event handlers
-  const handleTagInserts = useCallback(
-    (payload: BroadcastPayload<TagData>) => {
-      console.log("[DB Listener] Tag INSERT received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Tag INSERT - Invalid payload, missing new data"
+  // Generic event handler factory
+  const createEventHandler = useCallback(
+    <T,>(
+      action: (data: T) => void,
+      dataKey: "new" | "old",
+      entityName: string
+    ) => {
+      return (payload: BroadcastPayload<T>) => {
+        console.log(
+          `[DB Listener] ${entityName} ${payload.event} received:`,
+          payload
         );
-        return;
-      }
-      dispatch(addTag(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleTagDeletes = useCallback(
-    (payload: BroadcastPayload<TagData>) => {
-      console.log("[DB Listener] Tag DELETE received:", payload);
-      if (!payload.old || !payload.old.id) {
-        console.error(
-          "[DB Listener] Tag DELETE - Invalid payload, missing tag data"
-        );
-        return;
-      }
-      dispatch(deleteTag(payload.old));
-    },
-    [dispatch]
-  );
-
-  const handleTagUpdates = useCallback(
-    (payload: BroadcastPayload<TagData>) => {
-      console.log("[DB Listener] Tag UPDATE received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Tag UPDATE - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(updateTag(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleDeviceInserts = useCallback(
-    (payload: BroadcastPayload<DeviceData>) => {
-      console.log("[DB Listener] Device INSERT received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Device INSERT - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(addDevice(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleDeviceDeletes = useCallback(
-    (payload: BroadcastPayload<DeviceData>) => {
-      console.log("[DB Listener] Device DELETE received:", payload);
-      if (!payload.old) {
-        console.error(
-          "[DB Listener] Device DELETE - Invalid payload, missing old data"
-        );
-        return;
-      }
-      dispatch(deleteDevice(payload.old));
-    },
-    [dispatch]
-  );
-
-  const handleDeviceUpdates = useCallback(
-    (payload: BroadcastPayload<DeviceData>) => {
-      console.log("[DB Listener] Device UPDATE received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Device UPDATE - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(updateDevice(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handlePlanInserts = useCallback(
-    (payload: BroadcastPayload<PlanData>) => {
-      console.log("[DB Listener] Plan INSERT received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Plan INSERT - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(addPlan(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handlePlanDeletes = useCallback(
-    (payload: BroadcastPayload<PlanData>) => {
-      console.log("[DB Listener] Plan DELETE received:", payload);
-      if (!payload.old) {
-        console.error(
-          "[DB Listener] Plan DELETE - Invalid payload, missing old data"
-        );
-        return;
-      }
-      dispatch(deletePlan(payload.old));
-    },
-    [dispatch]
-  );
-
-  const handlePlanUpdates = useCallback(
-    (payload: BroadcastPayload<PlanData>) => {
-      console.log("[DB Listener] Plan UPDATE received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Plan UPDATE - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(updatePlan(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleSessionInserts = useCallback(
-    (payload: BroadcastPayload<SessionData>) => {
-      console.log("[DB Listener] Session INSERT received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Session INSERT - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(addSessionToStore(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleSessionDeletes = useCallback(
-    (payload: BroadcastPayload<SessionData>) => {
-      console.log("[DB Listener] Session DELETE received:", payload);
-      if (!payload.old) {
-        console.error(
-          "[DB Listener] Session DELETE - Invalid payload, missing old data"
-        );
-        return;
-      }
-      dispatch(deleteSessionFromStore(payload.old));
-    },
-    [dispatch]
-  );
-
-  const handleSessionUpdates = useCallback(
-    (payload: BroadcastPayload<SessionData>) => {
-      console.log("[DB Listener] Session UPDATE received:", payload);
-      if (!payload.new) {
-        console.error(
-          "[DB Listener] Session UPDATE - Invalid payload, missing new data"
-        );
-        return;
-      }
-      dispatch(updateSessionInStore(payload.new));
-    },
-    [dispatch]
-  );
-
-  const handleConnectivityInserts = useCallback(
-    (payload: BroadcastPayload<ConnectivityData>) => {
-      console.log("[DB Listener] Connectivity INSERT received:", payload);
-      // For now, we'll just log connectivity changes since they're related to sessions
-      // In the future, we might want to update session connectivity data
+        const data = payload[dataKey];
+        if (!data) {
+          console.error(
+            `[DB Listener] ${entityName} ${payload.event} - Invalid payload, missing ${dataKey} data`
+          );
+          return;
+        }
+        action(data);
+      };
     },
     []
   );
 
-  const handleConnectivityDeletes = useCallback(
-    (payload: BroadcastPayload<ConnectivityData>) => {
-      console.log("[DB Listener] Connectivity DELETE received:", payload);
-      // For now, we'll just log connectivity changes since they're related to sessions
-      // In the future, we might want to update session connectivity data
-    },
-    []
-  );
-
-  const handleConnectivityUpdates = useCallback(
-    (payload: BroadcastPayload<ConnectivityData>) => {
-      console.log("[DB Listener] Connectivity UPDATE received:", payload);
-      // For now, we'll just log connectivity changes since they're related to sessions
-      // In the future, we might want to update session connectivity data
-    },
-    []
+  // Create event handlers using the factory
+  const handlers = useCallback(
+    () => ({
+      tags: {
+        INSERT: createEventHandler(dispatch.bind(null, addTag), "new", "Tag"),
+        UPDATE: createEventHandler(
+          dispatch.bind(null, updateTag),
+          "new",
+          "Tag"
+        ),
+        DELETE: createEventHandler(
+          dispatch.bind(null, deleteTag),
+          "old",
+          "Tag"
+        ),
+      },
+      devices: {
+        INSERT: createEventHandler(
+          dispatch.bind(null, addDevice),
+          "new",
+          "Device"
+        ),
+        UPDATE: createEventHandler(
+          dispatch.bind(null, updateDevice),
+          "new",
+          "Device"
+        ),
+        DELETE: createEventHandler(
+          dispatch.bind(null, deleteDevice),
+          "old",
+          "Device"
+        ),
+      },
+      plans: {
+        INSERT: createEventHandler(dispatch.bind(null, addPlan), "new", "Plan"),
+        UPDATE: createEventHandler(
+          dispatch.bind(null, updatePlan),
+          "new",
+          "Plan"
+        ),
+        DELETE: createEventHandler(
+          dispatch.bind(null, deletePlan),
+          "old",
+          "Plan"
+        ),
+      },
+      sessions: {
+        INSERT: createEventHandler(
+          dispatch.bind(null, addSessionToStore),
+          "new",
+          "Session"
+        ),
+        UPDATE: createEventHandler(
+          dispatch.bind(null, updateSessionInStore),
+          "new",
+          "Session"
+        ),
+        DELETE: createEventHandler(
+          dispatch.bind(null, deleteSessionFromStore),
+          "old",
+          "Session"
+        ),
+      },
+      connectivity: {
+        INSERT: (payload: BroadcastPayload<ConnectivityData>) =>
+          console.log("[DB Listener] Connectivity INSERT received:", payload),
+        UPDATE: (payload: BroadcastPayload<ConnectivityData>) =>
+          console.log("[DB Listener] Connectivity UPDATE received:", payload),
+        DELETE: (payload: BroadcastPayload<ConnectivityData>) =>
+          console.log("[DB Listener] Connectivity DELETE received:", payload),
+      },
+    }),
+    [createEventHandler, dispatch]
   );
 
   // Create a channel with proper error handling
@@ -376,11 +279,8 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
         channel
           .on("system", { event: "disconnect" }, () => {
             console.log(`[DB Listener] 🔌 ${tableName} channel disconnected`);
-            if (connectionState === ConnectionState.CONNECTED) {
-              setConnectionState(ConnectionState.DISCONNECTED);
-              setLastError("Channel disconnected");
-              scheduleReconnection();
-            }
+            setConnectionState(ConnectionState.DISCONNECTED);
+            setLastError("Channel disconnected");
           })
           .on("system", { event: "reconnect" }, () => {
             console.log(`[DB Listener] 🔗 ${tableName} channel reconnected`);
@@ -399,7 +299,7 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
         return null;
       }
     },
-    [connectionState]
+    []
   );
 
   // Set up all channels
@@ -408,65 +308,27 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
 
     cleanupChannels();
 
-    const channelConfigs = [
-      {
-        name: "plans",
-        handlers: {
-          INSERT: handlePlanInserts,
-          UPDATE: handlePlanUpdates,
-          DELETE: handlePlanDeletes,
-        },
-      },
-      {
-        name: "devices",
-        handlers: {
-          INSERT: handleDeviceInserts,
-          UPDATE: handleDeviceUpdates,
-          DELETE: handleDeviceDeletes,
-        },
-      },
-      {
-        name: "tags",
-        handlers: {
-          INSERT: handleTagInserts,
-          UPDATE: handleTagUpdates,
-          DELETE: handleTagDeletes,
-        },
-      },
-      {
-        name: "sessions",
-        handlers: {
-          INSERT: handleSessionInserts,
-          UPDATE: handleSessionUpdates,
-          DELETE: handleSessionDeletes,
-        },
-      },
-      {
-        name: "connectivity",
-        handlers: {
-          INSERT: handleConnectivityInserts,
-          UPDATE: handleConnectivityUpdates,
-          DELETE: handleConnectivityDeletes,
-        },
-      },
-    ];
-
+    const tableHandlers = handlers();
+    const tables = Object.keys(tableHandlers) as Array<
+      keyof typeof tableHandlers
+    >;
     let successCount = 0;
-    const totalChannels = channelConfigs.length;
+    const totalChannels = tables.length;
 
-    for (const config of channelConfigs) {
-      const channel = createChannel(config.name);
+    for (const tableName of tables) {
+      const channel = createChannel(tableName);
       if (!channel) continue;
 
       try {
         // Set up event handlers
-        Object.entries(config.handlers).forEach(([event, handler]) => {
+        const tableHandler = tableHandlers[tableName];
+        Object.entries(tableHandler).forEach(([event, handler]) => {
           channel.on("broadcast", { event }, handler);
         });
 
         // Subscribe to the channel
-        const _subscription = channel.subscribe((status: string) => {
-          console.log(`[DB Listener] ${config.name} channel status:`, status);
+        channel.subscribe((status: string) => {
+          console.log(`[DB Listener] ${tableName} channel status:`, status);
 
           if (status === "SUBSCRIBED") {
             successCount++;
@@ -480,7 +342,7 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
             }
           } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
             console.error(
-              `[DB Listener] ${config.name} channel failed to subscribe:`,
+              `[DB Listener] ${tableName} channel failed to subscribe:`,
               status
             );
             setLastError(`Channel subscription failed: ${status}`);
@@ -490,32 +352,14 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
         channels.current.push(channel);
       } catch (error) {
         console.error(
-          `[DB Listener] Failed to set up ${config.name} channel:`,
+          `[DB Listener] Failed to set up ${tableName} channel:`,
           error
         );
       }
     }
 
     return successCount > 0;
-  }, [
-    cleanupChannels,
-    createChannel,
-    handlePlanInserts,
-    handlePlanUpdates,
-    handlePlanDeletes,
-    handleDeviceInserts,
-    handleDeviceUpdates,
-    handleDeviceDeletes,
-    handleTagInserts,
-    handleTagUpdates,
-    handleTagDeletes,
-    handleSessionInserts,
-    handleSessionUpdates,
-    handleSessionDeletes,
-    handleConnectivityInserts,
-    handleConnectivityUpdates,
-    handleConnectivityDeletes,
-  ]);
+  }, [cleanupChannels, createChannel, handlers]);
 
   // Schedule reconnection with exponential backoff
   const scheduleReconnection = useCallback(() => {
@@ -581,6 +425,7 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
       setLastError(error instanceof Error ? error.message : "Unknown error");
       setConnectionState(ConnectionState.ERROR);
       setRetryCount((prev) => prev + 1);
+
       // Schedule reconnection
       scheduleReconnection();
     } finally {
@@ -642,8 +487,43 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
     retryCount,
     reconnect,
     isConnected: connectionState === ConnectionState.CONNECTED,
-    isConnecting:
-      connectionState === ConnectionState.CONNECTING ||
-      connectionState === ConnectionState.RECONNECTING,
+    isConnecting: connectionState === ConnectionState.CONNECTING,
   };
 }
+
+/**
+ * Return type for useScoutDbListener hook
+ *
+ * @example
+ * ```tsx
+ * function MyComponent() {
+ *   const {
+ *     isConnected,
+ *     isConnecting,
+ *     lastError,
+ *     retryCount,
+ *     reconnect
+ *   } = useConnectionStatus();
+ *
+ *   if (isConnecting) {
+ *     return <div>Connecting to database...</div>;
+ *   }
+ *
+ *   if (lastError) {
+ *     return (
+ *       <div>
+ *         <p>Connection error: {lastError}</p>
+ *         <p>Retry attempts: {retryCount}</p>
+ *         <button onClick={reconnect}>Reconnect</button>
+ *       </div>
+ *     );
+ *   }
+ *
+ *   if (!isConnected) {
+ *     return <div>Disconnected from database</div>;
+ *   }
+ *
+ *   return <div>Connected to database</div>;
+ * }
+ * ```
+ */
