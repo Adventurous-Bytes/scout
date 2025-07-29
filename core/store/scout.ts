@@ -93,7 +93,10 @@ export const scoutSlice = createSlice({
     addTag(state, action) {
       for (const herd_module of state.herd_modules) {
         for (const event of herd_module.events) {
-          if (event.id === action.payload.event_id && event.tags) {
+          if (event.id === action.payload.event_id) {
+            if (event.tags == undefined || event.tags == null) {
+              event.tags = [];
+            }
             event.tags.push(action.payload);
             return;
           }
