@@ -54,8 +54,48 @@ export default function ScoutLayout({
 
 ### Hooks
 
-- `useScoutDbListener` - Real-time database listening for plans, devices, and tags
+- `useScoutDbListener` - Real-time database listening for plans, devices, and tags with robust disconnect handling
 - `useScoutRefresh` - Data refresh utilities
+- `useConnectionStatus` - Connection status monitoring and manual reconnection controls
+
+#### Robust Connection Features
+
+The `useScoutDbListener` hook includes several features to handle network disconnections and connection issues:
+
+- **Automatic Reconnection**: Automatically attempts to reconnect when the connection is lost
+- **Exponential Backoff**: Uses exponential backoff with jitter to avoid overwhelming the server
+- **Connection State Tracking**: Provides real-time connection status (connected, connecting, disconnected, error)
+- **Error Handling**: Comprehensive error handling with detailed error messages
+- **Manual Reconnection**: Allows manual reconnection attempts via the `reconnect()` function
+- **Retry Limits**: Configurable maximum retry attempts to prevent infinite reconnection loops
+- **Graceful Cleanup**: Proper cleanup of resources when the component unmounts
+
+Example usage:
+
+```tsx
+import { useConnectionStatus } from "@adventurelabs/scout-core";
+
+function ConnectionStatus() {
+  const { isConnected, isConnecting, lastError, retryCount, reconnect } =
+    useConnectionStatus();
+
+  if (isConnecting) {
+    return <div>Connecting to database...</div>;
+  }
+
+  if (lastError) {
+    return (
+      <div>
+        <p>Connection error: {lastError}</p>
+        <p>Retry attempts: {retryCount}</p>
+        <button onClick={reconnect}>Reconnect</button>
+      </div>
+    );
+  }
+
+  return <div>Status: {isConnected ? "Connected" : "Disconnected"}</div>;
+}
+```
 
 ### Store
 
