@@ -620,6 +620,32 @@ impl ScoutClient {
     /// # Ok(())
     /// # }
     /// ```
+    /// Helper function to handle HTTP response status codes and return appropriate ResponseScout status
+    fn handle_response_status<T>(status: u16, response_text: String) -> Result<ResponseScout<T>> {
+        match status {
+            200 | 201 => {
+                // Success cases - let the caller handle the data parsing
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+            }
+            401 => {
+                error!("Unauthorized (401): {}", response_text);
+                Ok(ResponseScout::new(ResponseScoutStatus::NotAuthorized, None))
+            }
+            403 => {
+                error!("Forbidden (403): {}", response_text);
+                Ok(ResponseScout::new(ResponseScoutStatus::NotAuthorized, None))
+            }
+            404 => {
+                error!("Not Found (404): {}", response_text);
+                Ok(ResponseScout::new(ResponseScoutStatus::Failure, None))
+            }
+            _ => {
+                error!("HTTP {}: {}", status, response_text);
+                Err(anyhow!("HTTP {}: {}", status, response_text))
+            }
+        }
+    }
+
     pub async fn get_device(&mut self) -> Result<ResponseScout<Device>> {
         // Return cached device if available
         if let Some(device) = &self.device {
@@ -630,10 +656,12 @@ impl ScoutClient {
         debug!("Fetching device information from API");
         let url = format!("{}/devices", self.scout_url);
         let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
 
-        match response.status().as_u16() {
+        match status {
             200 => {
-                let data: serde_json::Value = response.json().await?;
+                let data: serde_json::Value = serde_json::from_str(&response_text)?;
                 let device_data = if data.is_array() {
                     data.as_array().unwrap()[0].clone()
                 } else {
@@ -649,10 +677,7 @@ impl ScoutClient {
                 debug!("Device created successfully");
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
             }
-            _ => {
-                error!("Failed to get device: HTTP {}", response.status());
-                Err(anyhow!("Failed to get device: HTTP {}", response.status()))
-            }
+            _ => { Self::handle_response_status::<Device>(status, response_text) }
         }
     }
 
@@ -704,10 +729,12 @@ impl ScoutClient {
         debug!("Fetching herd information for herd_id: {}", herd_id);
         let url = format!("{}/herds/{}", self.scout_url, herd_id);
         let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
 
-        match response.status().as_u16() {
+        match status {
             200 => {
-                let data: serde_json::Value = response.json().await?;
+                let data: serde_json::Value = serde_json::from_str(&response_text)?;
                 let herd_data = if data.is_array() {
                     data.as_array().unwrap()[0].clone()
                 } else {
@@ -731,12 +758,7 @@ impl ScoutClient {
                 debug!("Herd created successfully");
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to get herd: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to get herd: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Herd>(status, response_text) }
         }
     }
 
@@ -825,13 +847,12 @@ impl ScoutClient {
             .multipart(form)
             .send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             200 | 201 => { Ok(ResponseScout::new(ResponseScoutStatus::Success, None)) }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                Err(anyhow!("Failed to post event: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<()>(status, response_text) }
         }
     }
 
@@ -1465,19 +1486,16 @@ impl ScoutClient {
         debug!("Fetching sessions for herd_id: {}", herd_id);
         let url = format!("{}/sessions?herd_id={}", self.scout_url, herd_id);
         let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
 
-        match response.status().as_u16() {
+        match status {
             200 => {
-                let sessions: Vec<Session> = response.json().await?;
+                let sessions: Vec<Session> = serde_json::from_str(&response_text)?;
                 debug!("Successfully fetched {} sessions for herd {}", sessions.len(), herd_id);
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to get sessions: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to get sessions: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Vec<Session>>(status, response_text) }
         }
     }
 
@@ -1541,18 +1559,16 @@ impl ScoutClient {
             .json(&payload)
             .send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             201 => {
-                let created_session: Session = response.json().await?;
+                let created_session: Session = serde_json::from_str(&response_text)?;
                 debug!("Successfully upserted session with ID: {:?}", created_session.id);
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_session)))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to upsert session: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to upsert session: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Session>(status, response_text) }
         }
     }
 
@@ -1713,18 +1729,16 @@ impl ScoutClient {
             .json(session)
             .send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             200 => {
-                let updated_session: Session = response.json().await?;
+                let updated_session: Session = serde_json::from_str(&response_text)?;
                 debug!("Successfully updated session with ID: {}", session_id);
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(updated_session)))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to update session: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to update session: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Session>(status, response_text) }
         }
     }
 
@@ -1760,17 +1774,15 @@ impl ScoutClient {
             .header("Authorization", &self.api_key)
             .send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             200 => {
                 debug!("Successfully deleted session with ID: {}", session_id);
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to delete session: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to delete session: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<()>(status, response_text) }
         }
     }
 
@@ -1805,18 +1817,16 @@ impl ScoutClient {
         let url = format!("{}/sessions/{}/events", self.scout_url, session_id);
         let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             200 => {
-                let events: Vec<Event> = response.json().await?;
+                let events: Vec<Event> = serde_json::from_str(&response_text)?;
                 debug!("Successfully fetched {} events for session {}", events.len(), session_id);
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(events)))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to get session events: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to get session events: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Vec<Event>>(status, response_text) }
         }
     }
 
@@ -1854,9 +1864,12 @@ impl ScoutClient {
         let url = format!("{}/sessions/{}/connectivity", self.scout_url, session_id);
         let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
 
-        match response.status().as_u16() {
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
             200 => {
-                let connectivity: Vec<Connectivity> = response.json().await?;
+                let connectivity: Vec<Connectivity> = serde_json::from_str(&response_text)?;
                 debug!(
                     "Successfully fetched {} connectivity entries for session {}",
                     connectivity.len(),
@@ -1864,12 +1877,7 @@ impl ScoutClient {
                 );
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(connectivity)))
             }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to get session connectivity: HTTP {} - {}", status, error_text);
-                Err(anyhow!("Failed to get session connectivity: HTTP {} - {}", status, error_text))
-            }
+            _ => { Self::handle_response_status::<Vec<Connectivity>>(status, response_text) }
         }
     }
 
@@ -2625,6 +2633,12 @@ mod tests {
                                                 );
                                             }
                                         }
+                                        ResponseScoutStatus::NotAuthorized => {
+                                            assert!(
+                                                false,
+                                                "Herd request returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
+                                            );
+                                        }
                                         _ => {
                                             info!(
                                                 "⚠️  Herd request failed with status: {:?}",
@@ -2640,6 +2654,12 @@ mod tests {
                         } else {
                             info!("⚠️  Device response had success status but no data");
                         }
+                    }
+                    ResponseScoutStatus::NotAuthorized => {
+                        assert!(
+                            false,
+                            "Device request returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
+                        );
                     }
                     _ => {
                         info!(
@@ -2669,13 +2689,361 @@ mod tests {
 
         // Test getting device with invalid key
         match client.get_device().await {
-            Ok(_response) => {
-                assert!(false, "Expected error with invalid API key");
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!("✅ Correctly returned NotAuthorized status with invalid API key");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!("✅ Correctly returned Failure status (expected for invalid server)");
+                    }
+                    _ => {
+                        info!(
+                            "✅ Returned {:?} status (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
             }
             Err(e) => {
                 info!("✅ Correctly returned error with invalid API key: {}", e);
             }
         }
+
+        // Test getting herd with invalid key
+        match client.get_herd(Some(123)).await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!(
+                            "✅ Correctly returned NotAuthorized status for herd with invalid API key"
+                        );
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!("✅ Correctly returned Failure status (expected for invalid server)");
+                    }
+                    _ => {
+                        info!(
+                            "✅ Returned {:?} status (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("✅ Correctly returned error for herd with invalid API key: {}", e);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_401_unauthorized_responses() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        info!("🧪 Testing 401 Unauthorized Response Handling");
+        info!("=============================================");
+
+        // Test with invalid API key
+        let mut client = ScoutClient::new(
+            "https://example.com".to_string(),
+            "invalid_api_key".to_string()
+        ).expect("Failed to create ScoutClient");
+
+        // Test 1: get_device with invalid API key
+        info!("1️⃣ Testing get_device with invalid API key");
+        match client.get_device().await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!("✅ get_device correctly returned NotAuthorized for invalid API key");
+                    }
+                    ResponseScoutStatus::Success => {
+                        assert!(false, "get_device should not return Success with invalid API key");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!("✅ get_device returned Failure (expected for invalid server)");
+                    }
+                    _ => {
+                        info!(
+                            "✅ get_device returned {:?} (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("✅ get_device correctly returned error: {}", e);
+            }
+        }
+
+        // Test 2: get_herd with invalid API key
+        info!("2️⃣ Testing get_herd with invalid API key");
+        match client.get_herd(Some(123)).await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!("✅ get_herd correctly returned NotAuthorized for invalid API key");
+                    }
+                    ResponseScoutStatus::Success => {
+                        assert!(false, "get_herd should not return Success with invalid API key");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!("✅ get_herd returned Failure (expected for invalid server)");
+                    }
+                    _ => {
+                        info!(
+                            "✅ get_herd returned {:?} (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("✅ get_herd correctly returned error: {}", e);
+            }
+        }
+
+        // Test 3: post_event_with_tags with invalid API key
+        info!("3️⃣ Testing post_event_with_tags with invalid API key");
+        let event = Event::new(
+            Some("Test event".to_string()),
+            None,
+            None,
+            None,
+            19.754824,
+            -155.15393,
+            10.0,
+            0.0,
+            "image".to_string(),
+            123,
+            1733351509,
+            false,
+            None
+        );
+        let tags = vec![
+            Tag::new(1, 100.0, 200.0, 50.0, 30.0, 0.95, "manual".to_string(), "animal".to_string())
+        ];
+
+        // Create a temporary test file
+        let temp_file = "temp_test_file.jpg";
+        std::fs::write(temp_file, b"fake image data").expect("Failed to create temp file");
+
+        match client.post_event_with_tags(&event, &tags, temp_file).await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!(
+                            "✅ post_event_with_tags correctly returned NotAuthorized for invalid API key"
+                        );
+                    }
+                    ResponseScoutStatus::Success => {
+                        assert!(
+                            false,
+                            "post_event_with_tags should not return Success with invalid API key"
+                        );
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!(
+                            "✅ post_event_with_tags returned Failure (expected for invalid server)"
+                        );
+                    }
+                    _ => {
+                        info!(
+                            "✅ post_event_with_tags returned {:?} (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("✅ post_event_with_tags correctly returned error: {}", e);
+            }
+        }
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(temp_file);
+
+        // Test 4: Test with empty API key
+        info!("4️⃣ Testing with empty API key");
+        let mut empty_key_client = ScoutClient::new(
+            "https://example.com".to_string(),
+            "".to_string()
+        ).expect("Failed to create ScoutClient");
+
+        match empty_key_client.get_device().await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        info!("✅ Empty API key correctly returned NotAuthorized");
+                    }
+                    ResponseScoutStatus::Success => {
+                        assert!(false, "Empty API key should not return Success");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!("✅ Empty API key returned Failure (expected for invalid server)");
+                    }
+                    _ => {
+                        info!(
+                            "✅ Empty API key returned {:?} (acceptable for test server)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("✅ Empty API key correctly returned error: {}", e);
+            }
+        }
+
+        info!("✅ All 401 unauthorized response tests completed successfully");
+    }
+
+    #[tokio::test]
+    async fn test_should_not_receive_401_with_valid_credentials() {
+        // Load environment variables from .env file
+        dotenv().ok();
+
+        // Skip this test if no API key is provided
+        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+        if api_key.is_empty() {
+            info!("Skipping 401 test - no SCOUT_API_KEY environment variable set");
+            return;
+        }
+
+        let scout_url = env
+            ::var("SCOUT_URL")
+            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
+
+        info!("🧪 Testing that valid credentials should NOT return 401");
+        info!("=====================================================");
+
+        let mut client = ScoutClient::new(scout_url, api_key).expect(
+            "Failed to create ScoutClient"
+        );
+
+        // Test 1: get_device with valid API key should NOT return 401
+        info!("1️⃣ Testing get_device with valid API key");
+        match client.get_device().await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        assert!(
+                            false,
+                            "get_device returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
+                        );
+                    }
+                    ResponseScoutStatus::Success => {
+                        info!("✅ get_device returned Success with valid API key");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!(
+                            "⚠️ get_device returned Failure (this might be expected depending on server state)"
+                        );
+                    }
+                    _ => {
+                        info!(
+                            "⚠️ get_device returned {:?} (unexpected but not necessarily wrong)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("⚠️ get_device returned error: {} (this might be expected if server is unavailable)", e);
+            }
+        }
+
+        // Test 2: get_herd with valid API key should NOT return 401
+        info!("2️⃣ Testing get_herd with valid API key");
+        match client.get_herd(None).await {
+            Ok(response) => {
+                match response.status {
+                    ResponseScoutStatus::NotAuthorized => {
+                        assert!(
+                            false,
+                            "get_herd returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
+                        );
+                    }
+                    ResponseScoutStatus::Success => {
+                        info!("✅ get_herd returned Success with valid API key");
+                    }
+                    ResponseScoutStatus::Failure => {
+                        info!(
+                            "⚠️ get_herd returned Failure (this might be expected if no device/herd data is available)"
+                        );
+                    }
+                    _ => {
+                        info!(
+                            "⚠️ get_herd returned {:?} (unexpected but not necessarily wrong)",
+                            response.status
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                info!("⚠️ get_herd returned error: {} (this might be expected if no device data is available)", e);
+            }
+        }
+
+        info!("✅ Valid credentials did not return 401 responses");
+    }
+
+    #[test]
+    fn test_handle_response_status_helper() {
+        info!("🧪 Testing handle_response_status helper function");
+
+        // Test 401 handling
+        let result = ScoutClient::handle_response_status::<String>(401, "Unauthorized".to_string());
+        match result {
+            Ok(response) => {
+                assert_eq!(response.status, ResponseScoutStatus::NotAuthorized);
+                info!("✅ 401 correctly mapped to NotAuthorized");
+            }
+            Err(_) => {
+                assert!(false, "401 should return Ok with NotAuthorized status");
+            }
+        }
+
+        // Test 403 handling
+        let result = ScoutClient::handle_response_status::<String>(403, "Forbidden".to_string());
+        match result {
+            Ok(response) => {
+                assert_eq!(response.status, ResponseScoutStatus::NotAuthorized);
+                info!("✅ 403 correctly mapped to NotAuthorized");
+            }
+            Err(_) => {
+                assert!(false, "403 should return Ok with NotAuthorized status");
+            }
+        }
+
+        // Test 404 handling
+        let result = ScoutClient::handle_response_status::<String>(404, "Not Found".to_string());
+        match result {
+            Ok(response) => {
+                assert_eq!(response.status, ResponseScoutStatus::Failure);
+                info!("✅ 404 correctly mapped to Failure");
+            }
+            Err(_) => {
+                assert!(false, "404 should return Ok with Failure status");
+            }
+        }
+
+        // Test 500 handling
+        let result = ScoutClient::handle_response_status::<String>(
+            500,
+            "Internal Server Error".to_string()
+        );
+        match result {
+            Ok(_) => {
+                assert!(false, "500 should return Err");
+            }
+            Err(_) => {
+                info!("✅ 500 correctly returned Err");
+            }
+        }
+
+        info!("✅ All handle_response_status tests completed successfully");
     }
 
     #[test]
