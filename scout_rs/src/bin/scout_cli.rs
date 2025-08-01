@@ -4,41 +4,41 @@ use std::env;
 use scout_rs::client::{ ScoutClient, Event, Tag, ResponseScoutStatus };
 
 #[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version, about, long_about = None, rename_all = "snake_case")]
 struct Args {
     /// Command to execute: get_device, get_herd, post_event
     #[arg(short, long)]
     command: String,
 
     /// Scout URL
-    #[arg(long, default_value = "https://localhost:3000/api/scout")]
+    #[arg(long, name = "scout_url", default_value = "http://localhost:3000/api/scout")]
     scout_url: String,
 
     /// API Key (or set SCOUT_DEVICE_API_KEY env var)
-    #[arg(long)]
+    #[arg(long, name = "api_key")]
     api_key: Option<String>,
 
     /// Herd ID (for get_herd command)
-    #[arg(long)]
+    #[arg(long, name = "herd_id")]
     herd_id: Option<u32>,
 
     /// Event data as JSON (for post_event command)
-    #[arg(long)]
+    #[arg(long, name = "event_json")]
     event_json: Option<String>,
 
     /// Tags data as JSON array (for post_event command)
-    #[arg(long)]
+    #[arg(long, name = "tags_json")]
     tags_json: Option<String>,
 
     /// File path (for post_event command)
-    #[arg(long)]
+    #[arg(long, name = "file_path")]
     file_path: Option<String>,
 }
 
 // example usage:
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_herd
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg"}' --tags_json '[]' --file_path 'path/to/image.jpg'
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[]' --file_path 'path/to/image.jpg'
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
