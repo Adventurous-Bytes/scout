@@ -13,6 +13,7 @@ export async function get_devices_by_herd(
   const { data, error } = await client.rpc("get_devices_for_herd", {
     herd_id_caller: herd_id,
   });
+
   if (!data) {
     return IWebResponse.error<IDevice[]>("No devices found").to_compatible();
   } else {

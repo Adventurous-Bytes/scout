@@ -685,23 +685,9 @@ export type Database = {
         Args: { device_id_caller: number };
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
       };
-      get_device_from_api_key: {
+      get_device_by_api_key: {
         Args: { device_api_key: string };
-        Returns: {
-          altitude: number | null;
-          created_by: string;
-          description: string;
-          device_type: Database["public"]["Enums"]["device_type"];
-          domain_name: string | null;
-          heading: number | null;
-          herd_id: number;
-          id: number;
-          inserted_at: string;
-          location: unknown | null;
-          name: string;
-          video_publisher_token: string | null;
-          video_subscriber_token: string | null;
-        };
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
       };
       get_device_id_from_key: {
         Args: { device_api_key: string };
@@ -787,8 +773,20 @@ export type Database = {
         Returns: Database["public"]["CompositeTypes"]["zones_and_actions_pretty_location"][];
       };
       load_api_keys: {
-        Args: { id_of_device: string };
+        Args: { id_of_device: number };
         Returns: string[];
+      };
+      load_api_keys_batch: {
+        Args: { device_ids: number[] };
+        Returns: {
+          device_id: number;
+          api_key_id: string;
+          api_key_key: string;
+        }[];
+      };
+      get_events_and_tags_for_devices_batch: {
+        Args: { device_ids: number[]; limit_per_device: number };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
       };
     };
     Enums: {

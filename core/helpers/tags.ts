@@ -11,6 +11,39 @@ import {
 } from "../types/requests";
 import { addSignedUrlsToEvents, addSignedUrlToEvent } from "./storage";
 
+// Test function to verify individual event loading works
+export async function test_event_loading(device_id: number): Promise<boolean> {
+  try {
+    console.log(
+      `[Event Test] Testing individual event loading for device ${device_id}`
+    );
+    const events_response = await server_get_events_and_tags_for_device(
+      device_id,
+      1
+    );
+    if (events_response.status === EnumWebResponse.SUCCESS) {
+      console.log(
+        `[Event Test] Successfully loaded ${
+          events_response.data?.length || 0
+        } events for device ${device_id}`
+      );
+      return true;
+    } else {
+      console.error(
+        `[Event Test] Failed to load events for device ${device_id}:`,
+        events_response.msg
+      );
+      return false;
+    }
+  } catch (error) {
+    console.error(
+      `[Event Test] Failed to load events for device ${device_id}:`,
+      error
+    );
+    return false;
+  }
+}
+
 export async function server_create_tags(
   tags: ITag[]
 ): Promise<IWebResponseCompatible<ITag[]>> {
@@ -188,6 +221,98 @@ export async function server_get_events_and_tags_for_device(
   );
 
   return IWebResponse.success(eventsWithSignedUrls).to_compatible();
+}
+
+export async function server_get_events_and_tags_for_devices_batch(
+  device_ids: number[],
+  limit: number = 1
+): Promise<IWebResponseCompatible<{ [device_id: number]: IEventWithTags[] }>> {
+  const supabase = await newServerClient();
+
+  // Use single RPC call for all devices
+  const { data, error } = await supabase.rpc(
+    "get_events_and_tags_for_devices_batch",
+    {
+      device_ids: device_ids,
+      limit_per_device: limit,
+    }
+  );
+
+  if (error) {
+    console.error(`[Events Batch] Database error:`, error.message);
+    console.log(`[Events Batch] Falling back to individual calls...`);
+
+    // Fallback to individual event loading
+    const result: { [device_id: number]: IEventWithTags[] } = {};
+    const promises = device_ids.map(async (device_id) => {
+      try {
+        const events_response = await server_get_events_and_tags_for_device(
+          device_id,
+          limit
+        );
+        if (
+          events_response.status === EnumWebResponse.SUCCESS &&
+          events_response.data
+        ) {
+          result[device_id] = events_response.data;
+        } else {
+          result[device_id] = [];
+        }
+      } catch (err) {
+        console.warn(`[Events Batch] Failed for device ${device_id}:`, err);
+        result[device_id] = [];
+      }
+    });
+
+    await Promise.all(promises);
+    return IWebResponse.success(result).to_compatible();
+  }
+
+  if (!data) {
+    return IWebResponse.success({}).to_compatible();
+  }
+
+  // Group events by device_id
+  const eventsByDevice: { [device_id: number]: any[] } = {};
+
+  data.forEach((row: any) => {
+    const device_id = row.device_id;
+    if (!eventsByDevice[device_id]) {
+      eventsByDevice[device_id] = [];
+    }
+
+    // Create event object from the event_and_tags_pretty_location structure
+    const event = {
+      id: row.id, // Changed from row.event_id to row.id
+      inserted_at: row.inserted_at,
+      message: row.message,
+      media_url: row.media_url,
+      file_path: row.file_path,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      altitude: row.altitude,
+      heading: row.heading,
+      media_type: row.media_type,
+      device_id: device_id,
+      timestamp_observation: row.timestamp_observation,
+      is_public: row.is_public,
+      earthranger_url: row.earthranger_url,
+      tags: Array.isArray(row.tags) ? row.tags : [],
+    };
+
+    eventsByDevice[device_id].push(event);
+  });
+
+  // Add signed URLs to all events
+  const result: { [device_id: number]: IEventWithTags[] } = {};
+
+  for (const device_id in eventsByDevice) {
+    const events = eventsByDevice[device_id];
+    const eventsWithSignedUrls = await addSignedUrlsToEvents(events, supabase);
+    result[parseInt(device_id)] = eventsWithSignedUrls;
+  }
+
+  return IWebResponse.success(result).to_compatible();
 }
 
 export async function get_event_and_tags_by_event_id(

@@ -81,7 +81,6 @@ export type IUserAndRole = {
 };
 export interface IApiKeyScout {
   id: string;
-  description: string;
   key: string;
 }
 

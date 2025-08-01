@@ -46,7 +46,6 @@ export * from "./store/scout";
 export * from "./store/hooks";
 
 // Supabase
-export * from "./supabase/client";
 export * from "./supabase/middleware";
 export * from "./supabase/server";
 

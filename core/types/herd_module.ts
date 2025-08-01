@@ -5,7 +5,10 @@ import { get_devices_by_herd } from "../helpers/devices";
 import { server_get_total_events_by_herd } from "../helpers/events";
 import { EnumSessionsVisibility } from "./events";
 import { server_get_plans_by_herd } from "../helpers/plans";
-import { server_get_events_and_tags_for_device } from "../helpers/tags";
+import {
+  server_get_events_and_tags_for_device,
+  server_get_events_and_tags_for_devices_batch,
+} from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
 import {
   IDevice,
@@ -18,7 +21,7 @@ import {
 } from "../types/db";
 import { EnumWebResponse } from "./requests";
 import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
-import { server_list_api_keys } from "../api_keys/actions";
+import { server_list_api_keys_batch } from "../api_keys/actions";
 import { getSessionsByHerdId } from "../helpers/sessions";
 
 export class HerdModule {
@@ -81,6 +84,8 @@ export class HerdModule {
     herd: IHerd,
     client: SupabaseClient
   ): Promise<HerdModule> {
+    const startTime = Date.now();
+
     try {
       // load devices
       let response_new_devices = await get_devices_by_herd(herd.id, client);
@@ -88,95 +93,93 @@ export class HerdModule {
         response_new_devices.status == EnumWebResponse.ERROR ||
         !response_new_devices.data
       ) {
-        console.warn("No devices found for herd");
+        console.warn(`[HerdModule] No devices found for herd ${herd.id}`);
         return new HerdModule(herd, [], [], Date.now());
       }
       const new_devices = response_new_devices.data;
 
-      // get api keys for each device... run requests in parallel
+      // get api keys and events for all devices in batch
+      let recent_events_batch: { [device_id: number]: IEventWithTags[] } = {};
       if (new_devices.length > 0) {
         try {
-          let api_keys_promises = new_devices.map((device) =>
-            server_list_api_keys(device.id?.toString() ?? "").catch((error) => {
-              console.warn(
-                `Failed to get API keys for device ${device.id}:`,
-                error
-              );
-              return undefined;
-            })
-          );
-          let api_keys = await Promise.all(api_keys_promises);
+          const device_ids = new_devices.map((device) => device.id ?? 0);
+
+          // Load API keys and events in parallel
+          const [api_keys_batch, events_response] = await Promise.all([
+            server_list_api_keys_batch(device_ids),
+            server_get_events_and_tags_for_devices_batch(device_ids, 1),
+          ]);
+
+          // Assign API keys to devices
           for (let i = 0; i < new_devices.length; i++) {
-            new_devices[i].api_keys_scout = api_keys[i];
+            const device_id = new_devices[i].id ?? 0;
+            new_devices[i].api_keys_scout = api_keys_batch[device_id] || [];
+          }
+
+          // Process events response
+          if (
+            events_response.status === EnumWebResponse.SUCCESS &&
+            events_response.data
+          ) {
+            recent_events_batch = events_response.data;
           }
         } catch (error) {
-          console.warn("Failed to load API keys for devices:", error);
-          // Continue without API keys
+          console.error(`[HerdModule] Batch load error:`, error);
+          // Continue without API keys and events
         }
       }
 
-      // get recent events for each device... run requests in parallel
-      let recent_events_promises = new_devices.map((device) =>
-        server_get_events_and_tags_for_device(device.id ?? 0).catch((error) => {
-          console.warn(`Failed to get events for device ${device.id}:`, error);
-          return { status: EnumWebResponse.ERROR, data: null };
-        })
-      );
-
-      // Run all requests in parallel with individual error handling
+      // Run all remaining requests in parallel with individual error handling
       const [
-        recent_events,
         res_zones,
         res_user_roles,
         total_event_count,
         res_plans,
         res_sessions,
       ] = await Promise.allSettled([
-        Promise.all(recent_events_promises),
         server_get_more_zones_and_actions_for_herd(herd.id, 0, 10).catch(
           (error) => {
-            console.warn("Failed to get zones and actions:", error);
+            console.warn(
+              `[HerdModule] Failed to get zones and actions:`,
+              error
+            );
             return { status: EnumWebResponse.ERROR, data: null };
           }
         ),
         server_get_users_with_herd_access(herd.id).catch((error) => {
-          console.warn("Failed to get user roles:", error);
+          console.warn(`[HerdModule] Failed to get user roles:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
         server_get_total_events_by_herd(
           herd.id,
           EnumSessionsVisibility.Exclude
         ).catch((error) => {
-          console.warn("Failed to get total events count:", error);
+          console.warn(`[HerdModule] Failed to get total events count:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
         server_get_plans_by_herd(herd.id).catch((error) => {
-          console.warn("Failed to get plans:", error);
+          console.warn(`[HerdModule] Failed to get plans:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
         getSessionsByHerdId(client, herd.id).catch((error) => {
-          console.warn("Failed to get sessions:", error);
+          console.warn(`[HerdModule] Failed to get sessions:`, error);
           return [];
         }),
       ]);
 
-      // Process recent events with error handling
-      if (recent_events.status === "fulfilled") {
-        for (let i = 0; i < new_devices.length; i++) {
-          try {
-            let x: IEventWithTags[] | null = recent_events.value[i]?.data;
-            if (
-              recent_events.value[i]?.status == EnumWebResponse.SUCCESS &&
-              x
-            ) {
-              new_devices[i].recent_events = x;
-            }
-          } catch (error) {
-            console.warn(
-              `Failed to process events for device ${new_devices[i].id}:`,
-              error
-            );
+      // Assign recent events to devices from batch results
+      for (let i = 0; i < new_devices.length; i++) {
+        try {
+          const device_id = new_devices[i].id ?? 0;
+          const events = recent_events_batch[device_id];
+          if (events) {
+            new_devices[i].recent_events = events;
           }
+        } catch (error) {
+          console.warn(
+            `Failed to process events for device ${new_devices[i].id}:`,
+            error
+          );
         }
       }
 
@@ -203,6 +206,13 @@ export class HerdModule {
 
       // TODO: store in DB and retrieve on load?
       const newLabels = LABELS;
+
+      const endTime = Date.now();
+      const loadTime = endTime - startTime;
+      console.log(
+        `[HerdModule] Loaded herd ${herd.slug} in ${loadTime}ms (${new_devices.length} devices)`
+      );
+
       return new HerdModule(
         herd,
         new_devices,
@@ -218,7 +228,12 @@ export class HerdModule {
         sessions
       );
     } catch (error) {
-      console.error("Critical error in HerdModule.from_herd:", error);
+      const endTime = Date.now();
+      const loadTime = endTime - startTime;
+      console.error(
+        `[HerdModule] Critical error in HerdModule.from_herd (${loadTime}ms):`,
+        error
+      );
       // Return a minimal but valid HerdModule instance to prevent complete failure
       return new HerdModule(herd, [], [], Date.now());
     }

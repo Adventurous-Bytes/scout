@@ -83,20 +83,35 @@ export async function createHerd(
 }
 
 export async function server_load_herd_modules(): Promise<IHerdModule[]> {
+  const startTime = Date.now();
+
   // load herds
   const client_supabase = await newServerClient();
   let new_herds = await get_herds(client_supabase);
   if (new_herds.status != EnumWebResponse.SUCCESS || !new_herds.data) {
     return [];
   }
+
+  console.log(
+    `[server_load_herd_modules] Loading ${new_herds.data.length} herds in parallel...`
+  );
+
   let new_herd_modules: HerdModule[] = [];
   const herdModulePromises = new_herds.data.map((herd) =>
     HerdModule.from_herd(herd, client_supabase)
   );
   new_herd_modules = await Promise.all(herdModulePromises);
+
   // now serialize the herd modules
   let serialized_herd_modules: IHerdModule[] = new_herd_modules.map(
     (herd_module) => herd_module.to_serializable()
   );
+
+  const endTime = Date.now();
+  const totalLoadTime = endTime - startTime;
+  console.log(
+    `[server_load_herd_modules] Loaded ${new_herds.data.length} herds in ${totalLoadTime}ms (parallel processing)`
+  );
+
   return serialized_herd_modules;
 }
