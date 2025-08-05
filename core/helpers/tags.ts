@@ -11,39 +11,6 @@ import {
 } from "../types/requests";
 import { addSignedUrlsToEvents, addSignedUrlToEvent } from "./storage";
 
-// Test function to verify individual event loading works
-export async function test_event_loading(device_id: number): Promise<boolean> {
-  try {
-    console.log(
-      `[Event Test] Testing individual event loading for device ${device_id}`
-    );
-    const events_response = await server_get_events_and_tags_for_device(
-      device_id,
-      1
-    );
-    if (events_response.status === EnumWebResponse.SUCCESS) {
-      console.log(
-        `[Event Test] Successfully loaded ${
-          events_response.data?.length || 0
-        } events for device ${device_id}`
-      );
-      return true;
-    } else {
-      console.error(
-        `[Event Test] Failed to load events for device ${device_id}:`,
-        events_response.msg
-      );
-      return false;
-    }
-  } catch (error) {
-    console.error(
-      `[Event Test] Failed to load events for device ${device_id}:`,
-      error
-    );
-    return false;
-  }
-}
-
 export async function server_create_tags(
   tags: ITag[]
 ): Promise<IWebResponseCompatible<ITag[]>> {
@@ -128,30 +95,6 @@ export async function server_update_tags(
 
   return IWebResponse.success(updatedTags).to_compatible();
 }
-
-// export async function server_get_events_with_tags_by_herd(
-//   herd_id: number
-// ): Promise<IWebResponseCompatible<IEventWithTags[]>> {
-//   const supabase = await newServerClient();
-//   const { data, error } = await supabase
-//     .from("events")
-//     .select(
-//       `
-//       *,
-//       tags: tags (*)
-//       `
-//     )
-//     .eq("devices.herd_id", herd_id)
-//     .order("timestamp_observation", { ascending: false });
-//   if (error) {
-//     return {
-//       status: EnumWebResponse.ERROR,
-//       msg: error.message,
-//       data: [],
-//     };
-//   }
-//   return IWebResponse.success(data).to_compatible();
-// }
 
 export async function server_get_more_events_with_tags_by_herd(
   herd_id: number,
