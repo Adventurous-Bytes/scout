@@ -1,12 +1,12 @@
 use clap::Parser;
 use serde_json;
 use std::env;
-use scout_rs::client::{ ScoutClient, Event, Tag, ResponseScoutStatus };
+use scout_rs::client::{ ScoutClient, Event, Tag, Plan, ResponseScoutStatus };
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
 struct Args {
-    /// Command to execute: get_device, get_herd, post_event
+    /// Command to execute: get_device, get_herd, get_plans_by_herd, post_event, update_event, delete_event
     #[arg(short, long)]
     command: String,
 
@@ -42,6 +42,7 @@ struct Args {
 // example usage:
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_herd
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plans_by_herd --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[]' --file_path 'path/to/image.jpg'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_event --event_id 123 --event_json '{"message": "Updated event", "media_url": "https://example.com/updated.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 25.0, "heading": 180.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": false, "session_id": null, "id": 123}'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_event --event_id 123
@@ -81,6 +82,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             } else {
                 eprintln!("Failed to get herd: {:?}", response.status);
+                std::process::exit(1);
+            }
+        }
+        "get_plans_by_herd" => {
+            let herd_id = args.herd_id.expect("herd_id required for get_plans_by_herd");
+            let response = client.get_plans_by_herd(herd_id).await?;
+            if response.status == ResponseScoutStatus::Success {
+                if let Some(plans) = response.data {
+                    println!("{}", serde_json::to_string_pretty(&plans)?);
+                } else {
+                    println!("[]");
+                }
+            } else {
+                eprintln!("Failed to get plans: {:?}", response.status);
                 std::process::exit(1);
             }
         }
@@ -137,7 +152,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => {
             eprintln!("Unknown command: {}", args.command);
             eprintln!(
-                "Available commands: get_device, get_herd, post_event, update_event, delete_event"
+                "Available commands: get_device, get_herd, get_plans_by_herd, post_event, update_event, delete_event"
             );
             std::process::exit(1);
         }
