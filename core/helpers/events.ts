@@ -103,18 +103,17 @@ export async function server_get_total_events_by_herd(
 ): Promise<IWebResponseCompatible<number>> {
   const supabase = await newServerClient();
 
-  let query = supabase
-    .from("events")
-    .select("id", { count: "exact", head: true })
-    .eq("devices.herd_id", herd_id);
+  // Convert sessions_visibility to exclude_session_events boolean
+  const exclude_session_events =
+    sessions_visibility === EnumSessionsVisibility.Exclude;
 
-  if (sessions_visibility === EnumSessionsVisibility.Only) {
-    query = query.not("session_id", "is", null);
-  } else if (sessions_visibility === EnumSessionsVisibility.Exclude) {
-    query = query.is("session_id", null);
-  }
-
-  const { count, error } = await query;
+  const { data, error } = (await supabase.rpc(
+    "get_total_events_for_herd_with_session_filter",
+    {
+      herd_id_caller: herd_id,
+      exclude_session_events: exclude_session_events,
+    }
+  )) as { data: number | null; error: any };
 
   if (error) {
     return {
@@ -123,7 +122,7 @@ export async function server_get_total_events_by_herd(
       data: 0,
     };
   } else {
-    return IWebResponse.success(count || 0).to_compatible();
+    return IWebResponse.success(data || 0).to_compatible();
   }
 }
 

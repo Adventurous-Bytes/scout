@@ -761,6 +761,10 @@ export type Database = {
         Args: { session_id_caller: number };
         Returns: number;
       };
+      get_total_events_for_herd_with_session_filter: {
+        Args: { herd_id_caller: number; exclude_session_events: boolean };
+        Returns: number;
+      };
       get_zones_and_actions_for_herd: {
         Args: {
           herd_id_caller: number;
