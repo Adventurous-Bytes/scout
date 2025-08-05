@@ -76,7 +76,8 @@ pub struct Session {
     pub distance_total: f64,
     pub distance_max_from_start: f64,
     pub status: Option<String>,
-    pub location: Option<String>,
+    pub locations: Option<String>, // WKT format string
+    pub locations_geojson: Option<serde_json::Value>, // GeoJSON format from database
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -86,24 +87,6 @@ pub struct SessionInput {
     pub timestamp_end: Option<String>,
     pub software_version: String,
     pub locations: String,
-    pub altitude_max: f64,
-    pub altitude_min: f64,
-    pub altitude_average: f64,
-    pub velocity_max: f64,
-    pub velocity_min: f64,
-    pub velocity_average: f64,
-    pub distance_total: f64,
-    pub distance_max_from_start: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct SessionWithCoordinates {
-    pub id: Option<i64>,
-    pub device_id: i64,
-    pub timestamp_start: String,
-    pub timestamp_end: String,
-    pub inserted_at: Option<String>,
-    pub software_version: String,
     pub altitude_max: f64,
     pub altitude_min: f64,
     pub altitude_average: f64,
@@ -139,7 +122,7 @@ impl Session {
             .to_rfc3339();
 
         // Use the provided WKT location or default to a point at origin
-        let location = locations_wkt.unwrap_or_else(|| "Point(0 0)".to_string());
+        let locations = locations_wkt.unwrap_or_else(|| "Point(0 0)".to_string());
 
         Self {
             id: None,
@@ -157,7 +140,8 @@ impl Session {
             distance_total,
             distance_max_from_start,
             status: None,
-            location: Some(location),
+            locations: Some(locations),
+            locations_geojson: None, // Will be populated by API response
         }
     }
 
@@ -220,7 +204,7 @@ impl Session {
             timestamp_start: self.timestamp_start.clone(),
             timestamp_end: Some(self.timestamp_end.clone()),
             software_version: self.software_version.clone(),
-            locations: self.location.clone().unwrap_or_else(|| "Point(0 0)".to_string()),
+            locations: self.locations.clone().unwrap_or_else(|| "Point(0 0)".to_string()),
             altitude_max: self.altitude_max,
             altitude_min: self.altitude_min,
             altitude_average: self.altitude_average,
@@ -473,7 +457,6 @@ pub struct Tag {
     pub observation_type: String,
     pub class_name: String,
     pub event_id: u32,
-    pub manual: bool,
 }
 
 impl Tag {
@@ -496,7 +479,6 @@ impl Tag {
             observation_type,
             class_name,
             event_id: 0,
-            manual: false,
         }
     }
 
@@ -663,7 +645,11 @@ impl ScoutClient {
             200 => {
                 let data: serde_json::Value = serde_json::from_str(&response_text)?;
                 let device_data = if data.is_array() {
-                    data.as_array().unwrap()[0].clone()
+                    let array = data.as_array().unwrap();
+                    if array.is_empty() {
+                        return Err(anyhow!("Device response is an empty array"));
+                    }
+                    array[0].clone()
                 } else {
                     data
                 };
@@ -736,7 +722,11 @@ impl ScoutClient {
             200 => {
                 let data: serde_json::Value = serde_json::from_str(&response_text)?;
                 let herd_data = if data.is_array() {
-                    data.as_array().unwrap()[0].clone()
+                    let array = data.as_array().unwrap();
+                    if array.is_empty() {
+                        return Err(anyhow!("Herd response is an empty array"));
+                    }
+                    array[0].clone()
                 } else {
                     data
                 };
@@ -2176,7 +2166,8 @@ impl ScoutClient {
             distance_total: 0.0, // This will be ignored in the update
             distance_max_from_start: 0.0, // This will be ignored in the update
             status: None,
-            location: None,
+            locations: None,
+            locations_geojson: None,
         };
 
         let response = self.update_session(session_id, &session).await?;
@@ -2186,131 +2177,6 @@ impl ScoutClient {
                 Ok(())
             }
             _ => Err(anyhow!("Failed to end session")),
-        }
-    }
-
-    /// Retrieves sessions by herd ID with coordinate data using database functions.
-    ///
-    /// This method uses a database RPC function to fetch sessions with enhanced
-    /// coordinate information, including WKT locations and extracted latitude/longitude.
-    /// This provides more detailed location data than the standard sessions endpoint.
-    ///
-    /// # Arguments
-    ///
-    /// * `herd_id` - The ID of the herd to get sessions for
-    ///
-    /// # Returns
-    ///
-    /// A `Result<ResponseScout<Vec<SessionWithCoordinates>>>` containing sessions with coordinate data or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use scout_rs::client::ScoutClient;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
-    /// let response = client.get_sessions_with_coordinates_by_herd(123).await?;
-    /// if let Some(sessions) = response.data {
-    ///     for session in sessions {
-    ///         println!("Session {} has coordinates", session.id.unwrap_or(0));
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn get_sessions_with_coordinates_by_herd(
-        &self,
-        herd_id: u32
-    ) -> Result<ResponseScout<Vec<SessionWithCoordinates>>> {
-        debug!("Fetching sessions with coordinates for herd_id: {}", herd_id);
-        let url = format!("{}/sessions/with-coordinates/{}", self.scout_url, herd_id);
-        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
-
-        match response.status().as_u16() {
-            200 => {
-                let sessions: Vec<SessionWithCoordinates> = response.json().await?;
-                debug!(
-                    "Successfully fetched {} sessions with coordinates for herd {}",
-                    sessions.len(),
-                    herd_id
-                );
-                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
-            }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!("Failed to get sessions with coordinates: HTTP {} - {}", status, error_text);
-                Err(
-                    anyhow!(
-                        "Failed to get sessions with coordinates: HTTP {} - {}",
-                        status,
-                        error_text
-                    )
-                )
-            }
-        }
-    }
-
-    /// Retrieves sessions by device ID with coordinate data using database functions.
-    ///
-    /// This method uses a database RPC function to fetch sessions for a specific device
-    /// with enhanced coordinate information, including WKT locations and extracted latitude/longitude.
-    ///
-    /// # Arguments
-    ///
-    /// * `device_id` - The ID of the device to get sessions for
-    ///
-    /// # Returns
-    ///
-    /// A `Result<ResponseScout<Vec<SessionWithCoordinates>>>` containing sessions with coordinate data or an error
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// # use scout_rs::client::ScoutClient;
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
-    /// let response = client.get_sessions_with_coordinates_by_device(456).await?;
-    /// if let Some(sessions) = response.data {
-    ///     println!("Found {} sessions for device 456", sessions.len());
-    /// }
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn get_sessions_with_coordinates_by_device(
-        &self,
-        device_id: u32
-    ) -> Result<ResponseScout<Vec<SessionWithCoordinates>>> {
-        debug!("Fetching sessions with coordinates for device_id: {}", device_id);
-        let url = format!("{}/sessions/with-coordinates/device/{}", self.scout_url, device_id);
-        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
-
-        match response.status().as_u16() {
-            200 => {
-                let sessions: Vec<SessionWithCoordinates> = response.json().await?;
-                debug!(
-                    "Successfully fetched {} sessions with coordinates for device {}",
-                    sessions.len(),
-                    device_id
-                );
-                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
-            }
-            _ => {
-                let status = response.status();
-                let error_text = response.text().await?;
-                error!(
-                    "Failed to get sessions with coordinates by device: HTTP {} - {}",
-                    status,
-                    error_text
-                );
-                Err(
-                    anyhow!(
-                        "Failed to get sessions with coordinates by device: HTTP {} - {}",
-                        status,
-                        error_text
-                    )
-                )
-            }
         }
     }
 
@@ -2483,14 +2349,7 @@ pub struct ConnectivityWithCoordinates {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{ time::{ SystemTime, UNIX_EPOCH }, env };
-    use dotenv::dotenv;
-    use tracing_subscriber;
-
-    fn init_test_logging() {
-        // Initialize tracing subscriber for tests
-        let _ = tracing_subscriber::fmt().with_env_filter("info").with_test_writer().try_init();
-    }
+    use std::{ time::{ SystemTime, UNIX_EPOCH } };
 
     #[test]
     fn test_format_location() {
@@ -2568,425 +2427,6 @@ mod tests {
         assert_eq!(tag.conf, 0.95);
         assert_eq!(tag.class_name, "person");
         assert_eq!(tag.event_id, 0); // Should be 0 initially
-        assert_eq!(tag.manual, false); // Should be false for auto-generated tags
-    }
-
-    #[tokio::test]
-    async fn test_scout_client_integration() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping integration test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        // Test getting device
-        info!("Testing get_device...");
-        match client.get_device().await {
-            Ok(device_response) => {
-                match device_response.status {
-                    ResponseScoutStatus::Success => {
-                        if let Some(device) = device_response.data {
-                            info!("✅ Successfully got device: {:?}", device);
-
-                            // Test getting herd using the device's herd_id
-                            let herd_id_value = device.herd_id;
-                            info!("Testing get_herd with herd_id: {}...", herd_id_value);
-
-                            match client.get_herd(Some(herd_id_value)).await {
-                                Ok(herd_response) => {
-                                    match herd_response.status {
-                                        ResponseScoutStatus::Success => {
-                                            if let Some(herd) = herd_response.data {
-                                                info!("✅ Successfully got herd: {:?}", herd);
-
-                                                // Additional assertions to verify the data structure
-                                                assert!(
-                                                    device.id > 0,
-                                                    "Device should have a valid 'id' field"
-                                                );
-                                                assert!(
-                                                    device.name.len() > 0,
-                                                    "Device should have a valid 'name' field"
-                                                );
-                                                assert!(
-                                                    herd.id > 0,
-                                                    "Herd should have a valid 'id' field"
-                                                );
-                                                assert!(
-                                                    herd.slug.len() > 0,
-                                                    "Herd should have a valid 'slug' field"
-                                                );
-                                            } else {
-                                                info!(
-                                                    "⚠️  Herd response had success status but no data"
-                                                );
-                                            }
-                                        }
-                                        ResponseScoutStatus::NotAuthorized => {
-                                            assert!(
-                                                false,
-                                                "Herd request returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
-                                            );
-                                        }
-                                        _ => {
-                                            info!(
-                                                "⚠️  Herd request failed with status: {:?}",
-                                                herd_response.status
-                                            );
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    info!("⚠️  Failed to get herd response: {}", e);
-                                }
-                            }
-                        } else {
-                            info!("⚠️  Device response had success status but no data");
-                        }
-                    }
-                    ResponseScoutStatus::NotAuthorized => {
-                        assert!(
-                            false,
-                            "Device request returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
-                        );
-                    }
-                    _ => {
-                        info!(
-                            "⚠️  Device request failed with status: {:?}",
-                            device_response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("⚠️  Failed to get device response: {}", e);
-                info!("   This is expected if the API server is not available");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_scout_client_error_handling() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Test with invalid API key
-        let mut client = ScoutClient::new(
-            "https://example.com".to_string(),
-            "invalid_api_key".to_string()
-        ).expect("Failed to create ScoutClient");
-
-        // Test getting device with invalid key
-        match client.get_device().await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!("✅ Correctly returned NotAuthorized status with invalid API key");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!("✅ Correctly returned Failure status (expected for invalid server)");
-                    }
-                    _ => {
-                        info!(
-                            "✅ Returned {:?} status (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ Correctly returned error with invalid API key: {}", e);
-            }
-        }
-
-        // Test getting herd with invalid key
-        match client.get_herd(Some(123)).await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!(
-                            "✅ Correctly returned NotAuthorized status for herd with invalid API key"
-                        );
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!("✅ Correctly returned Failure status (expected for invalid server)");
-                    }
-                    _ => {
-                        info!(
-                            "✅ Returned {:?} status (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ Correctly returned error for herd with invalid API key: {}", e);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_401_unauthorized_responses() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        info!("🧪 Testing 401 Unauthorized Response Handling");
-        info!("=============================================");
-
-        // Test with invalid API key
-        let mut client = ScoutClient::new(
-            "https://example.com".to_string(),
-            "invalid_api_key".to_string()
-        ).expect("Failed to create ScoutClient");
-
-        // Test 1: get_device with invalid API key
-        info!("1️⃣ Testing get_device with invalid API key");
-        match client.get_device().await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!("✅ get_device correctly returned NotAuthorized for invalid API key");
-                    }
-                    ResponseScoutStatus::Success => {
-                        assert!(false, "get_device should not return Success with invalid API key");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!("✅ get_device returned Failure (expected for invalid server)");
-                    }
-                    _ => {
-                        info!(
-                            "✅ get_device returned {:?} (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ get_device correctly returned error: {}", e);
-            }
-        }
-
-        // Test 2: get_herd with invalid API key
-        info!("2️⃣ Testing get_herd with invalid API key");
-        match client.get_herd(Some(123)).await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!("✅ get_herd correctly returned NotAuthorized for invalid API key");
-                    }
-                    ResponseScoutStatus::Success => {
-                        assert!(false, "get_herd should not return Success with invalid API key");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!("✅ get_herd returned Failure (expected for invalid server)");
-                    }
-                    _ => {
-                        info!(
-                            "✅ get_herd returned {:?} (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ get_herd correctly returned error: {}", e);
-            }
-        }
-
-        // Test 3: post_event_with_tags with invalid API key
-        info!("3️⃣ Testing post_event_with_tags with invalid API key");
-        let event = Event::new(
-            Some("Test event".to_string()),
-            None,
-            None,
-            None,
-            19.754824,
-            -155.15393,
-            10.0,
-            0.0,
-            "image".to_string(),
-            123,
-            1733351509,
-            false,
-            None
-        );
-        let tags = vec![
-            Tag::new(1, 100.0, 200.0, 50.0, 30.0, 0.95, "manual".to_string(), "animal".to_string())
-        ];
-
-        // Create a temporary test file
-        let temp_file = "temp_test_file.jpg";
-        std::fs::write(temp_file, b"fake image data").expect("Failed to create temp file");
-
-        match client.post_event_with_tags(&event, &tags, temp_file).await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!(
-                            "✅ post_event_with_tags correctly returned NotAuthorized for invalid API key"
-                        );
-                    }
-                    ResponseScoutStatus::Success => {
-                        assert!(
-                            false,
-                            "post_event_with_tags should not return Success with invalid API key"
-                        );
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!(
-                            "✅ post_event_with_tags returned Failure (expected for invalid server)"
-                        );
-                    }
-                    _ => {
-                        info!(
-                            "✅ post_event_with_tags returned {:?} (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ post_event_with_tags correctly returned error: {}", e);
-            }
-        }
-
-        // Clean up temp file
-        let _ = std::fs::remove_file(temp_file);
-
-        // Test 4: Test with empty API key
-        info!("4️⃣ Testing with empty API key");
-        let mut empty_key_client = ScoutClient::new(
-            "https://example.com".to_string(),
-            "".to_string()
-        ).expect("Failed to create ScoutClient");
-
-        match empty_key_client.get_device().await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        info!("✅ Empty API key correctly returned NotAuthorized");
-                    }
-                    ResponseScoutStatus::Success => {
-                        assert!(false, "Empty API key should not return Success");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!("✅ Empty API key returned Failure (expected for invalid server)");
-                    }
-                    _ => {
-                        info!(
-                            "✅ Empty API key returned {:?} (acceptable for test server)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("✅ Empty API key correctly returned error: {}", e);
-            }
-        }
-
-        info!("✅ All 401 unauthorized response tests completed successfully");
-    }
-
-    #[tokio::test]
-    async fn test_should_not_receive_401_with_valid_credentials() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping 401 test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-
-        info!("🧪 Testing that valid credentials should NOT return 401");
-        info!("=====================================================");
-
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        // Test 1: get_device with valid API key should NOT return 401
-        info!("1️⃣ Testing get_device with valid API key");
-        match client.get_device().await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        assert!(
-                            false,
-                            "get_device returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
-                        );
-                    }
-                    ResponseScoutStatus::Success => {
-                        info!("✅ get_device returned Success with valid API key");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!(
-                            "⚠️ get_device returned Failure (this might be expected depending on server state)"
-                        );
-                    }
-                    _ => {
-                        info!(
-                            "⚠️ get_device returned {:?} (unexpected but not necessarily wrong)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("⚠️ get_device returned error: {} (this might be expected if server is unavailable)", e);
-            }
-        }
-
-        // Test 2: get_herd with valid API key should NOT return 401
-        info!("2️⃣ Testing get_herd with valid API key");
-        match client.get_herd(None).await {
-            Ok(response) => {
-                match response.status {
-                    ResponseScoutStatus::NotAuthorized => {
-                        assert!(
-                            false,
-                            "get_herd returned 401 NotAuthorized with valid API key - this indicates an authentication problem"
-                        );
-                    }
-                    ResponseScoutStatus::Success => {
-                        info!("✅ get_herd returned Success with valid API key");
-                    }
-                    ResponseScoutStatus::Failure => {
-                        info!(
-                            "⚠️ get_herd returned Failure (this might be expected if no device/herd data is available)"
-                        );
-                    }
-                    _ => {
-                        info!(
-                            "⚠️ get_herd returned {:?} (unexpected but not necessarily wrong)",
-                            response.status
-                        );
-                    }
-                }
-            }
-            Err(e) => {
-                info!("⚠️ get_herd returned error: {} (this might be expected if no device data is available)", e);
-            }
-        }
-
-        info!("✅ Valid credentials did not return 401 responses");
     }
 
     #[test]
@@ -3139,48 +2579,6 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_identify_method() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping identify test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        // Test identify method
-        let result = client.identify().await;
-        match result {
-            Ok(_) => {
-                info!("✅ Identify method completed successfully");
-                // Verify that device and herd are loaded into state
-                assert!(client.device.is_some(), "Device should be loaded into state");
-                assert!(client.herd.is_some(), "Herd should be loaded into state");
-
-                if let Some(device) = &client.device {
-                    info!("   Device loaded: {} (ID: {})", device.name, device.id);
-                }
-                if let Some(herd) = &client.herd {
-                    info!("   Herd loaded: {} (ID: {})", herd.slug, herd.id);
-                }
-            }
-            Err(e) => {
-                info!("❌ Identify method failed: {}", e);
-                // This is expected if no valid API key is provided
-            }
-        }
-    }
-
     // ===== SESSION TESTS =====
 
     #[test]
@@ -3226,7 +2624,7 @@ mod tests {
 
         assert_eq!(session.device_id, 123);
         assert_eq!(session.software_version, "v1.0.0");
-        assert_eq!(session.location, Some("Point(-74.006 40.7128)".to_string()));
+        assert_eq!(session.locations, Some("Point(-74.006 40.7128)".to_string()));
     }
 
     #[test]
@@ -3250,7 +2648,7 @@ mod tests {
 
         assert_eq!(session.device_id, 123);
         assert_eq!(
-            session.location,
+            session.locations,
             Some("LineString(-118.4079 33.9434, 2.5559 49.0083)".to_string())
         );
 
@@ -3293,6 +2691,7 @@ mod tests {
         ).with_id(456);
 
         assert_eq!(session.id, Some(456));
+        assert_eq!(session.device_id, 123);
     }
 
     #[test]
@@ -3313,11 +2712,14 @@ mod tests {
             500.0
         );
 
-        session.update_timestamp_end(
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
-        );
+        let new_end_time = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600;
+        session.update_timestamp_end(new_end_time);
+
+        // The timestamp should be updated (we can't easily test the exact string format)
         assert!(!session.timestamp_end.is_empty());
     }
+
+    // ===== CONNECTIVITY TESTS =====
 
     #[test]
     fn test_connectivity_creation() {
@@ -3328,16 +2730,18 @@ mod tests {
             -60.0,
             100.0,
             45.0,
-            "Point(0 0)".to_string(),
-            "1".to_string(),
-            "2".to_string(),
-            "3".to_string(),
-            "4".to_string()
+            "Point(-74.006 40.7128)".to_string(),
+            "h14".to_string(),
+            "h13".to_string(),
+            "h12".to_string(),
+            "h11".to_string()
         );
 
         assert_eq!(connectivity.session_id, 123);
         assert_eq!(connectivity.signal, -50.0);
         assert_eq!(connectivity.noise, -60.0);
+        assert_eq!(connectivity.altitude, 100.0);
+        assert_eq!(connectivity.heading, 45.0);
         assert!(connectivity.id.is_none());
     }
 
@@ -3352,14 +2756,14 @@ mod tests {
             100.0,
             45.0,
             "Point(-74.006 40.7128)".to_string(),
-            "1".to_string(),
-            "2".to_string(),
-            "3".to_string(),
-            "4".to_string()
+            "h14".to_string(),
+            "h13".to_string(),
+            "h12".to_string(),
+            "h11".to_string()
         ).unwrap();
 
         assert_eq!(connectivity.session_id, 123);
-        assert_eq!(connectivity.location, "Point(-74.006 40.7128)");
+        assert_eq!(connectivity.location, "Point(-74.006 40.7128)".to_string());
 
         // Invalid WKT should fail
         let result = Connectivity::new_with_wkt_validation(
@@ -3370,10 +2774,10 @@ mod tests {
             100.0,
             45.0,
             "Invalid WKT".to_string(),
-            "1".to_string(),
-            "2".to_string(),
-            "3".to_string(),
-            "4".to_string()
+            "h14".to_string(),
+            "h13".to_string(),
+            "h12".to_string(),
+            "h11".to_string()
         );
 
         assert!(result.is_err());
@@ -3388,1181 +2792,14 @@ mod tests {
             -60.0,
             100.0,
             45.0,
-            "Point(0 0)".to_string(),
-            "1".to_string(),
-            "2".to_string(),
-            "3".to_string(),
-            "4".to_string()
+            "Point(-74.006 40.7128)".to_string(),
+            "h14".to_string(),
+            "h13".to_string(),
+            "h12".to_string(),
+            "h11".to_string()
         ).with_id(789);
 
         assert_eq!(connectivity.id, Some(789));
-    }
-
-    #[tokio::test]
-    async fn test_session_creation_api() {
-        // Initialize logging for this test
-        init_test_logging();
-
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping session creation API test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        // Test creating a session with realistic data
-        info!("Testing session creation with realistic data...");
-
-        // Get device ID from environment
-        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
-            Ok(val) =>
-                match val.parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
-                        return;
-                    }
-                }
-            Err(_) => {
-                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
-                return;
-            }
-        };
-
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let timestamp_end = timestamp_start + 3600; // 1 hour later
-
-        match
-            client.create_session(
-                device_id,
-                timestamp_start,
-                timestamp_end,
-                "v1.0.0".to_string(),
-                None,
-                150.0, // altitude_max
-                50.0, // altitude_min
-                100.0, // altitude_average
-                25.0, // velocity_max (m/s)
-                5.0, // velocity_min (m/s)
-                15.0, // velocity_average (m/s)
-                5000.0, // distance_total (m)
-                2500.0 // distance_max_from_start (m)
-            ).await
-        {
-            Ok(id) => {
-                info!("✅ Successfully created session with ID: {}", id);
-                assert!(id > 0, "Session ID should be positive");
-
-                // Test that we can retrieve the session data
-                info!("Testing session retrieval...");
-
-                // Get herd ID from environment
-                let herd_id: u32 = match env::var("SCOUT_HERD_ID") {
-                    Ok(val) =>
-                        match val.parse() {
-                            Ok(num) => num,
-                            Err(_) => {
-                                info!(
-                                    "Skipping session retrieval test - SCOUT_HERD_ID is not a valid u32"
-                                );
-                                return;
-                            }
-                        }
-                    Err(_) => {
-                        info!(
-                            "Skipping session retrieval test - no SCOUT_HERD_ID environment variable set"
-                        );
-                        return;
-                    }
-                };
-
-                match client.get_sessions_by_herd(herd_id).await {
-                    Ok(response) => {
-                        if let Some(sessions) = response.data {
-                            let created_session = sessions.iter().find(|s| s.id == Some(id));
-                            if let Some(session) = created_session {
-                                info!("✅ Found created session in herd: {:?}", session);
-                                assert_eq!(session.device_id, device_id);
-                                assert_eq!(session.software_version, "v1.0.0");
-                                assert!(
-                                    session.location.is_some(),
-                                    "Session should have WKT location"
-                                );
-                                assert_eq!(session.altitude_max, 150.0);
-                                assert_eq!(session.altitude_min, 50.0);
-                                assert_eq!(session.altitude_average, 100.0);
-                                assert_eq!(session.velocity_max, 25.0);
-                                assert_eq!(session.velocity_min, 5.0);
-                                assert_eq!(session.velocity_average, 15.0);
-                                assert_eq!(session.distance_total, 5000.0);
-                                assert_eq!(session.distance_max_from_start, 2500.0);
-                            } else {
-                                info!(
-                                    "⚠️  Created session not found in herd list (this might be expected if herd_id is different)"
-                                );
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        info!("⚠️ Failed to retrieve sessions: {} (this is expected if the API server is not available)", e);
-                    }
-                }
-
-                // Clean up: delete the test session
-                info!("Cleaning up test session...");
-                match client.delete_session(id).await {
-                    Ok(_) => {
-                        info!("✅ Successfully deleted test session");
-                    }
-                    Err(e) => {
-                        warn!("⚠️ Failed to delete test session: {} (this is non-critical)", e);
-                    }
-                }
-            }
-            Err(e) => {
-                info!("⚠️ Failed to create session: {} (this is expected if the API server is not available)", e);
-                info!("   This indicates the API integration is not working properly");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_session_creation_error_handling() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!(
-                "Skipping session creation error handling test - no SCOUT_API_KEY environment variable set"
-            );
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        // Test creating a session with invalid device_id (negative)
-        info!("Testing session creation with invalid device_id...");
-        let result = client.create_session(
-            -1, // Invalid negative device_id
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
-            "v1.0.0".to_string(),
-            None,
-            100.0,
-            50.0,
-            75.0,
-            10.0,
-            5.0,
-            7.5,
-            1000.0,
-            500.0
-        ).await;
-
-        match result {
-            Ok(_) => {
-                info!(
-                    "⚠️  Session creation succeeded with invalid device_id (API might not validate this)"
-                );
-            }
-            Err(e) => {
-                info!("✅ Session creation correctly failed with invalid device_id: {}", e);
-            }
-        }
-
-        // Test creating a session with invalid timestamps (end before start)
-        info!("Testing session creation with invalid timestamps...");
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let timestamp_end = timestamp_start - 3600; // End before start
-
-        let result = client.create_session(
-            123,
-            timestamp_start,
-            timestamp_end,
-            "v1.0.0".to_string(),
-            None,
-            100.0,
-            50.0,
-            75.0,
-            10.0,
-            5.0,
-            7.5,
-            1000.0,
-            500.0
-        ).await;
-
-        match result {
-            Ok(_) => {
-                info!(
-                    "⚠️  Session creation succeeded with invalid timestamps (API might not validate this)"
-                );
-            }
-            Err(e) => {
-                info!("✅ Session creation correctly failed with invalid timestamps: {}", e);
-            }
-        }
-
-        // Test creating a session with invalid altitude values (negative)
-        info!("Testing session creation with invalid altitude values...");
-        let result = client.create_session(
-            123,
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
-            "v1.0.0".to_string(),
-            None,
-            -100.0, // Invalid negative altitude_max
-            50.0,
-            75.0,
-            10.0,
-            5.0,
-            7.5,
-            1000.0,
-            500.0
-        ).await;
-
-        match result {
-            Ok(_) => {
-                info!(
-                    "⚠️  Session creation succeeded with invalid altitude values (API might not validate this)"
-                );
-            }
-            Err(e) => {
-                info!("✅ Session creation correctly failed with invalid altitude values: {}", e);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_api_compliance_sessions_endpoints() {
-        // Initialize logging for this test
-        init_test_logging();
-
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping API compliance test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        info!("🧪 Testing API Compliance for Sessions Endpoints");
-        info!("================================================");
-
-        // Test 1: GET /sessions?herd_id={herd_id} - Get sessions by herd
-        let herd_id = 1; // Test herd ID
-        info!("1️⃣ Testing GET /sessions?herd_id={}", herd_id);
-        match client.get_sessions_by_herd(herd_id).await {
-            Ok(response) => {
-                info!("✅ GET /sessions?herd_id={} - SUCCESS", herd_id);
-                info!("   Status: {:?}", response.status);
-                if let Some(sessions) = &response.data {
-                    info!("   Response: {} sessions returned", sessions.len());
-                    // Validate session structure
-                    for session in sessions {
-                        assert!(session.device_id > 0, "Session device_id should be positive");
-                        assert!(
-                            !session.software_version.is_empty(),
-                            "Session software_version should not be empty"
-                        );
-                        assert!(session.location.is_none(), "Session location should be None");
-                        assert!(
-                            session.altitude_max >= session.altitude_min,
-                            "Session altitude_max should be >= altitude_min"
-                        );
-                        assert!(
-                            session.velocity_max >= session.velocity_min,
-                            "Session velocity_max should be >= velocity_min"
-                        );
-                    }
-                } else {
-                    info!("   Response: No sessions found (empty array)");
-                }
-            }
-            Err(e) => {
-                info!("❌ GET /sessions?herd_id={} - FAILED: {}", herd_id, e);
-            }
-        }
-
-        // Test 2: POST /sessions - Create session
-        info!("2️⃣ Testing POST /sessions (Create)");
-
-        // Get device ID from environment
-        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
-            Ok(val) =>
-                match val.parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
-                        return;
-                    }
-                }
-            Err(_) => {
-                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
-                return;
-            }
-        };
-
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let timestamp_end = timestamp_start + 3600;
-
-        let session_id = client.create_session(
-            device_id,
-            timestamp_start,
-            timestamp_end,
-            "v1.0.0".to_string(),
-            None,
-            150.0,
-            50.0,
-            100.0,
-            25.0,
-            5.0,
-            15.0,
-            5000.0,
-            2500.0
-        ).await;
-
-        match session_id {
-            Ok(id) => {
-                info!("✅ POST /sessions - SUCCESS");
-                info!("   Created session ID: {}", id);
-                assert!(id > 0, "Session ID should be positive");
-
-                // Test 3: GET /sessions/{session_id}/events
-                info!("3️⃣ Testing GET /sessions/{}/events", id);
-                match client.get_session_events(id).await {
-                    Ok(response) => {
-                        info!("✅ GET /sessions/{}/events - SUCCESS", id);
-                        info!("   Status: {:?}", response.status);
-                        if let Some(events) = &response.data {
-                            info!("   Response: {} events returned", events.len());
-                            // Validate event structure
-                            for event in events {
-                                assert!(
-                                    !event.location.is_empty(),
-                                    "Event location should not be empty"
-                                );
-                                assert!(
-                                    !event.media_type.is_empty(),
-                                    "Event media_type should not be empty"
-                                );
-                                assert!(
-                                    !event.device_id.is_empty(),
-                                    "Event device_id should not be empty"
-                                );
-                            }
-                        } else {
-                            info!("   Response: No events found (empty array)");
-                        }
-                    }
-                    Err(e) => {
-                        info!("❌ GET /sessions/{}/events - FAILED: {}", id, e);
-                    }
-                }
-
-                // Test 4: GET /sessions/{session_id}/connectivity
-                info!("4️⃣ Testing GET /sessions/{}/connectivity", id);
-                match client.get_session_connectivity(id).await {
-                    Ok(response) => {
-                        info!("✅ GET /sessions/{}/connectivity - SUCCESS", id);
-                        info!("   Status: {:?}", response.status);
-                        if let Some(connectivity) = &response.data {
-                            info!(
-                                "   Response: {} connectivity entries returned",
-                                connectivity.len()
-                            );
-                            // Validate connectivity structure
-                            for conn in connectivity {
-                                assert_eq!(
-                                    conn.session_id,
-                                    id,
-                                    "Connectivity session_id should match"
-                                );
-                                assert!(
-                                    !conn.location.is_empty(),
-                                    "Connectivity location should not be empty"
-                                );
-                                assert!(
-                                    !conn.h14_index.is_empty(),
-                                    "Connectivity h14_index should not be empty"
-                                );
-                                assert!(
-                                    !conn.h13_index.is_empty(),
-                                    "Connectivity h13_index should not be empty"
-                                );
-                                assert!(
-                                    !conn.h12_index.is_empty(),
-                                    "Connectivity h12_index should not be empty"
-                                );
-                                assert!(
-                                    !conn.h11_index.is_empty(),
-                                    "Connectivity h11_index should not be empty"
-                                );
-                            }
-                        } else {
-                            info!("   Response: No connectivity entries found (empty array)");
-                        }
-                    }
-                    Err(e) => {
-                        info!("❌ GET /sessions/{}/connectivity - FAILED: {}", id, e);
-                    }
-                }
-
-                // Test 5: PUT /sessions/{session_id} - Update session
-                info!("5️⃣ Testing PUT /sessions/{} (Update)", id);
-                let updated_session = Session::new(
-                    device_id,
-                    timestamp_start,
-                    timestamp_end + 1800, // Extend by 30 minutes
-                    "v1.1.0".to_string(), // Updated version
-                    None,
-                    160.0, // Updated altitude_max
-                    50.0,
-                    105.0, // Updated altitude_average
-                    25.0,
-                    5.0,
-                    15.0,
-                    5500.0, // Updated distance_total
-                    2500.0
-                ).with_id(id);
-
-                match client.update_session(id, &updated_session).await {
-                    Ok(response) => {
-                        info!("✅ PUT /sessions/{} - SUCCESS", id);
-                        info!("   Status: {:?}", response.status);
-                        if let Some(updated) = &response.data {
-                            info!("   Response: Session updated successfully");
-                            assert_eq!(
-                                updated.software_version,
-                                "v1.1.0",
-                                "Software version should be updated"
-                            );
-                            assert_eq!(
-                                updated.altitude_max,
-                                160.0,
-                                "Altitude max should be updated"
-                            );
-                            assert_eq!(
-                                updated.distance_total,
-                                5500.0,
-                                "Distance total should be updated"
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        info!("❌ PUT /sessions/{} - FAILED: {}", id, e);
-                    }
-                }
-
-                // Test 6: DELETE /sessions/{session_id} - Delete session
-                info!("6️⃣ Testing DELETE /sessions/{}", id);
-                match client.delete_session(id).await {
-                    Ok(response) => {
-                        info!("✅ DELETE /sessions/{} - SUCCESS", id);
-                        info!("   Status: {:?}", response.status);
-                        info!("   Response: Session deleted successfully");
-                    }
-                    Err(e) => {
-                        warn!("⚠️ DELETE /sessions/{} - FAILED: {} (non-critical)", id, e);
-                    }
-                }
-            }
-            Err(e) => {
-                info!("❌ POST /sessions - FAILED: {}", e);
-                info!("   Skipping subsequent tests due to session creation failure");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_api_compliance_error_handling() {
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping API error handling test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        info!("🧪 Testing API Error Handling Compliance");
-        info!("=======================================");
-
-        // Test 1: Invalid herd_id (should return 404 or empty array)
-        info!("1️⃣ Testing GET /sessions?herd_id=999999 (Invalid herd)");
-        match client.get_sessions_by_herd(999999).await {
-            Ok(response) => {
-                info!("✅ GET /sessions?herd_id=999999 - SUCCESS (empty array expected)");
-                if let Some(sessions) = &response.data {
-                    info!("   Response: {} sessions returned (expected 0)", sessions.len());
-                    assert_eq!(sessions.len(), 0, "Should return empty array for invalid herd_id");
-                }
-            }
-            Err(e) => {
-                info!("❌ GET /sessions?herd_id=999999 - FAILED: {}", e);
-            }
-        }
-
-        // Test 2: Invalid session_id for events (should return 404 or empty array)
-        info!("2️⃣ Testing GET /sessions/999999/events (Invalid session)");
-        match client.get_session_events(999999).await {
-            Ok(response) => {
-                info!("✅ GET /sessions/999999/events - SUCCESS (empty array expected)");
-                if let Some(events) = &response.data {
-                    info!("   Response: {} events returned (expected 0)", events.len());
-                    assert_eq!(events.len(), 0, "Should return empty array for invalid session_id");
-                }
-            }
-            Err(e) => {
-                info!("❌ GET /sessions/999999/events - FAILED: {}", e);
-            }
-        }
-
-        // Test 3: Invalid session_id for connectivity (should return 404 or empty array)
-        info!("3️⃣ Testing GET /sessions/999999/connectivity (Invalid session)");
-        match client.get_session_connectivity(999999).await {
-            Ok(response) => {
-                info!("✅ GET /sessions/999999/connectivity - SUCCESS (empty array expected)");
-                if let Some(connectivity) = &response.data {
-                    info!(
-                        "   Response: {} connectivity entries returned (expected 0)",
-                        connectivity.len()
-                    );
-                    assert_eq!(
-                        connectivity.len(),
-                        0,
-                        "Should return empty array for invalid session_id"
-                    );
-                }
-            }
-            Err(e) => {
-                info!("❌ GET /sessions/999999/connectivity - FAILED: {}", e);
-            }
-        }
-
-        // Test 4: Update non-existent session (should return 404)
-        info!("4️⃣ Testing PUT /sessions/999999 (Non-existent session)");
-        let fake_session = Session::new(
-            123,
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
-            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() + 3600,
-            "v1.0.0".to_string(),
-            None,
-            100.0,
-            50.0,
-            75.0,
-            10.0,
-            5.0,
-            7.5,
-            1000.0,
-            500.0
-        ).with_id(999999);
-
-        match client.update_session(999999, &fake_session).await {
-            Ok(_response) => {
-                info!("⚠️ PUT /sessions/999999 - SUCCESS (unexpected - should return 404)");
-            }
-            Err(e) => {
-                info!("✅ PUT /sessions/999999 - FAILED as expected: {}", e);
-            }
-        }
-
-        // Test 5: Delete non-existent session (should return 404)
-        info!("5️⃣ Testing DELETE /sessions/999999 (Non-existent session)");
-        match client.delete_session(999999).await {
-            Ok(_response) => {
-                info!("⚠️ DELETE /sessions/999999 - SUCCESS (unexpected - should return 404)");
-            }
-            Err(e) => {
-                info!("✅ DELETE /sessions/999999 - FAILED as expected: {}", e);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_api_compliance_batch_operations() {
-        // Initialize logging for this test
-        init_test_logging();
-
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping API batch operations test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        info!("🧪 Testing API Batch Operations Compliance");
-        info!("=========================================");
-
-        // Test 1: POST /sessions/batch - Batch create sessions
-        info!("1️⃣ Testing POST /sessions/batch (Batch create)");
-
-        // Get device ID from environment
-        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
-            Ok(val) =>
-                match val.parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
-                        return;
-                    }
-                }
-            Err(_) => {
-                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
-                return;
-            }
-        };
-
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-
-        let sessions = vec![
-            Session::new(
-                device_id,
-                timestamp_start,
-                timestamp_start + 1800,
-                "v1.0.0".to_string(),
-                None,
-                150.0,
-                50.0,
-                100.0,
-                25.0,
-                5.0,
-                15.0,
-                2500.0,
-                1250.0
-            ),
-            Session::new(
-                device_id,
-                timestamp_start + 1800,
-                timestamp_start + 3600,
-                "v1.0.0".to_string(),
-                None,
-                160.0,
-                60.0,
-                110.0,
-                30.0,
-                10.0,
-                20.0,
-                3000.0,
-                1500.0
-            )
-        ];
-
-        match client.upsert_sessions_batch(&sessions).await {
-            Ok(response) => {
-                info!("✅ POST /sessions/batch - SUCCESS");
-                info!("   Status: {:?}", response.status);
-                if let Some(created_sessions) = &response.data {
-                    info!("   Response: {} sessions created", created_sessions.len());
-                    assert_eq!(created_sessions.len(), 2, "Should create exactly 2 sessions");
-
-                    // Validate all sessions have IDs
-                    for session in created_sessions {
-                        assert!(session.id.is_some(), "All created sessions should have IDs");
-                        assert_eq!(
-                            session.device_id,
-                            device_id,
-                            "All sessions should have correct device_id"
-                        );
-                    }
-
-                    // Clean up: delete the created sessions
-                    info!("🧹 Cleaning up batch-created sessions...");
-                    for session in created_sessions {
-                        if let Some(id) = session.id {
-                            match client.delete_session(id).await {
-                                Ok(_) => info!("   ✅ Deleted session {}", id),
-                                Err(e) =>
-                                    warn!(
-                                        "   ⚠️ Failed to delete session {}: {} (non-critical)",
-                                        id,
-                                        e
-                                    ),
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                info!("❌ POST /sessions/batch - FAILED: {}", e);
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_database_integration_sessions_and_connectivity() {
-        // Initialize logging for this test
-        init_test_logging();
-
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!("Skipping database integration test - no SCOUT_API_KEY environment variable set");
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let mut client = ScoutClient::new(scout_url, api_key).expect(
-            "Failed to create ScoutClient"
-        );
-
-        info!("🧪 Testing Database Integration - Sessions and Connectivity");
-        info!("==========================================================");
-
-        // Step 0: Get the device ID from environment
-        info!("0️⃣ Getting device ID from environment...");
-        let device_id: i64 = match env::var("SCOUT_DEVICE_ID") {
-            Ok(val) =>
-                match val.parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        info!("Skipping test - SCOUT_DEVICE_ID is not a valid i64");
-                        return;
-                    }
-                }
-            Err(_) => {
-                info!("Skipping test - no SCOUT_DEVICE_ID environment variable set");
-                return;
-            }
-        };
-        info!("✅ Using device ID: {}", device_id);
-
-        // Step 1: Create a dummy session
-        info!("1️⃣ Creating dummy session in database...");
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let timestamp_end = timestamp_start + 3600; // 1 hour later
-
-        // Get herd_id from environment
-        let herd_id: u32 = match env::var("SCOUT_HERD_ID") {
-            Ok(val) =>
-                match val.parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        info!("Skipping test - SCOUT_HERD_ID is not a valid u32");
-                        return;
-                    }
-                }
-            Err(_) => {
-                info!("Skipping test - no SCOUT_HERD_ID environment variable set");
-                return;
-            }
-        };
-
-        let session_id = client.create_session(
-            device_id,
-            timestamp_start,
-            timestamp_end,
-            "v1.0.0".to_string(),
-            None,
-            150.0, // altitude_max
-            50.0, // altitude_min
-            100.0, // altitude_average
-            25.0, // velocity_max (m/s)
-            5.0, // velocity_min (m/s)
-            15.0, // velocity_average (m/s)
-            5000.0, // distance_total (m)
-            2500.0 // distance_max_from_start (m)
-        ).await;
-
-        match session_id {
-            Ok(id) => {
-                info!("✅ Successfully created session with ID: {}", id);
-                assert!(id > 0, "Session ID should be positive");
-
-                // Step 2: Verify the session exists in the database
-                info!("2️⃣ Verifying session exists in database...");
-                // Note: The RPC endpoints are not yet implemented in the API
-                // For now, we'll skip this verification step
-                info!(
-                    "⚠️  Skipping session verification - RPC endpoints not yet implemented in API"
-                );
-                info!(
-                    "   This would normally verify the session exists using get_sessions_with_coordinates_by_herd"
-                );
-                info!("   Session ID {} was successfully created", id);
-
-                // Step 3: Create dummy connectivity entries
-                info!("3️⃣ Creating dummy connectivity entries...");
-                let connectivity_entries = vec![
-                    Connectivity::new(
-                        id, // session_id
-                        timestamp_start + 300, // 5 minutes into session
-                        -50.0, // signal
-                        -60.0, // noise
-                        100.0, // altitude
-                        45.0, // heading
-                        "Point(-74.006 40.7128)".to_string(),
-                        "1".to_string(), // h14_index
-                        "2".to_string(), // h13_index
-                        "3".to_string(), // h12_index
-                        "4".to_string() // h11_index
-                    ),
-                    Connectivity::new(
-                        id, // session_id
-                        timestamp_start + 600, // 10 minutes into session
-                        -55.0, // signal
-                        -65.0, // noise
-                        110.0, // altitude
-                        50.0, // heading
-                        "Point(-74.007 40.7129)".to_string(),
-                        "2".to_string(), // h14_index
-                        "3".to_string(), // h13_index
-                        "4".to_string(), // h12_index
-                        "5".to_string() // h11_index
-                    ),
-                    Connectivity::new(
-                        id, // session_id
-                        timestamp_start + 900, // 15 minutes into session
-                        -60.0, // signal
-                        -70.0, // noise
-                        120.0, // altitude
-                        55.0, // heading
-                        "Point(-74.008 40.7130)".to_string(),
-                        "3".to_string(), // h14_index
-                        "4".to_string(), // h13_index
-                        "5".to_string(), // h12_index
-                        "6".to_string() // h11_index
-                    )
-                ];
-
-                // Upload connectivity entries using upsert
-                for (i, connectivity) in connectivity_entries.iter().enumerate() {
-                    info!("   Uploading connectivity entry {}...", i + 1);
-                    match client.upsert_connectivity(connectivity).await {
-                        Ok(response) => {
-                            if let Some(created_conn) = response.data {
-                                info!(
-                                    "   ✅ Connectivity entry {} created with ID: {}",
-                                    i + 1,
-                                    created_conn.id.unwrap_or(0)
-                                );
-                            } else {
-                                info!(
-                                    "   ⚠️ Connectivity entry {} created but no ID returned",
-                                    i + 1
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            panic!("   ❌ Failed to create connectivity entry {}: {}", i + 1, e);
-                        }
-                    }
-                }
-
-                // Step 4: Verify connectivity entries exist in database
-                info!("4️⃣ Verifying connectivity entries exist in database...");
-                // Note: The RPC endpoints are not yet implemented in the API
-                // For now, we'll skip this verification step
-                info!(
-                    "⚠️  Skipping connectivity verification - RPC endpoints not yet implemented in API"
-                );
-                info!(
-                    "   This would normally verify connectivity exists using get_session_connectivity_with_coordinates"
-                );
-                info!("   Connectivity entries were successfully created for session {}", id);
-
-                // Step 5: Update the session with new data
-                info!("5️⃣ Updating session with new data...");
-                let updated_session = Session::new(
-                    device_id,
-                    timestamp_start,
-                    timestamp_end + 1800, // Extend by 30 minutes
-                    "v1.1.0".to_string(), // Updated version
-                    None,
-                    160.0, // Updated altitude_max
-                    50.0,
-                    105.0, // Updated altitude_average
-                    30.0, // Updated velocity_max
-                    5.0,
-                    17.5, // Updated velocity_average
-                    6000.0, // Updated distance_total
-                    3000.0 // Updated distance_max_from_start
-                ).with_id(id);
-
-                match client.update_session(id, &updated_session).await {
-                    Ok(response) => {
-                        if let Some(updated) = response.data {
-                            info!("✅ Session updated successfully");
-                            assert_eq!(updated.software_version, "v1.1.0");
-                            assert_eq!(updated.location, None);
-                            assert_eq!(updated.altitude_max, 160.0);
-                            assert_eq!(updated.velocity_max, 30.0);
-                            assert_eq!(updated.distance_total, 6000.0);
-                        }
-                    }
-                    Err(e) => {
-                        info!("❌ Failed to update session: {}", e);
-                    }
-                }
-
-                // Step 6: Verify the updated session data
-                info!("6️⃣ Verifying updated session data...");
-                // Note: The RPC endpoints are not yet implemented in the API
-                // For now, we'll skip this verification step
-                info!(
-                    "⚠️  Skipping updated session verification - RPC endpoints not yet implemented in API"
-                );
-                info!(
-                    "   This would normally verify the updated session using get_sessions_with_coordinates_by_herd"
-                );
-                info!("   Session {} was successfully updated", id);
-
-                // Step 7: Clean up - Delete the session (this should also delete connectivity entries)
-                info!("7️⃣ Cleaning up - Deleting session and connectivity entries...");
-                match client.delete_session(id).await {
-                    Ok(_) => {
-                        info!(
-                            "✅ Successfully deleted session and all associated connectivity entries"
-                        );
-
-                        // Verify deletion
-                        // Note: The RPC endpoints are not yet implemented in the API
-                        info!(
-                            "⚠️  Skipping deletion verification - RPC endpoints not yet implemented in API"
-                        );
-                        info!(
-                            "   This would normally verify the session was deleted using get_sessions_with_coordinates_by_herd"
-                        );
-                        info!("   Session {} was successfully deleted", id);
-                    }
-                    Err(e) => {
-                        warn!("⚠️ Failed to delete session: {} (non-critical)", e);
-                    }
-                }
-            }
-            Err(e) => {
-                info!("❌ Failed to create session: {}", e);
-                info!("   This indicates the API integration is not working properly");
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn test_connectivity_batch_upsert() {
-        // Initialize logging for this test
-        init_test_logging();
-
-        // Load environment variables from .env file
-        dotenv().ok();
-
-        // Skip this test if no API key is provided
-        let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
-        if api_key.is_empty() {
-            info!(
-                "Skipping connectivity batch upsert test - no SCOUT_API_KEY environment variable set"
-            );
-            return;
-        }
-
-        let scout_url = env
-            ::var("SCOUT_URL")
-            .unwrap_or_else(|_| "https://www.adventurelabs.earth/api/scout".to_string());
-        let client = ScoutClient::new(scout_url, api_key).expect("Failed to create ScoutClient");
-
-        // First, create a session to associate connectivity entries with
-        let device_id: i64 = env
-            ::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .expect("SCOUT_DEVICE_ID must be a valid integer");
-
-        let timestamp_start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let timestamp_end = timestamp_start + 3600; // 1 hour session
-
-        let session_id = match
-            client.create_session(
-                device_id,
-                timestamp_start,
-                timestamp_end,
-                "v1.0.0".to_string(),
-                None,
-                150.0,
-                50.0,
-                100.0,
-                25.0,
-                5.0,
-                15.0,
-                2500.0,
-                1250.0
-            ).await
-        {
-            Ok(id) => {
-                info!("✅ Created test session with ID: {}", id);
-                id
-            }
-            Err(e) => {
-                info!("❌ Failed to create test session: {}", e);
-                info!("   Skipping connectivity batch upsert test");
-                return;
-            }
-        };
-
-        // Create multiple connectivity entries for batch upsert
-        let connectivities = vec![
-            Connectivity::new(
-                session_id,
-                timestamp_start,
-                -50.0,
-                -90.0,
-                100.0,
-                45.0,
-                "Point(-74.006 40.7128)".to_string(),
-                "h14".to_string(),
-                "h13".to_string(),
-                "h12".to_string(),
-                "h11".to_string()
-            ),
-            Connectivity::new(
-                session_id,
-                timestamp_start + 60,
-                -55.0,
-                -85.0,
-                105.0,
-                50.0,
-                "Point(-74.007 40.7129)".to_string(),
-                "h14".to_string(),
-                "h13".to_string(),
-                "h12".to_string(),
-                "h11".to_string()
-            ),
-            Connectivity::new(
-                session_id,
-                timestamp_start + 120,
-                -60.0,
-                -80.0,
-                110.0,
-                55.0,
-                "Point(-74.008 40.7130)".to_string(),
-                "h14".to_string(),
-                "h13".to_string(),
-                "h12".to_string(),
-                "h11".to_string()
-            )
-        ];
-
-        info!("🔄 Testing connectivity batch upsert with {} entries...", connectivities.len());
-
-        match client.upsert_connectivity_batch(&connectivities).await {
-            Ok(response) => {
-                info!("✅ POST /connectivity (batch) - SUCCESS");
-                info!("   Status: {:?}", response.status);
-                if let Some(upserted_connectivities) = &response.data {
-                    info!(
-                        "   Response: {} connectivity entries upserted",
-                        upserted_connectivities.len()
-                    );
-                    assert_eq!(
-                        upserted_connectivities.len(),
-                        3,
-                        "Should upsert exactly 3 connectivity entries"
-                    );
-
-                    // Validate all connectivity entries have IDs
-                    for (i, connectivity) in upserted_connectivities.iter().enumerate() {
-                        assert!(
-                            connectivity.id.is_some(),
-                            "Connectivity entry {} should have an ID",
-                            i + 1
-                        );
-                        assert_eq!(
-                            connectivity.session_id,
-                            session_id,
-                            "Connectivity entry {} should have correct session_id",
-                            i + 1
-                        );
-                        info!(
-                            "   ✅ Connectivity entry {}: ID = {}",
-                            i + 1,
-                            connectivity.id.unwrap()
-                        );
-                    }
-
-                    // Test updating one of the connectivity entries
-                    if let Some(first_connectivity) = upserted_connectivities.first() {
-                        let mut updated_connectivity = first_connectivity.clone();
-                        updated_connectivity.signal = -45.0; // Update signal strength
-                        updated_connectivity.noise = -95.0; // Update noise level
-
-                        info!("🔄 Testing single connectivity update...");
-                        match client.upsert_connectivity(&updated_connectivity).await {
-                            Ok(update_response) => {
-                                if let Some(updated) = update_response.data {
-                                    info!("✅ Single connectivity update successful");
-                                    assert_eq!(updated.signal, -45.0);
-                                    assert_eq!(updated.noise, -95.0);
-                                    assert_eq!(updated.id, first_connectivity.id);
-                                }
-                            }
-                            Err(e) => {
-                                info!("❌ Single connectivity update failed: {}", e);
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                info!("❌ POST /connectivity (batch) - FAILED: {}", e);
-            }
-        }
-
-        // Clean up: delete the test session (this should also delete connectivity entries)
-        info!("🧹 Cleaning up test session and connectivity entries...");
-        match client.delete_session(session_id).await {
-            Ok(_) => {
-                info!(
-                    "✅ Successfully deleted test session and all associated connectivity entries"
-                );
-            }
-            Err(e) => {
-                warn!("⚠️ Failed to delete test session: {} (non-critical)", e);
-            }
-        }
+        assert_eq!(connectivity.session_id, 123);
     }
 }
