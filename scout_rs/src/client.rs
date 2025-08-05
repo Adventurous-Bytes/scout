@@ -1820,6 +1820,52 @@ impl ScoutClient {
         }
     }
 
+    /// Deletes an event by its ID.
+    ///
+    /// This method removes an event from the database, which will also cascade delete
+    /// any associated tags due to foreign key constraints.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to delete
+    ///
+    /// # Returns
+    ///
+    /// A `Result<ResponseScout<()>>` indicating success or failure
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use scout_rs::client::{ScoutClient, ResponseScoutStatus};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
+    /// let response = client.delete_event(123).await?;
+    /// if response.status == ResponseScoutStatus::Success {
+    ///     println!("Event deleted successfully");
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn delete_event(&self, event_id: i64) -> Result<ResponseScout<()>> {
+        debug!("Deleting event with ID: {}", event_id);
+        let url = format!("{}/events/{}", self.scout_url, event_id);
+        let response = self.client
+            .delete(&url)
+            .header("Authorization", &self.api_key)
+            .send().await?;
+
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
+            200 | 204 => {
+                debug!("Successfully deleted event with ID: {}", event_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+            }
+            _ => { Self::handle_response_status::<()>(status, response_text) }
+        }
+    }
+
     /// Retrieves all connectivity data for a specific session.
     ///
     /// This method fetches all connectivity entries associated with the given session ID,
