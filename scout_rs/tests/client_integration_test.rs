@@ -248,8 +248,8 @@ async fn test_401_unauthorized_responses() {
         }
     }
 
-    // Test 3: post_event_with_tags with invalid API key
-    info!("3️⃣ Testing post_event_with_tags with invalid API key");
+    // Test 3: create_event_with_tags with invalid API key
+    info!("3️⃣ Testing create_event_with_tags with invalid API key");
     let event = Event::new(
         Some("Test event".to_string()),
         None,
@@ -273,33 +273,35 @@ async fn test_401_unauthorized_responses() {
     let temp_file = "temp_test_file.jpg";
     std::fs::write(temp_file, b"fake image data").expect("Failed to create temp file");
 
-    match client.post_event_with_tags(&event, &tags, temp_file).await {
+    match client.create_event_with_tags(&event, &tags, temp_file).await {
         Ok(response) => {
             match response.status {
                 ResponseScoutStatus::NotAuthorized => {
                     info!(
-                        "✅ post_event_with_tags correctly returned NotAuthorized for invalid API key"
+                        "✅ create_event_with_tags correctly returned NotAuthorized for invalid API key"
                     );
                 }
                 ResponseScoutStatus::Success => {
                     assert!(
                         false,
-                        "post_event_with_tags should not return Success with invalid API key"
+                        "create_event_with_tags should not return Success with invalid API key"
                     );
                 }
                 ResponseScoutStatus::Failure => {
-                    info!("✅ post_event_with_tags returned Failure (expected for invalid server)");
+                    info!(
+                        "✅ create_event_with_tags returned Failure (expected for invalid server)"
+                    );
                 }
                 _ => {
                     info!(
-                        "✅ post_event_with_tags returned {:?} (acceptable for test server)",
+                        "✅ create_event_with_tags returned {:?} (acceptable for test server)",
                         response.status
                     );
                 }
             }
         }
         Err(e) => {
-            info!("✅ post_event_with_tags correctly returned error: {}", e);
+            info!("✅ create_event_with_tags correctly returned error: {}", e);
         }
     }
 
@@ -549,29 +551,7 @@ async fn test_session_creation_api() {
                             info!("✅ Found created session in herd: {:?}", session);
                             assert_eq!(session.device_id, device_id);
                             assert_eq!(session.software_version, "v1.0.0");
-                            // Check for locations_geojson field (should be available in all session responses)
-                            if session.locations_geojson.is_some() {
-                                info!(
-                                    "✅ Session has locations_geojson: {:?}",
-                                    session.locations_geojson.as_ref().unwrap()
-                                );
-                            } else {
-                                info!(
-                                    "⚠️ Session locations_geojson is None (may be expected for some sessions)"
-                                );
-                            }
 
-                            // Note: locations may be None if the API doesn't return it in the response
-                            if session.locations.is_some() {
-                                info!(
-                                    "✅ Session has WKT locations: {}",
-                                    session.locations.as_ref().unwrap()
-                                );
-                            } else {
-                                info!(
-                                    "⚠️ Session locations is None (API may not return this field)"
-                                );
-                            }
                             assert_eq!(session.altitude_max, 150.0);
                             assert_eq!(session.altitude_min, 50.0);
                             assert_eq!(session.altitude_average, 100.0);
@@ -614,14 +594,14 @@ async fn test_session_creation_api() {
 }
 
 #[tokio::test]
-async fn test_post_event_with_tags() {
+async fn test_create_event_with_tags() {
     // Load environment variables from .env file
     dotenv().ok();
 
     // Skip this test if no API key is provided
     let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
     if api_key.is_empty() {
-        info!("Skipping post_event_with_tags test - no SCOUT_API_KEY environment variable set");
+        info!("Skipping create_event_with_tags test - no SCOUT_API_KEY environment variable set");
         return;
     }
 
@@ -696,8 +676,8 @@ async fn test_post_event_with_tags() {
         ::write(temp_file, b"fake image data for integration test")
         .expect("Failed to create temp file");
 
-    info!("Testing post_event_with_tags...");
-    match client.post_event_with_tags(&event, &tags, temp_file).await {
+    info!("Testing create_event_with_tags...");
+    match client.create_event_with_tags(&event, &tags, temp_file).await {
         Ok(response) => {
             match response.status {
                 ResponseScoutStatus::Success => {
@@ -962,45 +942,394 @@ async fn test_delete_event() {
     }
     let client = ScoutClient::new(scout_url, api_key).expect("Failed to create ScoutClient");
 
-    // Test delete_event method with a known non-existent ID
-    info!("Testing delete_event method with non-existent event ID...");
-    let test_event_id = 999999; // Use a very high ID that shouldn't exist
-    match client.delete_event(test_event_id).await {
+    // Get device ID from environment
+    let device_id: u32 = env::var("SCOUT_DEVICE_ID").unwrap_or_default().parse().unwrap_or(0);
+    if device_id == 0 {
+        info!("Skipping test - no valid SCOUT_DEVICE_ID environment variable set");
+        return;
+    }
+
+    // Step 1: Create an event to test deletion
+    info!("Step 1: Creating an event for deletion test...");
+
+    // Create a test event with null session_id (no session association)
+    let event = Event::new(
+        Some("Delete test event".to_string()),
+        Some("https://example.com/delete_test.jpg".to_string()),
+        None,
+        None,
+        19.754824,
+        -155.15393,
+        10.0,
+        0.0,
+        "image".to_string(),
+        device_id,
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        false,
+        None // No session association
+    );
+
+    let tags = vec![
+        Tag::new(1, 100.0, 200.0, 50.0, 30.0, 0.95, "manual".to_string(), "animal".to_string())
+    ];
+
+    // Create a temporary test file
+    let temp_file = "temp_delete_test.jpg";
+    std::fs
+        ::write(temp_file, b"fake image data for delete test")
+        .expect("Failed to create temp file");
+
+    // Create the event and get the event ID
+    let event_creation_result = client.create_event_with_tags(&event, &tags, temp_file).await;
+
+    // Clean up temp file immediately
+    let _ = std::fs::remove_file(temp_file);
+
+    match event_creation_result {
         Ok(response) => {
             match response.status {
                 ResponseScoutStatus::Success => {
-                    info!("✅ Delete event method works (deleted non-existent event)");
+                    if let Some(created_event) = response.data {
+                        let event_id = created_event.id.unwrap_or(0);
+                        if event_id == 0 {
+                            panic!("❌ Event created but no ID returned - cannot test deletion");
+                        }
+                        info!("✅ Successfully created event for deletion test with ID: {}", event_id);
+
+                        // Step 2: Test deletion with the actual event ID
+                        info!("Step 2: Testing deletion with event ID: {}...", event_id);
+
+                        match client.delete_event(event_id).await {
+                            Ok(delete_response) => {
+                                match delete_response.status {
+                                    ResponseScoutStatus::Success => {
+                                        info!("✅ Successfully deleted event with ID: {}", event_id);
+                                    }
+                                    ResponseScoutStatus::NotAuthorized => {
+                                        panic!(
+                                            "❌ Delete event returned NotAuthorized - test should have valid credentials"
+                                        );
+                                    }
+                                    ResponseScoutStatus::Failure => {
+                                        panic!("❌ Delete event returned Failure for ID {} - event should exist and be deletable", event_id);
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "❌ Delete event returned unexpected status: {:?} for ID {}",
+                                            delete_response.status,
+                                            event_id
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                panic!(
+                                    "❌ Delete event returned error for ID {}: {} - event should be deletable",
+                                    event_id,
+                                    e
+                                );
+                            }
+                        }
+                    } else {
+                        panic!(
+                            "❌ Event created but no event data returned - cannot test deletion"
+                        );
+                    }
                 }
                 ResponseScoutStatus::NotAuthorized => {
-                    info!(
-                        "⚠️ Delete event returned NotAuthorized (expected with invalid credentials)"
+                    panic!(
+                        "❌ Event creation returned NotAuthorized - test should have valid credentials"
                     );
                 }
                 ResponseScoutStatus::Failure => {
-                    info!("⚠️ Delete event returned Failure (expected for non-existent event)");
+                    panic!(
+                        "❌ Event creation returned Failure - server should be available for integration test"
+                    );
                 }
                 _ => {
-                    info!("⚠️ Delete event returned status: {:?}", response.status);
+                    panic!("❌ Event creation returned unexpected status: {:?}", response.status);
                 }
             }
         }
         Err(e) => {
-            info!("⚠️ Delete event returned error: {} (this might be expected for non-existent event)", e);
-        }
-    }
-
-    // Step 3: Clean up by deleting the session (this will cascade delete the event and tags)
-    info!("Step 3: Cleaning up test session and associated data...");
-    match client.delete_session(session_id).await {
-        Ok(_) => {
-            info!(
-                "✅ Successfully deleted test session (events and tags should be cascade deleted)"
-            );
-        }
-        Err(e) => {
-            warn!("⚠️ Failed to delete test session: {} (this is non-critical)", e);
+            panic!("❌ Error creating event: {} - server should be available for integration test", e);
         }
     }
 
     info!("✅ Delete event integration test completed");
+}
+
+#[tokio::test]
+async fn test_update_event() {
+    // Load environment variables from .env file
+    dotenv().ok();
+
+    // Skip this test if no API key is provided
+    let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+    if api_key.is_empty() {
+        info!("Skipping update_event test - no SCOUT_API_KEY environment variable set");
+        return;
+    }
+
+    let scout_url = env::var("SCOUT_URL").unwrap_or_default();
+    if scout_url.is_empty() {
+        info!("Skipping test - no SCOUT_URL environment variable set");
+        return;
+    }
+    let client = ScoutClient::new(scout_url, api_key).expect("Failed to create ScoutClient");
+
+    // Get device ID from environment
+    let device_id: u32 = env::var("SCOUT_DEVICE_ID").unwrap_or_default().parse().unwrap_or(0);
+    if device_id == 0 {
+        info!("Skipping test - no valid SCOUT_DEVICE_ID environment variable set");
+        return;
+    }
+
+    // Step 1: Create an event to test updating
+    info!("Step 1: Creating an event for update test...");
+
+    // Create a test event
+    let event = Event::new(
+        Some("Original message".to_string()),
+        Some("https://example.com/original.jpg".to_string()),
+        None,
+        None,
+        19.754824,
+        -155.15393,
+        10.0,
+        0.0,
+        "image".to_string(),
+        device_id,
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+        false,
+        None
+    );
+
+    let tags = vec![
+        Tag::new(1, 100.0, 200.0, 50.0, 30.0, 0.95, "manual".to_string(), "animal".to_string())
+    ];
+
+    // Create a temporary test file
+    let temp_file = "temp_update_test.jpg";
+    std::fs
+        ::write(temp_file, b"fake image data for update test")
+        .expect("Failed to create temp file");
+
+    // Create the event and get the event ID
+    let event_creation_result = client.create_event_with_tags(&event, &tags, temp_file).await;
+
+    // Clean up temp file immediately
+    let _ = std::fs::remove_file(temp_file);
+
+    match event_creation_result {
+        Ok(response) => {
+            match response.status {
+                ResponseScoutStatus::Success => {
+                    if let Some(created_event) = response.data {
+                        let event_id = created_event.id.unwrap_or(0);
+                        if event_id == 0 {
+                            panic!("❌ Event created but no ID returned - cannot test update");
+                        }
+                        info!("✅ Successfully created event for update test with ID: {}", event_id);
+
+                        // Step 2: Test updating the event
+                        info!("Step 2: Testing update with event ID: {}...", event_id);
+
+                        // Create updated event data
+                        let updated_event = Event::new(
+                            Some("Updated message".to_string()),
+                            Some("https://example.com/updated.jpg".to_string()),
+                            None,
+                            None,
+                            20.123456,
+                            -156.789012,
+                            15.5,
+                            90.0,
+                            "image".to_string(),
+                            device_id,
+                            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            true, // Changed to public
+                            None
+                        ).with_id(event_id);
+
+                        match client.update_event(event_id, &updated_event).await {
+                            Ok(update_response) => {
+                                match update_response.status {
+                                    ResponseScoutStatus::Success => {
+                                        if let Some(updated_event) = update_response.data {
+                                            info!("✅ Successfully updated event with ID: {}", event_id);
+
+                                            // Verify the update worked
+                                            assert_eq!(
+                                                updated_event.message,
+                                                Some("Updated message".to_string())
+                                            );
+                                            assert_eq!(
+                                                updated_event.media_url,
+                                                Some("https://example.com/updated.jpg".to_string())
+                                            );
+                                            assert_eq!(updated_event.altitude, 15.5);
+                                            assert_eq!(updated_event.heading, 90.0);
+                                            assert_eq!(updated_event.is_public, true);
+
+                                            info!("✅ Event update verification passed");
+                                        } else {
+                                            panic!("❌ Event updated but no event data returned");
+                                        }
+                                    }
+                                    ResponseScoutStatus::NotAuthorized => {
+                                        panic!(
+                                            "❌ Update event returned NotAuthorized - test should have valid credentials"
+                                        );
+                                    }
+                                    ResponseScoutStatus::Failure => {
+                                        panic!("❌ Update event returned Failure for ID {} - event should exist and be updatable", event_id);
+                                    }
+                                    _ => {
+                                        panic!(
+                                            "❌ Update event returned unexpected status: {:?} for ID {}",
+                                            update_response.status,
+                                            event_id
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                panic!("❌ Update event returned error for ID {}: {}", event_id, e);
+                            }
+                        }
+
+                        // Step 3: Clean up by deleting the event
+                        info!("Step 3: Cleaning up test event...");
+                        match client.delete_event(event_id).await {
+                            Ok(delete_response) => {
+                                match delete_response.status {
+                                    ResponseScoutStatus::Success => {
+                                        info!("✅ Successfully deleted test event with ID: {}", event_id);
+                                    }
+                                    _ => {
+                                        info!(
+                                            "⚠️ Failed to delete test event: {:?}",
+                                            delete_response.status
+                                        );
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                info!("⚠️ Error deleting test event: {}", e);
+                            }
+                        }
+                    } else {
+                        panic!("❌ Event created but no event data returned - cannot test update");
+                    }
+                }
+                ResponseScoutStatus::NotAuthorized => {
+                    panic!(
+                        "❌ Event creation returned NotAuthorized - test should have valid credentials"
+                    );
+                }
+                ResponseScoutStatus::Failure => {
+                    panic!(
+                        "❌ Event creation returned Failure - server should be available for integration test"
+                    );
+                }
+                _ => {
+                    panic!("❌ Event creation returned unexpected status: {:?}", response.status);
+                }
+            }
+        }
+        Err(e) => {
+            panic!("❌ Error creating event: {} - server should be available for integration test", e);
+        }
+    }
+
+    info!("✅ Update event integration test completed");
+}
+
+#[tokio::test]
+async fn test_get_plans_by_herd() {
+    // Load environment variables from .env file
+    dotenv().ok();
+
+    // Skip this test if no API key is provided
+    let api_key = env::var("SCOUT_API_KEY").unwrap_or_default();
+    if api_key.is_empty() {
+        info!("Skipping get_plans_by_herd test - no SCOUT_API_KEY environment variable set");
+        return;
+    }
+
+    let scout_url = env::var("SCOUT_URL").unwrap_or_default();
+    if scout_url.is_empty() {
+        info!("Skipping test - no SCOUT_URL environment variable set");
+        return;
+    }
+    let client = ScoutClient::new(scout_url, api_key).expect("Failed to create ScoutClient");
+
+    // Get herd ID from environment
+    let herd_id: u32 = env::var("SCOUT_HERD_ID").unwrap_or_default().parse().unwrap_or(0);
+    if herd_id == 0 {
+        info!("Skipping test - no valid SCOUT_HERD_ID environment variable set");
+        return;
+    }
+
+    info!("Testing get_plans_by_herd with herd_id: {}...", herd_id);
+    match client.get_plans_by_herd(herd_id).await {
+        Ok(response) => {
+            match response.status {
+                ResponseScoutStatus::Success => {
+                    if let Some(plans) = response.data {
+                        info!(
+                            "✅ Successfully retrieved {} plans for herd {}",
+                            plans.len(),
+                            herd_id
+                        );
+                        // Validate plan structure
+                        for plan in plans {
+                            assert!(plan.herd_id > 0, "Plan herd_id should be positive");
+                            assert!(!plan.name.is_empty(), "Plan name should not be empty");
+                            assert!(
+                                !plan.instructions.is_empty(),
+                                "Plan instructions should not be empty"
+                            );
+                            assert!(
+                                !plan.plan_type.is_empty(),
+                                "Plan plan_type should not be empty"
+                            );
+                            assert_eq!(
+                                plan.herd_id,
+                                herd_id as i64,
+                                "Plan should belong to the requested herd"
+                            );
+                            // Validate plan_type is one of the expected values
+                            assert!(
+                                ["mission", "fence", "rally", "markov"].contains(
+                                    &plan.plan_type.as_str()
+                                ),
+                                "Plan plan_type should be one of: mission, fence, rally, markov, got: {}",
+                                plan.plan_type
+                            );
+                        }
+                    } else {
+                        info!("✅ Successfully retrieved plans (empty array)");
+                    }
+                }
+                ResponseScoutStatus::NotAuthorized => {
+                    info!(
+                        "⚠️ Get plans returned NotAuthorized (expected with invalid credentials)"
+                    );
+                }
+                ResponseScoutStatus::Failure => {
+                    info!("⚠️ Get plans returned Failure (expected if server is unavailable)");
+                }
+                _ => {
+                    info!("⚠️ Get plans returned status: {:?}", response.status);
+                }
+            }
+        }
+        Err(e) => {
+            // Get plans should succeed if the API is working properly
+            // Any failure indicates a problem with the API integration
+            panic!("❌ Get plans failed: {} - this indicates a problem with API integration", e);
+        }
+    }
 }
