@@ -67,6 +67,7 @@ pub struct Session {
     pub timestamp_end: String,
     pub inserted_at: Option<String>,
     pub software_version: String,
+    pub locations: Option<String>, // WKT format string - optional for deserialization
     pub altitude_max: f64,
     pub altitude_min: f64,
     pub altitude_average: f64,
@@ -75,9 +76,8 @@ pub struct Session {
     pub velocity_average: f64,
     pub distance_total: f64,
     pub distance_max_from_start: f64,
-    pub status: Option<String>,
-    pub locations: Option<String>, // WKT format string
-    pub locations_geojson: Option<serde_json::Value>, // GeoJSON format from database
+    pub file_paths: Option<Vec<String>>, // text[] in DB
+    pub earthranger_url: Option<String>, // text in DB
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,6 +95,8 @@ pub struct SessionInput {
     pub velocity_average: f64,
     pub distance_total: f64,
     pub distance_max_from_start: f64,
+    pub file_paths: Option<Vec<String>>,
+    pub earthranger_url: Option<String>,
 }
 
 impl Session {
@@ -131,6 +133,7 @@ impl Session {
             timestamp_end: timestamp_end_str,
             inserted_at: None,
             software_version,
+            locations: Some(locations),
             altitude_max,
             altitude_min,
             altitude_average,
@@ -139,9 +142,8 @@ impl Session {
             velocity_average,
             distance_total,
             distance_max_from_start,
-            status: None,
-            locations: Some(locations),
-            locations_geojson: None, // Will be populated by API response
+            file_paths: None,
+            earthranger_url: None,
         }
     }
 
@@ -213,6 +215,8 @@ impl Session {
             velocity_average: self.velocity_average,
             distance_total: self.distance_total,
             distance_max_from_start: self.distance_max_from_start,
+            file_paths: self.file_paths.clone(),
+            earthranger_url: self.earthranger_url.clone(),
         }
     }
 }
@@ -344,6 +348,23 @@ impl Connectivity {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Event {
+    pub id: Option<i64>,
+    pub message: Option<String>,
+    pub media_url: Option<String>,
+    pub file_path: Option<String>,
+    pub location: Option<String>, // Can be WKT string or hex WKB format
+    pub altitude: f64,
+    pub heading: f64,
+    pub media_type: String,
+    pub device_id: Option<i64>, // Server returns as integer
+    pub earthranger_url: Option<String>,
+    pub timestamp_observation: String,
+    pub is_public: bool,
+    pub session_id: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventInput {
     pub message: Option<String>,
     pub media_url: Option<String>,
     pub file_path: Option<String>,
@@ -351,7 +372,7 @@ pub struct Event {
     pub altitude: f64,
     pub heading: f64,
     pub media_type: String,
-    pub device_id: String,
+    pub device_id: i64,
     pub earthranger_url: Option<String>,
     pub timestamp_observation: String,
     pub is_public: bool,
@@ -380,14 +401,15 @@ impl Event {
             .to_rfc3339();
 
         Self {
+            id: None,
             message,
             media_url,
             file_path,
-            location,
+            location: Some(location),
             altitude,
             heading,
             media_type,
-            device_id: device_id.to_string(),
+            device_id: Some(device_id as i64),
             earthranger_url,
             timestamp_observation,
             is_public,
@@ -445,6 +467,38 @@ impl Event {
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
     }
+
+    pub fn with_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn to_input(&self) -> EventInput {
+        EventInput {
+            message: self.message.clone(),
+            media_url: self.media_url.clone(),
+            file_path: self.file_path.clone(),
+            location: self.location.clone().unwrap_or_else(|| "Point(0 0)".to_string()),
+            altitude: self.altitude,
+            heading: self.heading,
+            media_type: self.media_type.clone(),
+            device_id: self.device_id.unwrap_or(0),
+            earthranger_url: self.earthranger_url.clone(),
+            timestamp_observation: self.timestamp_observation.clone(),
+            is_public: self.is_public,
+            session_id: self.session_id,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Plan {
+    pub id: Option<i64>,
+    pub inserted_at: Option<String>,
+    pub name: String,
+    pub instructions: String,
+    pub herd_id: i64,
+    pub plan_type: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -798,23 +852,24 @@ impl ScoutClient {
     ///     "manual".to_string(),
     ///     "animal".to_string()
     /// )];
-    /// let response = client.post_event_with_tags(&event, &tags, "path/to/image.jpg").await?;
+    /// let response = client.create_event_with_tags(&event, &tags, "path/to/image.jpg").await?;
     /// # Ok(())
     /// # }
     /// ```
-    pub async fn post_event_with_tags(
+    pub async fn create_event_with_tags(
         &self,
         event: &Event,
         tags: &[Tag],
         file_path: &str
-    ) -> Result<ResponseScout<()>> {
+    ) -> Result<ResponseScout<Event>> {
         // Check if file exists
         if !std::path::Path::new(file_path).exists() {
             return Err(anyhow!("File does not exist: {}", file_path));
         }
 
         let tags_json = serde_json::to_string(tags)?;
-        let event_json = serde_json::to_string(event)?;
+        let event_input = event.to_input();
+        let event_json = serde_json::to_string(&event_input)?;
 
         let file_bytes = std::fs::read(file_path)?;
         let filename = std::path::Path
@@ -841,8 +896,52 @@ impl ScoutClient {
         let response_text = response.text().await?;
 
         match status {
-            200 | 201 => { Ok(ResponseScout::new(ResponseScoutStatus::Success, None)) }
-            _ => { Self::handle_response_status::<()>(status, response_text) }
+            200 | 201 => {
+                // Try to parse the response to get the full Event object
+                let created_event = if response_text.trim().is_empty() {
+                    // If response is empty, we can't parse the event
+                    None
+                } else {
+                    // Try to parse JSON response to get the full Event object
+                    match serde_json::from_str::<Event>(&response_text) {
+                        Ok(event) => Some(event),
+                        Err(_) => {
+                            // If full Event parsing fails, try to create Event with ID from response
+                            match serde_json::from_str::<serde_json::Value>(&response_text) {
+                                Ok(json) => {
+                                    // Look for id field in the response
+                                    let event_id = json
+                                        .get("id")
+                                        .and_then(|v| v.as_i64())
+                                        .or_else(|| json.get("event_id").and_then(|v| v.as_i64()));
+
+                                    if let Some(id) = event_id {
+                                        // Create a new Event with the ID from the response
+                                        let mut event_with_id = event.clone();
+                                        event_with_id.id = Some(id);
+                                        Some(event_with_id)
+                                    } else {
+                                        None
+                                    }
+                                }
+                                Err(_) => {
+                                    // If JSON parsing fails, try to parse as plain number for ID
+                                    if let Ok(id) = response_text.trim().parse::<i64>() {
+                                        let mut event_with_id = event.clone();
+                                        event_with_id.id = Some(id);
+                                        Some(event_with_id)
+                                    } else {
+                                        None
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, created_event))
+            }
+            _ => { Self::handle_response_status::<Event>(status, response_text) }
         }
     }
 
@@ -1144,7 +1243,8 @@ impl ScoutClient {
             }
 
             let tags_json = serde_json::to_string(tags)?;
-            let event_json = serde_json::to_string(event)?;
+            let event_input = event.to_input();
+            let event_json = serde_json::to_string(&event_input)?;
 
             let file_bytes = std::fs::read(file_path)?;
             let filename = std::path::Path
@@ -1486,6 +1586,49 @@ impl ScoutClient {
                 Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(sessions)))
             }
             _ => { Self::handle_response_status::<Vec<Session>>(status, response_text) }
+        }
+    }
+
+    /// Retrieves all plans for a specific herd.
+    ///
+    /// This method fetches all plans associated with the given herd ID,
+    /// including plan names, instructions, and metadata.
+    ///
+    /// # Arguments
+    ///
+    /// * `herd_id` - The ID of the herd to get plans for
+    ///
+    /// # Returns
+    ///
+    /// A `Result<ResponseScout<Vec<Plan>>>` containing the plans or an error
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use scout_rs::client::ScoutClient;
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
+    /// let response = client.get_plans_by_herd(123).await?;
+    /// if let Some(plans) = response.data {
+    ///     println!("Found {} plans", plans.len());
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn get_plans_by_herd(&self, herd_id: u32) -> Result<ResponseScout<Vec<Plan>>> {
+        debug!("Fetching plans for herd_id: {}", herd_id);
+        let url = format!("{}/plans?herd_id={}", self.scout_url, herd_id);
+        let response = self.client.get(&url).header("Authorization", &self.api_key).send().await?;
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
+            200 => {
+                let plans: Vec<Plan> = serde_json::from_str(&response_text)?;
+                debug!("Successfully fetched {} plans for herd {}", plans.len(), herd_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(plans)))
+            }
+            _ => { Self::handle_response_status::<Vec<Plan>>(status, response_text) }
         }
     }
 
@@ -1846,6 +1989,77 @@ impl ScoutClient {
     /// # Ok(())
     /// # }
     /// ```
+
+    /// Updates an existing event by ID.
+    ///
+    /// This method allows you to modify event properties such as message, location,
+    /// altitude, heading, media type, and other metadata. The event must already exist
+    /// in the database with the specified ID.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_id` - The ID of the event to update
+    /// * `event` - The updated event data
+    ///
+    /// # Returns
+    ///
+    /// A `Result<ResponseScout<Event>>` containing the updated event or an error
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// # use scout_rs::client::{ScoutClient, Event};
+    /// # use std::time::{SystemTime, UNIX_EPOCH};
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = ScoutClient::new("https://api.example.com/api/scout".to_string(), "api_key".to_string())?;
+    /// let mut event = Event::new(
+    ///     Some("Updated message".to_string()),
+    ///     None,
+    ///     None,
+    ///     None,
+    ///     40.7128,
+    ///     -74.006,
+    ///     100.0,
+    ///     45.0,
+    ///     "image".to_string(),
+    ///     1,
+    ///     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+    ///     false,
+    ///     None
+    /// );
+    /// let event_with_id = event.with_id(123);
+    /// let response = client.update_event(123, &event_with_id).await?;
+    /// if let Some(updated_event) = response.data {
+    ///     println!("Event updated successfully with ID: {:?}", updated_event.id);
+    /// }
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn update_event(&self, event_id: i64, event: &Event) -> Result<ResponseScout<Event>> {
+        debug!("Updating event with ID: {}", event_id);
+        let url = format!("{}/events/{}", self.scout_url, event_id);
+        let event_input = event.to_input();
+
+        let response = self.client
+            .put(&url)
+            .header("Authorization", &self.api_key)
+            .header("Content-Type", "application/json")
+            .json(&event_input)
+            .send().await?;
+
+        let status = response.status().as_u16();
+        let response_text = response.text().await?;
+
+        match status {
+            200 => {
+                let updated_event: Event = serde_json::from_str(&response_text)?;
+                debug!("Successfully updated event with ID: {}", event_id);
+                Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(updated_event)))
+            }
+            _ => { Self::handle_response_status::<Event>(status, response_text) }
+        }
+    }
+
     pub async fn delete_event(&self, event_id: i64) -> Result<ResponseScout<()>> {
         debug!("Deleting event with ID: {}", event_id);
         let url = format!("{}/events/{}", self.scout_url, event_id);
@@ -2202,7 +2416,7 @@ impl ScoutClient {
                 .to_rfc3339(),
             inserted_at: None,
             software_version: String::new(), // This will be ignored in the update
-            // WKT location will be handled by the session's location field
+            locations: Some("Point(0 0)".to_string()), // Required field, will be ignored in update
             altitude_max: 0.0, // This will be ignored in the update
             altitude_min: 0.0, // This will be ignored in the update
             altitude_average: 0.0, // This will be ignored in the update
@@ -2211,9 +2425,8 @@ impl ScoutClient {
             velocity_average: 0.0, // This will be ignored in the update
             distance_total: 0.0, // This will be ignored in the update
             distance_max_from_start: 0.0, // This will be ignored in the update
-            status: None,
-            locations: None,
-            locations_geojson: None,
+            file_paths: None,
+            earthranger_url: None,
         };
 
         let response = self.update_session(session_id, &session).await?;
@@ -2450,7 +2663,7 @@ mod tests {
         );
 
         assert_eq!(event.message, Some("Test message".to_string()));
-        assert_eq!(event.device_id, "1");
+        assert_eq!(event.device_id, Some(1));
         assert_eq!(event.altitude, 100.0);
         assert_eq!(event.heading, 45.0);
     }
@@ -2473,6 +2686,29 @@ mod tests {
         assert_eq!(tag.conf, 0.95);
         assert_eq!(tag.class_name, "person");
         assert_eq!(tag.event_id, 0); // Should be 0 initially
+    }
+
+    #[test]
+    fn test_event_with_id() {
+        let event = Event::new(
+            Some("Test message".to_string()),
+            None,
+            None,
+            None,
+            40.7128,
+            -74.006,
+            100.0,
+            45.0,
+            "image".to_string(),
+            1,
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            false,
+            None
+        );
+
+        let event_with_id = event.with_id(123);
+        assert_eq!(event_with_id.id, Some(123));
+        assert_eq!(event_with_id.message, Some("Test message".to_string()));
     }
 
     #[test]
