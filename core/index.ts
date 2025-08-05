@@ -24,6 +24,7 @@ export * from "./helpers/gps";
 export * from "./helpers/herds";
 export * from "./helpers/location";
 export * from "./helpers/plans";
+export * from "./helpers/layers";
 export * from "./helpers/sessions";
 export * from "./helpers/tags";
 export * from "./helpers/time";
@@ -53,7 +54,6 @@ export * from "./supabase/server";
 export * from "./api_keys/actions";
 
 // Re-export commonly used types and utilities
-export type { Database } from "./types/supabase";
 export type { HerdModule, IHerdModule } from "./types/herd_module";
 export type {
   IDevice,
@@ -64,5 +64,6 @@ export type {
   IZoneWithActions,
   IUserAndRole,
   IApiKeyScout,
+  ILayer,
 } from "./types/db";
 export { EnumSessionsVisibility } from "./types/events";

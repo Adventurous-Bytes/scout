@@ -5,16 +5,15 @@ import { get_devices_by_herd } from "../helpers/devices";
 import { server_get_total_events_by_herd } from "../helpers/events";
 import { EnumSessionsVisibility } from "./events";
 import { server_get_plans_by_herd } from "../helpers/plans";
-import {
-  server_get_events_and_tags_for_device,
-  server_get_events_and_tags_for_devices_batch,
-} from "../helpers/tags";
+import { server_get_layers_by_herd } from "../helpers/layers";
+import { server_get_events_and_tags_for_devices_batch } from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
 import {
   IDevice,
   IEventWithTags,
   IHerd,
   IPlan,
+  ILayer,
   IUserAndRole,
   IZoneWithActions,
   ISessionWithCoordinates,
@@ -37,6 +36,7 @@ export class HerdModule {
   total_events_with_filters: number = 0;
   labels: string[] = [];
   plans: IPlan[] = [];
+  layers: ILayer[] = [];
   constructor(
     herd: IHerd,
     devices: IDevice[],
@@ -49,7 +49,8 @@ export class HerdModule {
     labels: string[] = [],
     plans: IPlan[] = [],
     zones: IZoneWithActions[] = [],
-    sessions: ISessionWithCoordinates[] = []
+    sessions: ISessionWithCoordinates[] = [],
+    layers: ILayer[] = []
   ) {
     this.herd = herd;
     this.devices = devices;
@@ -63,6 +64,7 @@ export class HerdModule {
     this.plans = plans;
     this.zones = zones;
     this.sessions = sessions;
+    this.layers = layers;
   }
   to_serializable(): IHerdModule {
     return {
@@ -78,6 +80,7 @@ export class HerdModule {
       plans: this.plans,
       zones: this.zones,
       sessions: this.sessions,
+      layers: this.layers,
     };
   }
   static async from_herd(
@@ -136,6 +139,7 @@ export class HerdModule {
         total_event_count,
         res_plans,
         res_sessions,
+        res_layers,
       ] = await Promise.allSettled([
         server_get_more_zones_and_actions_for_herd(herd.id, 0, 10).catch(
           (error) => {
@@ -164,6 +168,10 @@ export class HerdModule {
         getSessionsByHerdId(client, herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get sessions:`, error);
           return [];
+        }),
+        server_get_layers_by_herd(herd.id).catch((error) => {
+          console.warn(`[HerdModule] Failed to get layers:`, error);
+          return { status: EnumWebResponse.ERROR, data: null };
         }),
       ]);
 
@@ -203,6 +211,10 @@ export class HerdModule {
           : [];
       const sessions =
         res_sessions.status === "fulfilled" ? res_sessions.value : [];
+      const layers =
+        res_layers.status === "fulfilled" && res_layers.value?.data
+          ? res_layers.value.data
+          : [];
 
       // TODO: store in DB and retrieve on load?
       const newLabels = LABELS;
@@ -225,7 +237,8 @@ export class HerdModule {
         newLabels,
         plans,
         zones,
-        sessions
+        sessions,
+        layers
       );
     } catch (error) {
       const endTime = Date.now();
@@ -235,7 +248,21 @@ export class HerdModule {
         error
       );
       // Return a minimal but valid HerdModule instance to prevent complete failure
-      return new HerdModule(herd, [], [], Date.now());
+      return new HerdModule(
+        herd,
+        [],
+        [],
+        Date.now(),
+        null,
+        0,
+        0,
+        0,
+        [],
+        [],
+        [],
+        [],
+        []
+      );
     }
   }
 }
@@ -253,4 +280,5 @@ export interface IHerdModule {
   plans: IPlan[];
   zones: IZoneWithActions[];
   sessions: ISessionWithCoordinates[];
+  layers: ILayer[];
 }

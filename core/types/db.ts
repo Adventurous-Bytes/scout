@@ -18,6 +18,7 @@ export type IDevice =
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
 export type IPlan = Database["public"]["Tables"]["plans"]["Row"];
+export type ILayer = Database["public"]["Tables"]["layers"]["Row"];
 export type IAction = Database["public"]["Tables"]["actions"]["Row"];
 export type IZone = Database["public"]["Tables"]["zones"]["Row"];
 export type IUserRolePerHerd =

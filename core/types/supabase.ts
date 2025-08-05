@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instanciate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.3 (519615d)";
+    PostgrestVersion: "12.2.12 (cd3cf9e)";
   };
   graphql_public: {
     Tables: {
@@ -313,6 +313,35 @@ export type Database = {
           }
         ];
       };
+      layers: {
+        Row: {
+          created_at: string;
+          features: Json;
+          herd_id: number;
+          id: number;
+        };
+        Insert: {
+          created_at?: string;
+          features: Json;
+          herd_id: number;
+          id?: number;
+        };
+        Update: {
+          created_at?: string;
+          features?: Json;
+          herd_id?: number;
+          id?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "layers_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       plans: {
         Row: {
           herd_id: number;
@@ -320,6 +349,7 @@ export type Database = {
           inserted_at: string;
           instructions: string;
           name: string;
+          plan_type: Database["public"]["Enums"]["plan_type"];
         };
         Insert: {
           herd_id: number;
@@ -327,6 +357,7 @@ export type Database = {
           inserted_at?: string;
           instructions: string;
           name: string;
+          plan_type?: Database["public"]["Enums"]["plan_type"];
         };
         Update: {
           herd_id?: number;
@@ -334,6 +365,7 @@ export type Database = {
           inserted_at?: string;
           instructions?: string;
           name?: string;
+          plan_type?: Database["public"]["Enums"]["plan_type"];
         };
         Relationships: [
           {
@@ -353,6 +385,8 @@ export type Database = {
           device_id: number;
           distance_max_from_start: number;
           distance_total: number;
+          earthranger_url: string | null;
+          file_paths: string[] | null;
           id: number;
           inserted_at: string;
           locations: unknown;
@@ -370,6 +404,8 @@ export type Database = {
           device_id: number;
           distance_max_from_start: number;
           distance_total: number;
+          earthranger_url?: string | null;
+          file_paths?: string[] | null;
           id?: number;
           inserted_at?: string;
           locations: unknown;
@@ -387,6 +423,8 @@ export type Database = {
           device_id?: number;
           distance_max_from_start?: number;
           distance_total?: number;
+          earthranger_url?: string | null;
+          file_paths?: string[] | null;
           id?: number;
           inserted_at?: string;
           locations?: unknown;
@@ -659,34 +697,16 @@ export type Database = {
       };
     };
     Functions: {
-      authorize: {
-        Args: {
-          requested_permission: Database["public"]["Enums"]["app_permission"];
-        };
-        Returns: boolean;
-      };
-      create_api_key: {
-        Args: { id_of_device: number };
-        Returns: undefined;
-      };
-      create_user: {
-        Args: { email: string };
-        Returns: string;
-      };
-      custom_access_token_hook: {
-        Args: { event: Json };
-        Returns: Json;
-      };
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number };
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][];
       };
-      get_device_by_id: {
-        Args: { device_id_caller: number };
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
-      };
       get_device_by_api_key: {
         Args: { device_api_key: string };
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
+      };
+      get_device_by_id: {
+        Args: { device_id_caller: number };
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
       };
       get_device_id_from_key: {
@@ -699,6 +719,10 @@ export type Database = {
       };
       get_events_and_tags_for_device: {
         Args: { device_id_caller: number; limit_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
+      get_events_and_tags_for_devices_batch: {
+        Args: { device_ids: number[]; limit_per_device?: number };
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
       };
       get_events_and_tags_for_herd: {
@@ -717,29 +741,6 @@ export type Database = {
         };
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
       };
-      get_events_for_herd: {
-        Args: { herd_id_in: number };
-        Returns: {
-          altitude: number;
-          device_id: number;
-          earthranger_url: string | null;
-          file_path: string | null;
-          heading: number;
-          id: number;
-          inserted_at: string;
-          is_public: boolean;
-          location: unknown | null;
-          media_type: Database["public"]["Enums"]["media_type"];
-          media_url: string | null;
-          message: string | null;
-          session_id: number | null;
-          timestamp_observation: string;
-        }[];
-      };
-      get_events_with_tags_by_id: {
-        Args: { event_id_caller: number };
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"];
-      };
       get_events_with_tags_for_herd: {
         Args: {
           herd_id_caller: number;
@@ -755,10 +756,6 @@ export type Database = {
       get_sessions_with_coordinates_by_device: {
         Args: { device_id_caller: number };
         Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][];
-      };
-      get_total_events_for_herd: {
-        Args: { herd_id_caller: number };
-        Returns: number;
       };
       get_total_events_for_session: {
         Args: { session_id_caller: number };
@@ -784,9 +781,13 @@ export type Database = {
           api_key_key: string;
         }[];
       };
-      get_events_and_tags_for_devices_batch: {
-        Args: { device_ids: number[]; limit_per_device: number };
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      load_api_keys_old: {
+        Args: { id_of_device: string };
+        Returns: string[];
+      };
+      remove_rls_broadcast_triggers: {
+        Args: Record<PropertyKey, never>;
+        Returns: undefined;
       };
     };
     Enums: {
@@ -802,6 +803,7 @@ export type Database = {
         | "radio_mesh_repeater"
         | "unknown";
       media_type: "image" | "video" | "audio" | "text";
+      plan_type: "mission" | "fence" | "rally" | "markov";
       role: "admin" | "viewer" | "editor";
       tag_observation_type: "manual" | "auto";
       user_status: "ONLINE" | "OFFLINE";
@@ -1070,6 +1072,7 @@ export const Constants = {
         "unknown",
       ],
       media_type: ["image", "video", "audio", "text"],
+      plan_type: ["mission", "fence", "rally", "markov"],
       role: ["admin", "viewer", "editor"],
       tag_observation_type: ["manual", "auto"],
       user_status: ["ONLINE", "OFFLINE"],
