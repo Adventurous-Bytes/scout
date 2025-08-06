@@ -1,198 +1,228 @@
 "use client";
 
 import { useAppDispatch } from "../store/hooks";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import {
   addDevice,
   addPlan,
   addTag,
+  addSessionToStore,
   deleteDevice,
   deletePlan,
+  deleteSessionFromStore,
   deleteTag,
   updateDevice,
   updatePlan,
+  updateSessionInStore,
   updateTag,
 } from "../store/scout";
-import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import { SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 
-// Connection state enum
-enum ConnectionState {
-  DISCONNECTED = "disconnected",
-  CONNECTING = "connecting",
-  CONNECTED = "connected",
-  ERROR = "error",
-}
-
-/**
- * Hook for listening to real-time database changes
- */
 export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
-  const channels = useRef<RealtimeChannel[]>([]);
+  const supabase = useRef<any>(null);
+  const channels = useRef<any[]>([]);
   const dispatch = useAppDispatch();
-  const [connectionState, setConnectionState] = useState<ConnectionState>(
-    ConnectionState.DISCONNECTED
-  );
-  const [lastError, setLastError] = useState<string | null>(null);
 
-  // Clean up all channels
-  const cleanupChannels = () => {
-    channels.current.forEach((channel) => {
-      if (channel && scoutSupabase) {
-        try {
-          scoutSupabase.removeChannel(channel);
-        } catch (error) {
-          console.warn("[DB Listener] Error removing channel:", error);
-        }
-      }
-    });
-    channels.current = [];
-  };
+  function handleTagInserts(payload: any) {
+    console.log("[DB Listener] Tag INSERT received:", payload.new);
+    dispatch(addTag(payload.new));
+  }
 
-  // Create event handlers
-  const handlers = {
-    tags: {
-      INSERT: (payload: any) => {
-        if (payload.new) dispatch(addTag(payload.new));
-      },
-      UPDATE: (payload: any) => {
-        if (payload.new) dispatch(updateTag(payload.new));
-      },
-      DELETE: (payload: any) => {
-        if (payload.old) dispatch(deleteTag(payload.old));
-      },
-    },
-    devices: {
-      INSERT: (payload: any) => {
-        if (payload.new) dispatch(addDevice(payload.new));
-      },
-      UPDATE: (payload: any) => {
-        if (payload.new) dispatch(updateDevice(payload.new));
-      },
-      DELETE: (payload: any) => {
-        if (payload.old) dispatch(deleteDevice(payload.old));
-      },
-    },
-    plans: {
-      INSERT: (payload: any) => {
-        if (payload.new) dispatch(addPlan(payload.new));
-      },
-      UPDATE: (payload: any) => {
-        if (payload.new) dispatch(updatePlan(payload.new));
-      },
-      DELETE: (payload: any) => {
-        if (payload.old) dispatch(deletePlan(payload.old));
-      },
-    },
-    sessions: {
-      INSERT: (payload: any) =>
-        console.log("[DB Listener] Session INSERT:", payload),
-      UPDATE: (payload: any) =>
-        console.log("[DB Listener] Session UPDATE:", payload),
-      DELETE: (payload: any) =>
-        console.log("[DB Listener] Session DELETE:", payload),
-    },
-    connectivity: {
-      INSERT: (payload: any) =>
-        console.log("[DB Listener] Connectivity INSERT:", payload),
-      UPDATE: (payload: any) =>
-        console.log("[DB Listener] Connectivity UPDATE:", payload),
-      DELETE: (payload: any) =>
-        console.log("[DB Listener] Connectivity DELETE:", payload),
-    },
-  };
-
-  // Set up channels
-  const setupChannels = async (): Promise<boolean> => {
-    if (!scoutSupabase) return false;
-
-    cleanupChannels();
-
-    const tables = Object.keys(handlers) as Array<keyof typeof handlers>;
-    let successCount = 0;
-    const totalChannels = tables.length;
-
-    for (const tableName of tables) {
-      try {
-        const channelName = `scout_broadcast_${tableName}_${Date.now()}`;
-        const channel = scoutSupabase.channel(channelName, {
-          config: { private: false },
-        });
-
-        // Set up event handlers
-        const tableHandler = handlers[tableName];
-        Object.entries(tableHandler).forEach(([event, handler]) => {
-          channel.on("broadcast", { event }, handler);
-        });
-
-        // Subscribe to the channel
-        channel.subscribe((status: string) => {
-          if (status === "SUBSCRIBED") {
-            successCount++;
-            if (successCount === totalChannels) {
-              setConnectionState(ConnectionState.CONNECTED);
-              setLastError(null);
-            }
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-            setLastError(`Channel subscription failed: ${status}`);
-          }
-        });
-
-        channels.current.push(channel);
-      } catch (error) {
-        console.error(
-          `[DB Listener] Failed to set up ${tableName} channel:`,
-          error
-        );
-      }
+  function handleTagDeletes(payload: any) {
+    console.log("[DB Listener] Tag DELETE received:", payload.old);
+    if (!payload.old || !payload.old.id) {
+      console.error(
+        "[DB Listener] Tag DELETE - Invalid payload, missing tag data"
+      );
+      return;
     }
+    dispatch(deleteTag(payload.old));
+  }
 
-    return successCount > 0;
-  };
+  function handleTagUpdates(payload: any) {
+    console.log("[DB Listener] Tag UPDATE received:", payload.new);
+    dispatch(updateTag(payload.new));
+  }
 
-  // Initialize connection
-  const initializeConnection = async () => {
-    if (!scoutSupabase) return;
+  function handleDeviceInserts(payload: any) {
+    console.log("[DB Listener] Device INSERT received:", payload.new);
+    dispatch(addDevice(payload.new));
+  }
 
-    setConnectionState(ConnectionState.CONNECTING);
+  function handleDeviceDeletes(payload: any) {
+    console.log("[DB Listener] Device DELETE received:", payload.old);
+    dispatch(deleteDevice(payload.old));
+  }
 
-    try {
-      // Test database connection
-      const { error } = await scoutSupabase.from("tags").select("id").limit(1);
-      if (error) {
-        throw new Error("Database connection test failed");
-      }
+  function handleDeviceUpdates(payload: any) {
+    console.log("[DB Listener] Device UPDATE received:", payload.new);
+    dispatch(updateDevice(payload.new));
+  }
 
-      // Set up channels
-      const success = await setupChannels();
-      if (!success) {
-        throw new Error("Channel setup failed");
-      }
-    } catch (error) {
-      setLastError(error instanceof Error ? error.message : "Unknown error");
-      setConnectionState(ConnectionState.ERROR);
+  function handlePlanInserts(payload: any) {
+    console.log("[DB Listener] Plan INSERT received:", payload.new);
+    dispatch(addPlan(payload.new));
+  }
+
+  function handlePlanDeletes(payload: any) {
+    console.log("[DB Listener] Plan DELETE received:", payload.old);
+    dispatch(deletePlan(payload.old));
+  }
+
+  function handlePlanUpdates(payload: any) {
+    console.log("[DB Listener] Plan UPDATE received:", payload.new);
+    dispatch(updatePlan(payload.new));
+  }
+
+  function handleSessionInserts(payload: any) {
+    console.log("[DB Listener] Session INSERT received:", payload.new);
+    dispatch(addSessionToStore(payload.new));
+  }
+
+  function handleSessionDeletes(payload: any) {
+    console.log("[DB Listener] Session DELETE received:", payload.old);
+    if (!payload.old || !payload.old.id) {
+      console.error(
+        "[DB Listener] Session DELETE - Invalid payload, missing session data"
+      );
+      return;
     }
-  };
+    dispatch(deleteSessionFromStore(payload.old));
+  }
 
-  // Main effect
+  function handleSessionUpdates(payload: any) {
+    console.log("[DB Listener] Session UPDATE received:", payload.new);
+    dispatch(updateSessionInStore(payload.new));
+  }
+
+  function handleConnectivityInserts(payload: any) {
+    console.log("[DB Listener] Connectivity INSERT received:", payload.new);
+  }
+
+  function handleConnectivityDeletes(payload: any) {
+    console.log("[DB Listener] Connectivity DELETE received:", payload.old);
+  }
+
+  function handleConnectivityUpdates(payload: any) {
+    console.log("[DB Listener] Connectivity UPDATE received:", payload.new);
+  }
+
   useEffect(() => {
     if (!scoutSupabase) {
-      setConnectionState(ConnectionState.ERROR);
-      setLastError("No Supabase client available");
+      console.error("[DB Listener] No Supabase client available");
       return;
     }
 
-    initializeConnection();
+    supabase.current = scoutSupabase;
 
+    // Create a single channel for all operations
+    const channelName = `scout_realtime_${Date.now()}`;
+    const mainChannel = scoutSupabase.channel(channelName);
+
+    // Subscribe to all events
+    mainChannel
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "plans" },
+        handlePlanInserts
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "plans" },
+        handlePlanDeletes
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "plans" },
+        handlePlanUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "devices" },
+        handleDeviceInserts
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "devices" },
+        handleDeviceDeletes
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "devices" },
+        handleDeviceUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "tags" },
+        handleTagInserts
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "tags" },
+        handleTagDeletes
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "tags" },
+        handleTagUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "connectivity" },
+        handleConnectivityInserts
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "connectivity" },
+        handleConnectivityDeletes
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "connectivity" },
+        handleConnectivityUpdates
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "sessions" },
+        handleSessionInserts
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "sessions" },
+        handleSessionDeletes
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "sessions" },
+        handleSessionUpdates
+      )
+      .subscribe((status: any) => {
+        console.log("[DB Listener] Subscription status:", status);
+        if (status === "SUBSCRIBED") {
+          console.log(
+            "[DB Listener] ✅ Successfully subscribed to real-time updates"
+          );
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("[DB Listener] ❌ Channel error occurred");
+        } else if (status === "TIMED_OUT") {
+          console.error("[DB Listener] ⏰ Subscription timed out");
+        } else if (status === "CLOSED") {
+          console.log("[DB Listener] 🔒 Channel closed");
+        }
+      });
+
+    channels.current.push(mainChannel);
+
+    // Cleanup function
     return () => {
-      cleanupChannels();
+      console.log("[DB Listener] 🧹 Cleaning up channels");
+      channels.current.forEach((channel) => {
+        if (channel) {
+          scoutSupabase.removeChannel(channel);
+        }
+      });
+      channels.current = [];
     };
-  }, [scoutSupabase]);
-
-  return {
-    connectionState,
-    lastError,
-    isConnected: connectionState === ConnectionState.CONNECTED,
-    isConnecting: connectionState === ConnectionState.CONNECTING,
-  };
+  }, [scoutSupabase, dispatch]);
 }
