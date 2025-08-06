@@ -23,6 +23,11 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
   const supabase = useRef<any>(null);
   const channels = useRef<any[]>([]);
   const dispatch = useAppDispatch();
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 10;
+  const baseDelay = 1000; // 1 second
+  const maxDelay = 5000; // 5 seconds
 
   function handleTagInserts(payload: any) {
     console.log("[DB Listener] Tag INSERT received:", payload.new);
@@ -108,17 +113,21 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
     console.log("[DB Listener] Connectivity UPDATE received:", payload.new);
   }
 
-  useEffect(() => {
-    if (!scoutSupabase) {
-      console.error("[DB Listener] No Supabase client available");
-      return;
-    }
+  // Clean up all channels
+  const cleanupChannels = () => {
+    channels.current.forEach((channel) => {
+      if (channel) {
+        scoutSupabase.removeChannel(channel);
+      }
+    });
+    channels.current = [];
+  };
 
-    supabase.current = scoutSupabase;
+  // Setup channel with event handlers
+  const setupChannel = () => {
+    if (!scoutSupabase) return null;
 
-    // Create a single channel for all operations
-    const channelName = `scout_realtime_${Date.now()}`;
-    const mainChannel = scoutSupabase.channel(channelName);
+    const mainChannel = scoutSupabase.channel("schema_db_changes");
 
     // Subscribe to all events
     mainChannel
@@ -203,26 +212,87 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
           console.log(
             "[DB Listener] ✅ Successfully subscribed to real-time updates"
           );
+          reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
         } else if (status === "CHANNEL_ERROR") {
-          console.error("[DB Listener] ❌ Channel error occurred");
+          console.error(
+            "[DB Listener] ❌ Channel error occurred. Reconnecting..."
+          );
+          handleReconnect();
         } else if (status === "TIMED_OUT") {
-          console.error("[DB Listener] ⏰ Subscription timed out");
+          console.error(
+            "[DB Listener] ⏰ Subscription timed out. Reconnecting..."
+          );
+          handleReconnect();
         } else if (status === "CLOSED") {
-          console.log("[DB Listener] 🔒 Channel closed");
+          console.log("[DB Listener] 🔒 Channel closed. Reconnecting...");
+          handleReconnect();
         }
       });
 
-    channels.current.push(mainChannel);
+    return mainChannel;
+  };
+
+  // Handle reconnection with exponential backoff
+  const handleReconnect = () => {
+    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
+      console.error("[DB Listener] 🚫 Max reconnection attempts reached");
+      return;
+    }
+
+    // Clear any existing timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+    }
+
+    const delay = Math.min(
+      baseDelay * (reconnectAttemptsRef.current + 1),
+      maxDelay
+    );
+    console.log(
+      `[DB Listener] 🔄 Attempting reconnection in ${delay}ms (attempt ${
+        reconnectAttemptsRef.current + 1
+      }/${maxReconnectAttempts})`
+    );
+
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectAttemptsRef.current++;
+      cleanupChannels();
+      const newChannel = setupChannel();
+      if (newChannel) {
+        channels.current.push(newChannel);
+      }
+    }, delay);
+  };
+
+  useEffect(() => {
+    if (!scoutSupabase) {
+      console.error("[DB Listener] No Supabase client available");
+      return;
+    }
+
+    supabase.current = scoutSupabase;
+
+    // Initial channel setup
+    const mainChannel = setupChannel();
+    if (mainChannel) {
+      channels.current.push(mainChannel);
+    }
 
     // Cleanup function
     return () => {
       console.log("[DB Listener] 🧹 Cleaning up channels");
-      channels.current.forEach((channel) => {
-        if (channel) {
-          scoutSupabase.removeChannel(channel);
-        }
-      });
-      channels.current = [];
+
+      // Clear any pending reconnection attempts
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
+      // Reset reconnect attempts
+      reconnectAttemptsRef.current = 0;
+
+      // Clean up channels
+      cleanupChannels();
     };
   }, [scoutSupabase, dispatch]);
 }
