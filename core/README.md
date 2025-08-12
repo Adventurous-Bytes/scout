@@ -1,6 +1,107 @@
-# @adventurelabs/scout-core
+# Scout Core
 
 Core utilities and helpers for Adventure Labs Scout applications.
+
+## Features
+
+- **Herd Management**: Comprehensive herd and device management
+- **Event Tracking**: Wildlife event monitoring and tagging
+- **Real-time Updates**: Supabase-powered real-time data synchronization
+- **State Management**: Redux-based state management with loading states
+
+## Herd Modules Loading State
+
+The core provides a global loading state for herd modules, which are essential for many consuming applications. This state tracks whether herd modules are currently loading, have loaded successfully, or failed to load.
+
+### Loading State Enum
+
+```typescript
+import { EnumHerdModulesLoadingState } from "@adventurelabs/scout-core";
+
+enum EnumHerdModulesLoadingState {
+  NOT_LOADING = "NOT_LOADING",
+  LOADING = "LOADING",
+  SUCCESSFULLY_LOADED = "SUCCESSFULLY_LOADED",
+  UNSUCCESSFULLY_LOADED = "UNSUCCESSFULLY_LOADED",
+}
+
+**Available Hooks:**
+- `useHerdModulesLoadingState()` - Get current loading state
+- `useIsHerdModulesLoading()` - Check if currently loading
+- `useIsHerdModulesLoaded()` - Check if successfully loaded
+- `useIsHerdModulesFailed()` - Check if loading failed
+- `useHerdModulesLoadedAt()` - Get how long the last loading took (in milliseconds)
+- `useHerdModulesLoadingDuration()` - Get loading duration in milliseconds
+- `useHerdModulesLoadingTimeAgo()` - Get formatted time ago since last loaded (e.g., "2.5s ago")
+```
+
+### Usage in Components
+
+```typescript
+import {
+  useHerdModulesLoadingState,
+  useIsHerdModulesLoading,
+  useIsHerdModulesLoaded,
+  useIsHerdModulesFailed,
+  useHerdModulesLoadedAt,
+  useHerdModulesLoadingTimeAgo,
+  useHerdModulesLoadingDuration,
+} from "@adventurelabs/scout-core";
+
+function MyComponent() {
+  const loadingState = useHerdModulesLoadingState();
+  const isLoading = useIsHerdModulesLoading();
+  const isLoaded = useIsHerdModulesLoaded();
+  const isFailed = useIsHerdModulesFailed();
+
+  if (isLoading) {
+    return <div>Loading herd modules...</div>;
+  }
+
+  if (isFailed) {
+    return <div>Failed to load herd modules</div>;
+  }
+
+  if (isLoaded) {
+    return <div>Herd modules loaded successfully!</div>;
+  }
+
+  return <div>Not loading</div>;
+}
+
+// Example with loading duration information
+function HerdModulesStatus() {
+  const loadingState = useHerdModulesLoadingState();
+  const loadingTimeMs = useHerdModulesLoadedAt();
+  const timeAgo = useHerdModulesLoadingTimeAgo();
+  const loadingDuration = useHerdModulesLoadingDuration();
+
+  return (
+    <div>
+      <div>Status: {loadingState}</div>
+      {loadingTimeMs && (
+        <>
+          <div>Last loading took: {loadingTimeMs}ms</div>
+          <div>Loaded: {timeAgo}</div>
+          <div>Loading duration: {loadingDuration}ms</div>
+        </>
+      )}
+    </div>
+  );
+}
+```
+
+### Manual Refresh
+
+```typescript
+import { useScoutRefresh } from "@adventurelabs/scout-core";
+
+function RefreshButton() {
+  const { handleRefresh } = useScoutRefresh({ autoRefresh: false });
+
+  return <button onClick={handleRefresh}>Refresh Data</button>;
+}
+```
 
 ## Installation
 
@@ -10,9 +111,31 @@ npm install @adventurelabs/scout-core
 yarn add @adventurelabs/scout-core
 ```
 
-## Usage
+## Setup
+
+Wrap your app with the ScoutRefreshProvider:
 
 ```typescript
+import { ScoutRefreshProvider } from "@adventurelabs/scout-core";
+
+function App() {
+  return (
+    <ScoutRefreshProvider>{/* Your app components */}</ScoutRefreshProvider>
+  );
+}
+```
+
+## Recent Updates
+
+- **v1.0.58**: Added global herd modules loading state tracking with timestamps
+- Fixed repeat Supabase client creation logs
+- Enhanced loading state management for better UX
+- Added loading duration and time-ago tracking
+- Added comprehensive edge case handling and race condition prevention
+
+## Usage
+
+````typescript
 import "../../app/globals.css";
 import StoreProvider from "../../components/Store/StoreProvider";
 import { ScoutRefreshProvider } from "@adventurelabs/scout-core";
@@ -33,7 +156,6 @@ export default function ScoutLayout({
     </StoreProvider>
   );
 }
-```
 
 ## Available Modules
 
@@ -42,6 +164,7 @@ export default function ScoutLayout({
 - Database types from Supabase
 - Herd, Device, Event, User interfaces
 - Request/Response types
+- Herd module loading state enums (`EnumHerdModulesLoadingState`)
 
 ### Helpers
 
@@ -95,7 +218,7 @@ function ConnectionStatus() {
 
   return <div>Status: {isConnected ? "Connected" : "Disconnected"}</div>;
 }
-```
+````
 
 ### Store
 
@@ -128,3 +251,10 @@ yarn clean
 ## License
 
 GPL-3.0
+
+**New Hooks** (in `core/store/hooks.ts`):
+
+- `useHerdModulesLoadingState()` - Get current loading state
+- `useIsHerdModulesLoading()` - Check if currently loading
+- `useIsHerdModulesLoaded()` - Check if successfully loaded
+- `

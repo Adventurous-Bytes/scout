@@ -1,6 +1,6 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { IEventWithTags, IUser } from "../types/db";
-import { IHerdModule } from "../types/herd_module";
+import { IHerdModule, EnumHerdModulesLoadingState } from "../types/herd_module";
 
 export enum EnumScoutStateStatus {
   LOADING = "LOADING",
@@ -10,6 +10,13 @@ export enum EnumScoutStateStatus {
 export interface ScoutState {
   herd_modules: IHerdModule[];
   status: EnumScoutStateStatus;
+  herd_modules_loading_state: EnumHerdModulesLoadingState;
+  herd_modules_loaded_in_ms: number | null;
+  // Detailed timing measurements for each portion of the loading process
+  herd_modules_api_duration_ms: number | null;
+  user_api_duration_ms: number | null;
+  data_processing_duration_ms: number | null;
+  localStorage_duration_ms: number | null;
   active_herd_id: string | null;
   active_device_id: string | null;
   lastRefreshed: number;
@@ -19,6 +26,13 @@ export interface ScoutState {
 const initialState: ScoutState = {
   herd_modules: [],
   status: EnumScoutStateStatus.LOADING,
+  herd_modules_loading_state: EnumHerdModulesLoadingState.NOT_LOADING,
+  herd_modules_loaded_in_ms: null,
+  // Initialize timing variables
+  herd_modules_api_duration_ms: null,
+  user_api_duration_ms: null,
+  data_processing_duration_ms: null,
+  localStorage_duration_ms: null,
   lastRefreshed: 0,
   active_herd_id: null,
   active_device_id: null,
@@ -35,6 +49,24 @@ export const scoutSlice = createSlice({
     },
     setStatus: (state, action) => {
       state.status = action.payload;
+    },
+    setHerdModulesLoadingState: (state, action) => {
+      state.herd_modules_loading_state = action.payload;
+    },
+    setHerdModulesLoadedInMs: (state, action) => {
+      state.herd_modules_loaded_in_ms = action.payload;
+    },
+    setHerdModulesApiDuration: (state, action) => {
+      state.herd_modules_api_duration_ms = action.payload;
+    },
+    setUserApiDuration: (state, action) => {
+      state.user_api_duration_ms = action.payload;
+    },
+    setDataProcessingDuration: (state, action) => {
+      state.data_processing_duration_ms = action.payload;
+    },
+    setLocalStorageDuration: (state, action) => {
+      state.localStorage_duration_ms = action.payload;
     },
     setActiveHerdId: (state, action) => {
       state.active_herd_id = action.payload;
@@ -280,6 +312,12 @@ export const scoutSlice = createSlice({
 export const {
   setHerdModules,
   setStatus,
+  setHerdModulesLoadingState,
+  setHerdModulesLoadedInMs,
+  setHerdModulesApiDuration,
+  setUserApiDuration,
+  setDataProcessingDuration,
+  setLocalStorageDuration,
   setActiveHerdId,
   setActiveDeviceId,
   appendEventsToHerdModule,

@@ -7,6 +7,7 @@ import {
   IWebResponse,
   EnumWebResponse,
 } from "../types/requests";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 export async function server_get_user_roles(
   herd_id: number
@@ -40,19 +41,39 @@ export async function server_get_user(): Promise<
 }
 
 export async function server_get_users_with_herd_access(
-  herd_id: number
-): Promise<IWebResponseCompatible<IUserAndRole[] | null>> {
-  const supabase = await newServerClient();
+  herd_id: number,
+  supabaseClient?: SupabaseClient
+): Promise<IWebResponseCompatible<IUserAndRole[]>> {
+  const supabase = supabaseClient || (await newServerClient());
+
   const { data, error } = await supabase
     .from("users_roles_per_herd")
-    .select("user:users(*), role")
+    .select(
+      `
+      role,
+      users (
+        id,
+        username
+      )
+    `
+    )
     .eq("herd_id", herd_id);
+
   if (error) {
-    return IWebResponse.error<IUserAndRole[] | null>(
-      error.message
-    ).to_compatible();
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: null,
+    };
+  } else {
+    // Transform the data to match IUserAndRole interface
+    const transformedData: IUserAndRole[] = data.map((item) => ({
+      user: item.users,
+      role: item.role,
+    }));
+
+    return IWebResponse.success(transformedData).to_compatible();
   }
-  return IWebResponse.success(data).to_compatible();
 }
 
 export async function server_upsert_user_with_role(

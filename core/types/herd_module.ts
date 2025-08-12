@@ -23,6 +23,13 @@ import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
 import { server_list_api_keys_batch } from "../api_keys/actions";
 import { getSessionsByHerdId } from "../helpers/sessions";
 
+export enum EnumHerdModulesLoadingState {
+  NOT_LOADING = "NOT_LOADING",
+  LOADING = "LOADING",
+  SUCCESSFULLY_LOADED = "SUCCESSFULLY_LOADED",
+  UNSUCCESSFULLY_LOADED = "UNSUCCESSFULLY_LOADED",
+}
+
 export class HerdModule {
   herd: IHerd;
   devices: IDevice[];
@@ -150,7 +157,7 @@ export class HerdModule {
             return { status: EnumWebResponse.ERROR, data: null };
           }
         ),
-        server_get_users_with_herd_access(herd.id).catch((error) => {
+        server_get_users_with_herd_access(herd.id, client).catch((error) => {
           console.warn(`[HerdModule] Failed to get user roles:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
@@ -281,4 +288,19 @@ export interface IHerdModule {
   zones: IZoneWithActions[];
   sessions: ISessionWithCoordinates[];
   layers: ILayer[];
+}
+
+export interface IHerdModulesResponse {
+  data: IHerdModule[];
+  time_finished: number;
+  server_processing_time_ms: number;
+}
+
+export interface IHerdModulesResponseWithStatus {
+  status: EnumWebResponse;
+  msg: string;
+  data: IHerdModule[] | null;
+  time_finished: number; // When server finished processing
+  time_sent: number; // When server actually sent the response
+  server_processing_time_ms: number;
 }

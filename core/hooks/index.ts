@@ -1,2 +1,5 @@
-export * from "./useScoutDbListener";
-export * from "./useScoutRefresh";
+export { useScoutDbListener } from "./useScoutDbListener";
+export {
+  useScoutRefresh,
+  type UseScoutRefreshOptions,
+} from "./useScoutRefresh";

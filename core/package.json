@@ -1,6 +1,6 @@
 {
   "name": "@adventurelabs/scout-core",
-  "version": "1.0.55",
+  "version": "1.0.67",
   "description": "Core utilities and helpers for Adventure Labs Scout applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -44,8 +44,8 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.45.6",
-    "@supabase/ssr": "^0.5.1",
+    "@supabase/supabase-js": "^2.53.0",
+    "@supabase/ssr": "^0.6.1",
     "@reduxjs/toolkit": "^2.0.0",
     "zustand": "^4.0.0"
   }

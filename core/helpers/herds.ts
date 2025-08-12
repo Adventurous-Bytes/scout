@@ -7,7 +7,11 @@ import {
   IWebResponseCompatible,
 } from "../types/requests";
 import { SupabaseClient } from "@supabase/supabase-js";
-import { HerdModule, IHerdModule } from "../types/herd_module";
+import {
+  HerdModule,
+  IHerdModule,
+  IHerdModulesResponseWithStatus,
+} from "../types/herd_module";
 
 export async function get_herds(
   client: SupabaseClient
@@ -82,19 +86,22 @@ export async function createHerd(
   }
 }
 
-export async function server_load_herd_modules(): Promise<IHerdModule[]> {
+export async function server_load_herd_modules(): Promise<IHerdModulesResponseWithStatus> {
   const startTime = Date.now();
 
   // load herds
   const client_supabase = await newServerClient();
   let new_herds = await get_herds(client_supabase);
   if (new_herds.status != EnumWebResponse.SUCCESS || !new_herds.data) {
-    return [];
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: "No herds found",
+      data: null,
+      time_finished: Date.now(),
+      time_sent: Date.now(),
+      server_processing_time_ms: Date.now() - startTime,
+    };
   }
-
-  console.log(
-    `[server_load_herd_modules] Loading ${new_herds.data.length} herds in parallel...`
-  );
 
   let new_herd_modules: HerdModule[] = [];
   const herdModulePromises = new_herds.data.map((herd) =>
@@ -113,5 +120,15 @@ export async function server_load_herd_modules(): Promise<IHerdModule[]> {
     `[server_load_herd_modules] Loaded ${new_herds.data.length} herds in ${totalLoadTime}ms (parallel processing)`
   );
 
-  return serialized_herd_modules;
+  // Record the time when we're about to send the response
+  const timeSent = Date.now();
+
+  return {
+    status: EnumWebResponse.SUCCESS,
+    msg: "Herd modules loaded successfully",
+    data: serialized_herd_modules,
+    time_finished: endTime,
+    time_sent: timeSent,
+    server_processing_time_ms: totalLoadTime,
+  };
 }
