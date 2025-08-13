@@ -359,7 +359,7 @@ println!("Completed {} batches, uploaded {} of {} files",
 The client supports both individual and batch upload endpoints:
 
 - **Individual**: `POST /events` - Upload single event with file
-- **Batch**: `POST /events/batch` - Upload multiple events with files (max 50 per batch)
+- **Batch**: `POST /events` - Upload multiple events with files (max 25 per batch)
 
 The batch endpoint is more efficient for uploading multiple files as it reduces network overhead and server load.
 
