@@ -1053,16 +1053,20 @@ impl ScoutClient {
         matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp")
     }
 
-    /// Uploads multiple events and files in batches for improved efficiency.
+    /// Uploads multiple events in batches for improved efficiency.
     ///
-    /// This method is more efficient than uploading files one by one as it groups
-    /// multiple files into a single HTTP request. The batch_size parameter controls
-    /// how many files are uploaded in each batch.
+    /// Supports mixed batches (with/without files) and routes each event to the optimal
+    /// upload method. Maximum batch size is 25 due to server limitations.
+    ///
+    /// **File handling:**
+    /// - Events with files: Multipart form data with actual file attachments
+    /// - Events without files: JSON batch payload for efficiency
+    /// - Mixed batches: Intelligent routing for optimal performance
     ///
     /// # Arguments
     ///
-    /// * `events_and_files` - Array of tuples containing (event, tags, file_path)
-    /// * `batch_size` - Maximum number of files to upload in a single batch
+    /// * `events_and_files` - Array of (event, tags, file_path) tuples
+    /// * `batch_size` - Maximum events per batch (max: 25)
     ///
     /// # Returns
     ///
@@ -1098,7 +1102,7 @@ impl ScoutClient {
     ///         0.95,
     ///         "manual".to_string(),
     ///         "animal".to_string()
-    ///     )], "file1.jpg".to_string()),
+    ///     )], Some("file1.jpg".to_string())),
     ///     (Event::new(
     ///         Some("Detection 2".to_string()),
     ///         Some("https://example.com/file2.jpg".to_string()),
@@ -1122,18 +1126,23 @@ impl ScoutClient {
     ///         0.92,
     ///         "manual".to_string(),
     ///         "animal".to_string()
-    ///     )], "file2.jpg".to_string()),
+    ///     )], None),
     /// ];
     /// let result = client.post_events_batch(&events_and_files, 10).await?;
-    /// println!("Uploaded {} files successfully", result.successful_uploads);
+    /// println!("Uploaded {} events successfully", result.successful_uploads);
     /// # Ok(())
     /// # }
     /// ```
     pub async fn post_events_batch(
         &self,
-        events_and_files: &[(Event, Vec<Tag>, String)], // (event, tags, file_path)
+        events_and_files: &[(Event, Vec<Tag>, Option<String>)], // (event, tags, file_path)
         batch_size: usize
     ) -> Result<BatchUploadResult> {
+        // Validate batch size - server has a maximum limit of 25
+        if batch_size > 25 {
+            return Err(anyhow!("Batch size {} exceeds server limit of 25", batch_size));
+        }
+
         if events_and_files.is_empty() {
             return Ok(BatchUploadResult {
                 total_batches: 0,
@@ -1188,14 +1197,18 @@ impl ScoutClient {
                     results.batch_errors.push(error_msg.clone());
                     error!("❌ {}", error_msg);
 
-                    // Add all files in this batch to failed files
+                    // Add all events in this batch to failed files
                     for (_, _, file_path) in chunk {
-                        let filename = std::path::Path
-                            ::new(file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or("unknown")
-                            .to_string();
+                        let filename = match file_path {
+                            Some(path) =>
+                                std::path::Path
+                                    ::new(path)
+                                    .file_name()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("unknown")
+                                    .to_string(),
+                            None => "event_without_file".to_string(),
+                        };
                         results.failed_files.push(filename);
                     }
                 }
@@ -1207,8 +1220,7 @@ impl ScoutClient {
 
     /// Uploads a single batch of events and files.
     ///
-    /// This is an internal method used by `post_events_batch` to handle
-    /// the actual HTTP request for a batch of files.
+    /// Routes events to appropriate upload methods based on file presence.
     ///
     /// # Arguments
     ///
@@ -1219,58 +1231,129 @@ impl ScoutClient {
     /// A `Result<BatchResult>` containing the upload results for this batch
     async fn post_single_batch(
         &self,
-        events_and_files: &[(Event, Vec<Tag>, String)]
+        events_and_files: &[(Event, Vec<Tag>, Option<String>)]
     ) -> Result<BatchResult> {
-        let mut form = reqwest::multipart::Form::new();
         let mut batch_result = BatchResult {
             successful_uploads: 0,
             failed_uploads: 0,
             failed_files: Vec::new(),
         };
 
-        for (index, (event, tags, file_path)) in events_and_files.iter().enumerate() {
-            // Check if file exists
-            if !std::path::Path::new(file_path).exists() {
-                batch_result.failed_uploads += 1;
-                let filename = std::path::Path
-                    ::new(file_path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("unknown")
-                    .to_string();
-                batch_result.failed_files.push(filename);
-                continue;
-            }
+        // Route to appropriate upload method based on file presence
+        let has_files = events_and_files.iter().any(|(_, _, file_path)| file_path.is_some());
 
-            let tags_json = serde_json::to_string(tags)?;
-            let event_input = event.to_input();
-            let event_json = serde_json::to_string(&event_input)?;
-
-            let file_bytes = std::fs::read(file_path)?;
-            let filename = std::path::Path
-                ::new(file_path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| anyhow!("Invalid filename"))?;
-
-            let file_part = reqwest::multipart::Part
-                ::bytes(file_bytes)
-                .file_name(filename.to_string());
-
-            // Add to form with indexed keys
-            form = form
-                .text(format!("event_{}", index), event_json)
-                .text(format!("tags_{}", index), tags_json)
-                .part(format!("file_{}", index), file_part);
+        if has_files {
+            self.post_single_batch_with_files(events_and_files, &mut batch_result).await?;
+        } else {
+            self.post_single_batch_json_only(events_and_files, &mut batch_result).await?;
         }
 
-        // Add batch metadata
-        form = form.text("batch_size", events_and_files.len().to_string());
+        Ok(batch_result)
+    }
 
+    /// Uploads events with files using multipart form data.
+    /// Handles mixed batches (with/without files) intelligently.
+    async fn post_single_batch_with_files(
+        &self,
+        events_and_files: &[(Event, Vec<Tag>, Option<String>)],
+        batch_result: &mut BatchResult
+    ) -> Result<()> {
+        // Send events with files individually using multipart form data
+        for (event, tags, file_path) in events_and_files.iter() {
+            match file_path {
+                Some(path) => {
+                    // Validate file exists
+                    if !std::path::Path::new(path).exists() {
+                        batch_result.failed_uploads += 1;
+                        let filename = std::path::Path
+                            ::new(path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        batch_result.failed_files.push(filename);
+                        continue;
+                    }
+
+                    // Upload event with file using multipart form data
+                    match self.create_event_with_tags(event, tags, path).await {
+                        Ok(_) => {
+                            batch_result.successful_uploads += 1;
+                        }
+                        Err(e) => {
+                            batch_result.failed_uploads += 1;
+                            let filename = std::path::Path
+                                ::new(path)
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("unknown")
+                                .to_string();
+                            batch_result.failed_files.push(filename.clone());
+                            warn!("Failed to upload event with file {}: {}", filename, e);
+                        }
+                    }
+                }
+                None => {
+                    // Upload event without file using JSON endpoint
+                    let event_data =
+                        serde_json::json!({
+                        "event": event.to_input(),
+                        "tags": tags
+                    });
+
+                    let response = self.client
+                        .post(&format!("{}/events", self.scout_url))
+                        .header("Authorization", &self.api_key)
+                        .header("Content-Type", "application/json")
+                        .json(&event_data)
+                        .send().await?;
+
+                    let status = response.status().as_u16();
+                    match status {
+                        200 | 201 => {
+                            batch_result.successful_uploads += 1;
+                        }
+                        _ => {
+                            batch_result.failed_uploads += 1;
+                            batch_result.failed_files.push("event_without_file".to_string());
+                            let response_text = response.text().await?;
+                            warn!(
+                                "Failed to upload event without file: HTTP {} - {}",
+                                status,
+                                response_text
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Uploads events without files using JSON batch payload.
+    async fn post_single_batch_json_only(
+        &self,
+        events_and_files: &[(Event, Vec<Tag>, Option<String>)],
+        batch_result: &mut BatchResult
+    ) -> Result<()> {
+        // Prepare JSON batch payload
+        let mut batch_payload = Vec::new();
+
+        for (event, tags, _) in events_and_files.iter() {
+            let batch_item =
+                serde_json::json!({
+                "event": event.to_input(),
+                "tags": tags
+            });
+            batch_payload.push(batch_item);
+        }
+
+        // Send JSON batch payload
         let response = self.client
-            .post(&format!("{}/events/batch", self.scout_url))
+            .post(&format!("{}/events", self.scout_url))
             .header("Authorization", &self.api_key)
-            .multipart(form)
+            .header("Content-Type", "application/json")
+            .json(&batch_payload)
             .send().await?;
 
         let status = response.status();
@@ -1280,24 +1363,26 @@ impl ScoutClient {
         match status.as_u16() {
             200 | 201 => {
                 // Parse the response to get individual results
-                match serde_json::from_str::<BatchResponse>(&response_text) {
-                    Ok(batch_response) => {
-                        batch_result.successful_uploads = batch_response.successful_uploads;
-                        batch_result.failed_uploads = batch_response.failed_uploads;
-                        batch_result.failed_files = batch_response.failed_files;
+                match serde_json::from_str::<Vec<serde_json::Value>>(&response_text) {
+                    Ok(created_events) => {
+                        batch_result.successful_uploads = created_events.len();
+                        batch_result.failed_uploads = 0;
                     }
-                    Err(_) => {
-                        // If we can't parse the response, assume all succeeded
-                        batch_result.successful_uploads = events_and_files.len();
+                    Err(e) => {
+                        warn!("Failed to parse response: {} - Response: {}", e, response_text);
+                        // Assume all failed since we can't parse the response
+                        batch_result.successful_uploads = 0;
+                        batch_result.failed_uploads = events_and_files.len();
                     }
                 }
-                Ok(batch_result)
             }
             _ => {
                 error!("Batch upload failed: HTTP {} - Response: {}", status, response_text);
-                Err(anyhow!("Failed to post batch: HTTP {} - {}", status, response_text))
+                batch_result.successful_uploads = 0;
+                batch_result.failed_uploads = events_and_files.len();
             }
         }
+        Ok(())
     }
 
     /// Uploads a directory of images to Scout using optimized batch uploads.
@@ -1316,7 +1401,7 @@ impl ScoutClient {
     /// * `default_longitude` - Default longitude if not found in filename
     /// * `default_altitude` - Default altitude if not found in filename
     /// * `default_heading` - Default heading if not found in filename
-    /// * `batch_size` - Number of files to upload in each batch
+    /// * `batch_size` - Number of files to upload in each batch (max: 25 due to server limitations)
     ///
     /// # Returns
     ///
@@ -1355,6 +1440,10 @@ impl ScoutClient {
         default_heading: Option<f64>,
         batch_size: usize
     ) -> Result<BatchUploadResult> {
+        // Validate batch size - server has a maximum limit of 25
+        if batch_size > 25 {
+            return Err(anyhow!("Batch size {} exceeds server limit of 25", batch_size));
+        }
         let dir_path = Path::new(directory_path);
         if !dir_path.exists() || !dir_path.is_dir() {
             return Err(anyhow!("Directory does not exist: {}", directory_path));
@@ -1449,7 +1538,7 @@ impl ScoutClient {
             );
 
             let file_path_str = file_path.to_str().ok_or_else(|| anyhow!("Invalid file path"))?;
-            events_and_files.push((event, Vec::new(), file_path_str.to_string()));
+            events_and_files.push((event, Vec::new(), Some(file_path_str.to_string())));
         }
 
         info!(
@@ -1481,7 +1570,7 @@ impl ScoutClient {
     /// * `default_longitude` - Default longitude if not found in filename
     /// * `default_altitude` - Default altitude if not found in filename
     /// * `default_heading` - Default heading if not found in filename
-    /// * `batch_size` - Optional batch size (defaults to 20 if None)
+    /// * `batch_size` - Optional batch size (defaults to 20 if None, max: 25 due to server limitations)
     ///
     /// # Returns
     ///
@@ -1521,6 +1610,8 @@ impl ScoutClient {
         batch_size: Option<usize>
     ) -> Result<UploadResult> {
         // Use batch upload internally with specified batch size or default of 20
+        // Note: Server has a maximum batch size limit of 25
+        let final_batch_size = batch_size.unwrap_or(20).min(25); // Default batch size of 20, capped at 25
         let batch_result = self.upload_directory_batch(
             directory_path,
             earthranger_url,
@@ -1530,7 +1621,7 @@ impl ScoutClient {
             default_longitude,
             default_altitude,
             default_heading,
-            batch_size.unwrap_or(20) // Default batch size of 20
+            final_batch_size
         ).await?;
 
         // Convert BatchUploadResult to UploadResult for backward compatibility
