@@ -1,7 +1,7 @@
 use clap::Parser;
 use serde_json;
 use std::env;
-use scout_rs::client::{ ScoutClient, Event, Tag, Plan, ResponseScoutStatus };
+use scout_rs::client::{ ScoutClient, Event, Tag, ResponseScoutStatus };
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Parse tags JSON
             let tags: Vec<Tag> = serde_json::from_str(&tags_json)?;
 
-            let response = client.create_event_with_tags(&event, &tags, &file_path).await?;
+            let response = client.create_event_with_tags(&event, &tags, Some(&file_path)).await?;
             if response.status == ResponseScoutStatus::Success {
                 println!("Event posted successfully");
             } else {

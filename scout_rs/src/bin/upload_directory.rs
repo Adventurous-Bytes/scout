@@ -106,6 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client.identify().await?;
 
     // Upload directory (device ID will be automatically retrieved from stored state)
+    // TODO: Implement upload_directory method in ScoutClient
+    /*
     let result = client.upload_directory(
         &args.directory,
         args.earthranger_url.as_deref(),
@@ -127,6 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         info!("✅ All uploads completed successfully!");
     }
+    */
+
+    info!("⚠️  upload_directory method not yet implemented in new client");
+    info!("   This binary is temporarily disabled during the transition to the new API");
 
     Ok(())
 }
