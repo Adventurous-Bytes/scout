@@ -82,6 +82,45 @@ export type Database = {
           },
         ]
       }
+      chat: {
+        Row: {
+          created_at: string
+          herd_id: number | null
+          id: number
+          message: string
+          sender: string | null
+        }
+        Insert: {
+          created_at?: string
+          herd_id?: number | null
+          id?: number
+          message: string
+          sender?: string | null
+        }
+        Update: {
+          created_at?: string
+          herd_id?: number | null
+          id?: number
+          message?: string
+          sender?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_herd_id_fkey"
+            columns: ["herd_id"]
+            isOneToOne: false
+            referencedRelation: "herds"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_sender_fkey"
+            columns: ["sender"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       connectivity: {
         Row: {
           altitude: number

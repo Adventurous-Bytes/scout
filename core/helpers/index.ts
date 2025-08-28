@@ -1,5 +1,6 @@
 export * from "./auth";
 export * from "./bounding_boxes";
+export * from "./chat";
 export * from "./db";
 export * from "./devices";
 export * from "./email";
