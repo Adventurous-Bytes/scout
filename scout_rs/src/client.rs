@@ -1,11 +1,12 @@
 use anyhow::{ Result, anyhow };
 use serde::{ Deserialize, Serialize };
-use tracing::info;
+use serde_json;
+
 use chrono::{ DateTime, Utc };
 
 use crate::db_client::{ ScoutDbClient, DatabaseConfig };
 
-// ===== RESPONSE TYPES (for backward compatibility) =====
+// ===== ENUMS =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ResponseScoutStatus {
@@ -15,6 +16,97 @@ pub enum ResponseScoutStatus {
     InvalidFile,
     Failure,
 }
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceType {
+    TrailCamera,
+    DroneFixedWing,
+    DroneQuad,
+    GpsTracker,
+    SentryTower,
+    SmartBuoy,
+    RadioMeshBaseStation,
+    RadioMeshRepeater,
+    Unknown,
+}
+
+impl From<&str> for DeviceType {
+    fn from(s: &str) -> Self {
+        match s {
+            "trail_camera" => DeviceType::TrailCamera,
+            "drone_fixed_wing" => DeviceType::DroneFixedWing,
+            "drone_quad" => DeviceType::DroneQuad,
+            "gps_tracker" => DeviceType::GpsTracker,
+            "sentry_tower" => DeviceType::SentryTower,
+            "smart_buoy" => DeviceType::SmartBuoy,
+            "radio_mesh_base_station" => DeviceType::RadioMeshBaseStation,
+            "radio_mesh_repeater" => DeviceType::RadioMeshRepeater,
+            _ => DeviceType::Unknown,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaType {
+    Image,
+    Video,
+    Audio,
+    Text,
+}
+
+impl From<&str> for MediaType {
+    fn from(s: &str) -> Self {
+        match s {
+            "image" => MediaType::Image,
+            "video" => MediaType::Video,
+            "audio" => MediaType::Audio,
+            "text" => MediaType::Text,
+            _ => MediaType::Image,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TagObservationType {
+    Manual,
+    Auto,
+}
+
+impl From<&str> for TagObservationType {
+    fn from(s: &str) -> Self {
+        match s {
+            "manual" => TagObservationType::Manual,
+            "auto" => TagObservationType::Auto,
+            _ => TagObservationType::Auto,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanType {
+    Mission,
+    Fence,
+    Rally,
+    Markov,
+}
+
+impl From<&str> for PlanType {
+    fn from(s: &str) -> Self {
+        match s {
+            "mission" => PlanType::Mission,
+            "fence" => PlanType::Fence,
+            "rally" => PlanType::Rally,
+            "markov" => PlanType::Markov,
+            _ => PlanType::Mission,
+        }
+    }
+}
+
+// ===== RESPONSE TYPES =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ResponseScout<T> {
@@ -31,17 +123,34 @@ impl<T> ResponseScout<T> {
 // ===== DATA STRUCTURES =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct Device {
-    pub id: u32,
+pub struct DevicePrettyLocation {
+    pub id: i64,
     pub inserted_at: String,
     pub created_by: String,
-    pub herd_id: u32,
+    pub herd_id: i64,
+    pub device_type: String,
+    pub domain_name: Option<String>,
+    pub location: Option<String>,
+    pub altitude: Option<f64>,
+    pub heading: Option<f64>,
+    pub name: String,
+    pub description: String,
+    pub latitude: Option<f64>,
+    pub longitude: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Device {
+    pub id: i64,
+    pub inserted_at: String,
+    pub created_by: String,
+    pub herd_id: i64,
     pub device_type: String,
     pub name: String,
     pub description: Option<String>,
     pub domain_name: Option<String>,
-    pub altitude: Option<f32>,
-    pub heading: Option<f32>,
+    pub altitude: Option<f64>,
+    pub heading: Option<f64>,
     pub location: Option<String>,
     pub video_publisher_token: Option<String>,
     pub video_subscriber_token: Option<String>,
@@ -49,7 +158,7 @@ pub struct Device {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Herd {
-    pub id: u32,
+    pub id: i64,
     pub inserted_at: String,
     pub created_by: String,
     pub is_public: bool,
@@ -72,7 +181,7 @@ pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
     pub software_version: String,
-    pub locations: Option<String>, // WKT format string - optional for deserialization
+    pub locations: Option<String>,
     pub altitude_max: f64,
     pub altitude_min: f64,
     pub altitude_average: f64,
@@ -82,9 +191,7 @@ pub struct Session {
     pub distance_total: f64,
     pub distance_max_from_start: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub file_paths: Option<Vec<String>>, // text[] in DB
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub earthranger_url: Option<String>, // text in DB
+    pub earthranger_url: Option<String>,
 }
 
 impl Session {
@@ -111,7 +218,6 @@ impl Session {
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
 
-        // Use the provided WKT location or default to a point at origin
         let locations = locations_wkt.unwrap_or_else(|| "Point(0 0)".to_string());
 
         Self {
@@ -130,7 +236,6 @@ impl Session {
             velocity_average,
             distance_total,
             distance_max_from_start,
-            file_paths: None,
             earthranger_url: None,
         }
     }
@@ -144,6 +249,32 @@ impl Session {
         self.timestamp_end = DateTime::from_timestamp(timestamp_end as i64, 0)
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Artifact {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    pub file_path: String,
+    pub session_id: Option<i64>,
+}
+
+impl Artifact {
+    pub fn new(file_path: String, session_id: Option<i64>) -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            file_path,
+            session_id,
+        }
+    }
+
+    pub fn with_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
     }
 }
 
@@ -214,11 +345,11 @@ pub struct Event {
     pub message: Option<String>,
     pub media_url: Option<String>,
     pub file_path: Option<String>,
-    pub location: Option<String>, // Can be WKT string or hex WKB format
+    pub location: Option<String>,
     pub altitude: f64,
     pub heading: f64,
-    pub media_type: String,
-    pub device_id: Option<i64>, // Server returns as integer
+    pub media_type: MediaType,
+    pub device_id: Option<i64>,
     pub earthranger_url: Option<String>,
     pub timestamp_observation: String,
     pub is_public: bool,
@@ -235,8 +366,8 @@ impl Event {
         longitude: f64,
         altitude: f64,
         heading: f64,
-        media_type: String,
-        device_id: u32,
+        media_type: MediaType,
+        device_id: i64,
         timestamp_observation: u64,
         is_public: bool,
         session_id: Option<i64>
@@ -255,7 +386,7 @@ impl Event {
             altitude,
             heading,
             media_type,
-            device_id: Some(device_id as i64),
+            device_id: Some(device_id),
             earthranger_url,
             timestamp_observation,
             is_public,
@@ -275,28 +406,34 @@ impl Event {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inserted_at: Option<String>,
     pub x: f64,
     pub y: f64,
     pub width: f64,
     pub height: f64,
     pub conf: f64,
-    pub observation_type: String,
+    pub observation_type: TagObservationType,
     pub class_name: String,
-    pub event_id: u32,
+    pub event_id: i64,
 }
 
 impl Tag {
     pub fn new(
-        _class_id: u32,
+        _class_id: i64,
         x: f64,
         y: f64,
         width: f64,
         height: f64,
         conf: f64,
-        observation_type: String,
+        observation_type: TagObservationType,
         class_name: String
     ) -> Self {
         Self {
+            id: None,
+            inserted_at: None,
             x,
             y,
             width,
@@ -308,7 +445,7 @@ impl Tag {
         }
     }
 
-    pub fn update_event_id(&mut self, event_id: u32) {
+    pub fn update_event_id(&mut self, event_id: i64) {
         self.event_id = event_id;
     }
 }
@@ -320,7 +457,49 @@ pub struct Plan {
     pub name: String,
     pub instructions: String,
     pub herd_id: i64,
-    pub plan_type: String,
+    pub plan_type: PlanType,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Layer {
+    pub id: Option<i64>,
+    pub created_at: Option<String>,
+    pub features: serde_json::Value,
+    pub herd_id: i64,
+}
+
+impl Layer {
+    pub fn new(features: serde_json::Value, herd_id: i64) -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            features,
+            herd_id,
+        }
+    }
+
+    pub fn with_id(mut self, id: i64) -> Self {
+        self.id = Some(id);
+        self
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Zone {
+    pub id: i64,
+    pub inserted_at: String,
+    pub region: String,
+    pub herd_id: i64,
+    pub actions: Option<Vec<Action>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Action {
+    pub id: i64,
+    pub inserted_at: String,
+    pub zone_id: i64,
+    pub trigger: Vec<String>,
+    pub opcode: i32,
 }
 
 // ===== CLIENT IMPLEMENTATION =====
@@ -348,53 +527,67 @@ impl ScoutClient {
 
     /// Identifies the device and herd, then establishes direct database connection
     pub async fn identify(&mut self) -> Result<()> {
-        info!("🔍 Identifying device and herd from database...");
-
-        // First establish database connection using environment variables
         let db_config = DatabaseConfig::from_env()?;
         let mut db_client = ScoutDbClient::new(db_config);
         db_client.connect()?;
 
         self.db_client = Some(db_client);
-        info!("✅ Database connection established");
 
-        // Get device information directly from database using API key
         let device = self.get_device_from_db().await?;
-        info!("   Device ID: {}", device.id);
-        info!("   Device Name: {}", device.name);
-        info!("   Herd ID: {}", device.herd_id);
 
-        // Get herd information directly from database
         let herd = self.get_herd_from_db(device.herd_id).await?;
-        info!("   Herd Slug: {}", herd.slug);
-        info!("   Herd Description: {}", herd.description);
 
-        // Store device and herd info
         self.device = Some(device);
         self.herd = Some(herd);
 
-        info!("✅ Identification and connection complete");
         Ok(())
     }
 
-    /// Gets device information directly from database (authorization handled by database)
+    /// Gets device information directly from database using the get_device_by_api_key function
     async fn get_device_from_db(&mut self) -> Result<Device> {
+        let api_key = self.api_key.clone();
         let db_client = self.get_db_client()?;
 
-        // Database authorization will ensure we only get the device we're authorized to see
-        let results = db_client.query("devices", |client| {
-            client.from("devices").select("*").limit(1)
-        }).await?;
+        // For RPC calls, we need to handle the response differently
+        let client = db_client.get_client()?;
+        let response = client
+            .rpc(
+                "get_device_by_api_key",
+                serde_json::json!({
+                "device_api_key": api_key
+            }).to_string()
+            )
+            .execute().await?;
 
-        if results.is_empty() {
-            return Err(anyhow!("No device found - check authorization"));
-        }
+        let body = response.text().await?;
 
-        Ok(results.into_iter().next().unwrap())
+        // Try to parse as the expected type
+        let device_pretty: DevicePrettyLocation = serde_json
+            ::from_str(&body)
+            .map_err(|e| anyhow!("Failed to parse device response: {} - Response: {}", e, body))?;
+
+        // Convert DevicePrettyLocation to Device
+        let device = Device {
+            id: device_pretty.id,
+            inserted_at: device_pretty.inserted_at,
+            created_by: device_pretty.created_by,
+            herd_id: device_pretty.herd_id,
+            device_type: device_pretty.device_type,
+            name: device_pretty.name,
+            description: Some(device_pretty.description),
+            domain_name: device_pretty.domain_name,
+            altitude: device_pretty.altitude.map(|a| a as f64),
+            heading: device_pretty.heading.map(|h| h as f64),
+            location: device_pretty.location,
+            video_publisher_token: None,
+            video_subscriber_token: None,
+        };
+
+        Ok(device)
     }
 
     /// Gets herd information directly from database
-    async fn get_herd_from_db(&mut self, herd_id: u32) -> Result<Herd> {
+    async fn get_herd_from_db(&mut self, herd_id: i64) -> Result<Herd> {
         let db_client = self.get_db_client()?;
 
         let results = db_client.query("herds", |client| {
@@ -450,12 +643,10 @@ impl ScoutClient {
 
     /// Gets device information (backward compatibility method)
     pub async fn get_device(&mut self) -> Result<ResponseScout<Device>> {
-        // Return cached device if available
         if let Some(device) = &self.device {
             return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(device.clone())));
         }
 
-        // If not identified yet, try to identify
         self.identify().await?;
 
         if let Some(device) = &self.device {
@@ -466,7 +657,7 @@ impl ScoutClient {
     }
 
     /// Gets herd information (backward compatibility method)
-    pub async fn get_herd(&mut self, herd_id: Option<u32>) -> Result<ResponseScout<Herd>> {
+    pub async fn get_herd(&mut self, herd_id: Option<i64>) -> Result<ResponseScout<Herd>> {
         let herd_id = if let Some(id) = herd_id {
             id
         } else if let Some(device) = &self.device {
@@ -475,14 +666,12 @@ impl ScoutClient {
             return Err(anyhow!("No herd_id provided and no device data available"));
         };
 
-        // Return cached herd if available
         if let Some(herd) = &self.herd {
             if herd.id == herd_id {
                 return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(herd.clone())));
             }
         }
 
-        // If not identified yet, try to identify
         if self.device.is_none() {
             self.identify().await?;
         }
@@ -508,6 +697,7 @@ impl ScoutClient {
     }
 
     /// Creates tags for an event directly in the database
+    /// RLS policies and foreign key constraints handle validation automatically
     pub async fn create_tags(
         &mut self,
         event_id: i64,
@@ -515,19 +705,23 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Tag>>> {
         let db_client = self.get_db_client()?;
 
-        let mut created_tags = Vec::new();
-
-        for tag in tags {
-            let mut tag_with_event_id = tag.clone();
-            tag_with_event_id.update_event_id(event_id as u32);
-
-            let result = db_client.insert("tags", &tag_with_event_id).await?;
-            if !result.is_empty() {
-                created_tags.push(result.into_iter().next().unwrap());
-            }
+        if tags.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(Vec::new())));
         }
 
-        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_tags)))
+        // Prepare tags with event_id for bulk insert
+        let tags_with_event_id: Vec<Tag> = tags
+            .iter()
+            .map(|tag| {
+                let mut tag_with_event_id = tag.clone();
+                tag_with_event_id.update_event_id(event_id);
+                tag_with_event_id
+            })
+            .collect();
+
+        // Use bulk insert for better performance
+        let result = db_client.insert_bulk("tags", &tags_with_event_id).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
     }
 
     /// Creates an event with tags (compatibility method)
@@ -537,7 +731,6 @@ impl ScoutClient {
         tags: &[Tag],
         _file_path: Option<&str>
     ) -> Result<ResponseScout<Event>> {
-        // Create event first
         let event_response = self.create_event(event).await?;
 
         if event_response.status != ResponseScoutStatus::Success {
@@ -546,7 +739,6 @@ impl ScoutClient {
 
         let created_event = event_response.data.unwrap();
 
-        // Then create tags
         if !tags.is_empty() {
             let tags_response = self.create_tags(created_event.id.unwrap(), tags).await?;
             if tags_response.status != ResponseScoutStatus::Success {
@@ -577,7 +769,7 @@ impl ScoutClient {
     /// Gets sessions for a herd directly from the database
     pub async fn get_sessions_by_herd(
         &mut self,
-        herd_id: u32
+        herd_id: i64
     ) -> Result<ResponseScout<Vec<Session>>> {
         let db_client = self.get_db_client()?;
         let results = db_client.query("sessions", |client| {
@@ -591,7 +783,7 @@ impl ScoutClient {
     }
 
     /// Gets plans for a herd directly from the database
-    pub async fn get_plans_by_herd(&mut self, herd_id: u32) -> Result<ResponseScout<Vec<Plan>>> {
+    pub async fn get_plans_by_herd(&mut self, herd_id: i64) -> Result<ResponseScout<Vec<Plan>>> {
         let db_client = self.get_db_client()?;
         let results = db_client.query("plans", |client| {
             client.from("plans").eq("herd_id", herd_id.to_string()).order("inserted_at.desc")
@@ -650,31 +842,11 @@ impl ScoutClient {
     }
 
     /// Deletes a session directly from the database
+    /// Database cascade deletion handles dependent records automatically
     pub async fn delete_session(&mut self, session_id: i64) -> Result<ResponseScout<()>> {
         let db_client = self.get_db_client()?;
 
-        // Delete connectivity entries first
-        db_client.delete("connectivity", |client| {
-            client.from("connectivity").eq("session_id", session_id.to_string())
-        }).await?;
-
-        // Delete events and their tags
-        let event_ids: Vec<i64> = db_client.query("events", |client| {
-            client.from("events").select("id").eq("session_id", session_id.to_string())
-        }).await?;
-
-        for event_id in event_ids {
-            db_client.delete("tags", |client| {
-                client.from("tags").eq("event_id", event_id.to_string())
-            }).await?;
-        }
-
-        db_client.delete("events", |client| {
-            client.from("events").eq("session_id", session_id.to_string())
-        }).await?;
-
-        // Finally delete the session
-        db_client.delete("sessions", |client| {
+        let session_deleted = db_client.delete("sessions", |client| {
             client.from("sessions").eq("id", session_id.to_string())
         }).await?;
 
@@ -682,17 +854,34 @@ impl ScoutClient {
     }
 
     /// Deletes an event directly from the database
+    /// Database cascade deletion handles dependent records automatically
     pub async fn delete_event(&mut self, event_id: i64) -> Result<ResponseScout<()>> {
         let db_client = self.get_db_client()?;
 
-        // Delete tags first
-        db_client.delete("tags", |client| {
-            client.from("tags").eq("event_id", event_id.to_string())
+        let _event_deleted = db_client.delete("events", |client| {
+            client.from("events").eq("id", event_id.to_string())
         }).await?;
 
-        // Delete the event
-        db_client.delete("events", |client| {
-            client.from("events").eq("id", event_id.to_string())
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+    }
+
+    /// Deletes a tag directly from the database
+    pub async fn delete_tag(&mut self, tag_id: i64) -> Result<ResponseScout<()>> {
+        let db_client = self.get_db_client()?;
+
+        db_client.delete("tags", |client| {
+            client.from("tags").eq("id", tag_id.to_string())
+        }).await?;
+
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+    }
+
+    /// Deletes connectivity data directly from the database
+    pub async fn delete_connectivity(&mut self, connectivity_id: i64) -> Result<ResponseScout<()>> {
+        let db_client = self.get_db_client()?;
+
+        db_client.delete("connectivity", |client| {
+            client.from("connectivity").eq("id", connectivity_id.to_string())
         }).await?;
 
         Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
@@ -703,7 +892,7 @@ impl ScoutClient {
     /// Gets all devices for a herd directly from the database
     pub async fn get_devices_by_herd(
         &mut self,
-        herd_id: u32
+        herd_id: i64
     ) -> Result<ResponseScout<Vec<Device>>> {
         let db_client = self.get_db_client()?;
 
@@ -714,8 +903,24 @@ impl ScoutClient {
         Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(results)))
     }
 
+    /// Gets a specific event by ID directly from the database
+    pub async fn get_event_by_id(&mut self, event_id: i64) -> Result<ResponseScout<Event>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client.query("events", |client| {
+            client.from("events").select("*").eq("id", event_id.to_string()).limit(1)
+        }).await?;
+
+        if results.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Failure, None));
+        }
+
+        let event = results.into_iter().next().unwrap();
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(event)))
+    }
+
     /// Gets a specific device by ID directly from the database
-    pub async fn get_device_by_id(&mut self, device_id: u32) -> Result<ResponseScout<Device>> {
+    pub async fn get_device_by_id(&mut self, device_id: i64) -> Result<ResponseScout<Device>> {
         let db_client = self.get_db_client()?;
 
         let results = db_client.query("devices", |client| {
@@ -731,7 +936,7 @@ impl ScoutClient {
     }
 
     /// Gets a specific herd by ID directly from the database
-    pub async fn get_herd_by_id(&mut self, herd_id: u32) -> Result<ResponseScout<Herd>> {
+    pub async fn get_herd_by_id(&mut self, herd_id: i64) -> Result<ResponseScout<Herd>> {
         let db_client = self.get_db_client()?;
 
         let results = db_client.query("herds", |client| {
@@ -742,12 +947,12 @@ impl ScoutClient {
             return Ok(ResponseScout::new(ResponseScoutStatus::Failure, None));
         }
 
-        let herd = results.into_iter().next().unwrap();
-        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(herd)))
+        let device = results.into_iter().next().unwrap();
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(device)))
     }
 
     /// Gets all events for a device directly from the database
-    pub async fn get_device_events(&mut self, device_id: u32) -> Result<ResponseScout<Vec<Event>>> {
+    pub async fn get_device_events(&mut self, device_id: i64) -> Result<ResponseScout<Vec<Event>>> {
         let db_client = self.get_db_client()?;
 
         let results = db_client.query("events", |client| {
@@ -763,7 +968,7 @@ impl ScoutClient {
     /// Gets events with tags for a device directly from the database
     pub async fn get_device_events_with_tags(
         &mut self,
-        device_id: u32
+        device_id: i64
     ) -> Result<ResponseScout<Vec<Event>>> {
         let db_client = self.get_db_client()?;
 
@@ -776,6 +981,27 @@ impl ScoutClient {
         }).await?;
 
         Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(results)))
+    }
+
+    /// Gets events with tags for a device using the database function
+    pub async fn get_device_events_with_tags_via_function(
+        &mut self,
+        device_id: i64,
+        limit: i64
+    ) -> Result<ResponseScout<Vec<Event>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client.query("get_events_and_tags_for_device", |client| {
+            client.rpc(
+                "get_events_and_tags_for_device",
+                serde_json::json!({
+                    "device_id_caller": device_id,
+                    "limit_caller": limit
+                }).to_string()
+            )
+        }).await?;
+
+        Ok(Self::handle_query_result(results))
     }
 
     /// Gets events within a time range directly from the database
@@ -807,8 +1033,6 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Event>>> {
         let db_client = self.get_db_client()?;
 
-        // This would require PostGIS functions, but for now we'll use a simple bounding box approach
-        // In a real implementation, you'd use PostGIS ST_Contains or similar functions
         let results = db_client.query("events", |client| {
             client
                 .from("events")
@@ -830,16 +1054,13 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Event>>> {
         let db_client = self.get_db_client()?;
 
-        let mut created_events = Vec::new();
-
-        for event in events {
-            let result = db_client.insert("events", event).await?;
-            if !result.is_empty() {
-                created_events.push(result.into_iter().next().unwrap());
-            }
+        if events.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(Vec::new())));
         }
 
-        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_events)))
+        // Use bulk insert for better performance
+        let result = db_client.insert_bulk("events", events).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
     }
 
     /// Creates multiple sessions in a batch directly in the database
@@ -849,16 +1070,13 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Session>>> {
         let db_client = self.get_db_client()?;
 
-        let mut created_sessions = Vec::new();
-
-        for session in sessions {
-            let result = db_client.insert("sessions", session).await?;
-            if !result.is_empty() {
-                created_sessions.push(result.into_iter().next().unwrap());
-            }
+        if sessions.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(Vec::new())));
         }
 
-        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_sessions)))
+        // Use bulk insert for better performance
+        let result = db_client.insert_bulk("sessions", sessions).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
     }
 
     /// Creates multiple connectivity entries in a batch directly in the database
@@ -868,16 +1086,13 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Connectivity>>> {
         let db_client = self.get_db_client()?;
 
-        let mut created_entries = Vec::new();
-
-        for entry in connectivity_entries {
-            let result = db_client.insert("connectivity", entry).await?;
-            if !result.is_empty() {
-                created_entries.push(result.into_iter().next().unwrap());
-            }
+        if connectivity_entries.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(Vec::new())));
         }
 
-        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_entries)))
+        // Use bulk insert for better performance
+        let result = db_client.insert_bulk("connectivity", connectivity_entries).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
     }
 
     /// Updates an event directly in the database
@@ -931,8 +1146,6 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Connectivity>>> {
         let db_client = self.get_db_client()?;
 
-        // This would typically use a database function or view that extracts coordinates
-        // For now, we'll return the basic connectivity data
         let results = db_client.query("connectivity", |client| {
             client
                 .from("connectivity")
@@ -950,22 +1163,21 @@ impl ScoutClient {
         timestamp_end: u64
     ) -> Result<ResponseScout<()>> {
         let mut session = Session::new(
-            0, // device_id - will be ignored in update
+            0,
             timestamp_end,
             timestamp_end,
-            "".to_string(), // software_version - will be ignored in update
-            None, // locations - will be ignored in update
+            "".to_string(),
+            None,
             0.0,
             0.0,
-            0.0, // altitude values - will be ignored in update
             0.0,
             0.0,
-            0.0, // velocity values - will be ignored in update
             0.0,
-            0.0 // distance values - will be ignored in update
+            0.0,
+            0.0,
+            0.0
         );
 
-        // Convert timestamp to string format
         session.timestamp_end = chrono::DateTime
             ::from_timestamp(timestamp_end as i64, 0)
             .unwrap_or_else(|| chrono::Utc::now())
@@ -1002,8 +1214,6 @@ impl ScoutClient {
 
     /// Compatibility method for upsert_session
     pub async fn upsert_session(&mut self, session: &Session) -> Result<ResponseScout<Session>> {
-        // For now, always create a new session
-        // In the future, this could check if a session exists and update it
         self.create_session(session).await
     }
 
@@ -1012,8 +1222,6 @@ impl ScoutClient {
         &mut self,
         connectivity: &Connectivity
     ) -> Result<ResponseScout<Connectivity>> {
-        // For now, always create a new connectivity entry
-        // In the future, this could check if an entry exists and update it
         self.create_connectivity(connectivity).await
     }
 
@@ -1042,5 +1250,119 @@ impl ScoutClient {
         }
 
         Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(created_events)))
+    }
+
+    /// Gets zones and actions for a herd directly from the database
+    pub async fn get_zones_and_actions_by_herd(
+        &mut self,
+        herd_id: i64,
+        limit: i64,
+        offset: i64
+    ) -> Result<ResponseScout<Vec<Zone>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client.query("zones_and_actions", |client| {
+            client
+                .from("zones_and_actions")
+                .eq("herd_id", herd_id.to_string())
+                .order("inserted_at.desc")
+                .range(offset as usize, (offset + limit - 1) as usize)
+        }).await?;
+
+        Ok(Self::handle_query_result(results))
+    }
+
+    // ===== ARTIFACT OPERATIONS =====
+
+    /// Creates an artifact directly in the database
+    pub async fn create_artifact(
+        &mut self,
+        artifact: &Artifact
+    ) -> Result<ResponseScout<Artifact>> {
+        let db_client = self.get_db_client()?;
+        let result = db_client.insert("artifacts", artifact).await?;
+        Self::handle_insert_result(result)
+    }
+
+    /// Gets artifacts for a session directly from the database
+    pub async fn get_artifacts_by_session(
+        &mut self,
+        session_id: i64
+    ) -> Result<ResponseScout<Vec<Artifact>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client.query("artifacts", |client| {
+            client
+                .from("artifacts")
+                .eq("session_id", session_id.to_string())
+                .order("created_at.desc")
+        }).await?;
+
+        Ok(Self::handle_query_result(results))
+    }
+
+    /// Gets all artifacts for a herd (via sessions) directly from the database
+    pub async fn get_artifacts_by_herd(
+        &mut self,
+        herd_id: i64
+    ) -> Result<ResponseScout<Vec<Artifact>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client.query("artifacts", |client| {
+            client
+                .from("artifacts")
+                .select("*, sessions!inner(device_id), devices!inner(herd_id)")
+                .eq("devices.herd_id", herd_id.to_string())
+                .order("created_at.desc")
+        }).await?;
+
+        Ok(Self::handle_query_result(results))
+    }
+
+    /// Updates an artifact directly in the database
+    pub async fn update_artifact(
+        &mut self,
+        artifact_id: i64,
+        artifact: &Artifact
+    ) -> Result<ResponseScout<Artifact>> {
+        let db_client = self.get_db_client()?;
+
+        let result = db_client.update("artifacts", artifact, |client| {
+            client.from("artifacts").eq("id", artifact_id.to_string())
+        }).await?;
+
+        if result.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Failure, None));
+        }
+
+        let updated_artifact = result.into_iter().next().unwrap();
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(updated_artifact)))
+    }
+
+    /// Deletes an artifact directly from the database
+    pub async fn delete_artifact(&mut self, artifact_id: i64) -> Result<ResponseScout<()>> {
+        let db_client = self.get_db_client()?;
+
+        db_client.delete("artifacts", |client| {
+            client.from("artifacts").eq("id", artifact_id.to_string())
+        }).await?;
+
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+    }
+
+    /// Creates multiple artifacts in a batch directly in the database
+    pub async fn create_artifacts_batch(
+        &mut self,
+        artifacts: &[Artifact]
+    ) -> Result<ResponseScout<Vec<Artifact>>> {
+        let db_client = self.get_db_client()?;
+
+        if artifacts.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(Vec::new())));
+        }
+
+        // Use bulk insert for better performance
+        let result = db_client.insert_bulk("artifacts", artifacts).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
     }
 }

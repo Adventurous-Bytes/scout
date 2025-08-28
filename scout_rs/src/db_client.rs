@@ -1,7 +1,6 @@
 use anyhow::{ Result, anyhow };
 use postgrest::Postgrest;
 use serde::{ Deserialize, Serialize };
-use tracing::{ info, debug, warn };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
@@ -91,14 +90,13 @@ impl ScoutDbClient {
     /// Establishes a connection to the database via PostgREST
     pub fn connect(&mut self) -> Result<()> {
         let rest_url = self.config.get_rest_url();
-        debug!("Connecting to PostgREST at {}", rest_url);
 
         let client = Postgrest::new(rest_url)
             .insert_header("apikey", self.config.get_supabase_api_key())
             .insert_header("api_key", &format!("{}", self.config.get_scout_api_key()));
 
         self.client = Some(client);
-        info!("✅ Connected to PostgREST successfully");
+
         Ok(())
     }
 
@@ -115,7 +113,6 @@ impl ScoutDbClient {
     pub fn disconnect(&mut self) {
         if self.client.is_some() {
             self.client = None;
-            info!("PostgREST connection closed");
         }
     }
 
@@ -129,14 +126,10 @@ impl ScoutDbClient {
     {
         let client = self.get_client()?;
 
-        debug!("Executing query on table: {}", table);
         let builder = query_builder(client);
         let response = builder.execute().await?;
 
         let body = response.text().await?;
-
-        // Debug: log the response body to see what we're getting
-        debug!("Database response body: {}", body);
 
         // Try to parse as the expected type first
         if let Ok(results) = serde_json::from_str::<Vec<T>>(&body) {
@@ -167,7 +160,6 @@ impl ScoutDbClient {
     {
         let client = self.get_client()?;
 
-        debug!("Executing single row query on table: {}", table);
         let builder = query_builder(client);
         let response = builder.execute().await?;
 
@@ -176,10 +168,6 @@ impl ScoutDbClient {
 
         if results.is_empty() {
             return Err(anyhow!("No results found"));
-        }
-
-        if results.len() > 1 {
-            warn!("Expected single result, got {} results. Using first result.", results.len());
         }
 
         Ok(results.into_iter().next().unwrap())
@@ -193,7 +181,6 @@ impl ScoutDbClient {
     ) -> Result<()> {
         let client = self.get_client()?;
 
-        debug!("Executing operation on table: {}", table);
         let builder = query_builder(client);
         let response = builder.execute().await?;
 
@@ -212,15 +199,11 @@ impl ScoutDbClient {
     {
         let client = self.get_client()?;
 
-        debug!("Inserting data into table: {}", table);
         let json_data = serde_json::to_string(data)?;
 
         let response = client.from(table).insert(&json_data).execute().await?;
 
         let body = response.text().await?;
-
-        // Debug: log the response body to see what we're getting
-        debug!("Database insert response body: {}", body);
 
         // Try to parse as the expected type first
         if let Ok(results) = serde_json::from_str::<Vec<T>>(&body) {
@@ -241,6 +224,41 @@ impl ScoutDbClient {
         }
     }
 
+    /// Inserts multiple items in a single bulk operation
+    pub async fn insert_bulk<T>(&mut self, table: &str, data: &[T]) -> Result<Vec<T>>
+        where T: for<'de> serde::Deserialize<'de> + serde::Serialize
+    {
+        let client = self.get_client()?;
+
+        let json_data = serde_json::to_string(data)?;
+
+        let response = client.from(table).insert(&json_data).execute().await?;
+
+        let body = response.text().await?;
+
+        // Try to parse as the expected type first
+        if let Ok(results) = serde_json::from_str::<Vec<T>>(&body) {
+            Ok(results)
+        } else {
+            // If that fails, try to parse as an error response
+            if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(error_msg) = error_response.get("error") {
+                    return Err(anyhow!("Database bulk insert error: {}", error_msg));
+                } else if let Some(message) = error_response.get("message") {
+                    return Err(anyhow!("Database bulk insert message: {}", message));
+                } else {
+                    return Err(
+                        anyhow!("Database bulk insert returned unexpected format: {}", body)
+                    );
+                }
+            } else {
+                return Err(
+                    anyhow!("Failed to parse database bulk insert response as JSON: {}", body)
+                );
+            }
+        }
+    }
+
     /// Updates data in a table
     pub async fn update<T>(
         &mut self,
@@ -252,7 +270,6 @@ impl ScoutDbClient {
     {
         let client = self.get_client()?;
 
-        debug!("Updating data in table: {}", table);
         let json_data = serde_json::to_string(data)?;
 
         let builder = filter_builder(client);
@@ -272,7 +289,6 @@ impl ScoutDbClient {
     ) -> Result<()> {
         let client = self.get_client()?;
 
-        debug!("Deleting data from table: {}", table);
         let builder = filter_builder(client);
         let response = builder.delete().execute().await?;
 

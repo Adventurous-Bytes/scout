@@ -20,7 +20,7 @@ struct Args {
 
     /// Herd ID (for get_herd command)
     #[arg(long, name = "herd_id")]
-    herd_id: Option<u32>,
+    herd_id: Option<i64>,
 
     /// Event data as JSON (for post_event and update_event commands)
     #[arg(long, name = "event_json")]
