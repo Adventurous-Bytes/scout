@@ -506,7 +506,6 @@ pub struct Action {
 
 #[derive(Debug)]
 pub struct ScoutClient {
-    pub scout_url: String,
     pub api_key: String,
     pub device: Option<Device>,
     pub herd: Option<Herd>,
@@ -515,9 +514,8 @@ pub struct ScoutClient {
 
 impl ScoutClient {
     /// Creates a new ScoutClient instance.
-    pub fn new(scout_url: String, api_key: String) -> Result<Self> {
+    pub fn new(api_key: String) -> Result<Self> {
         Ok(Self {
-            scout_url,
             api_key,
             device: None,
             herd: None,

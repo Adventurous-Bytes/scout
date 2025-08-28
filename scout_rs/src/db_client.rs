@@ -29,9 +29,9 @@ impl DatabaseConfig {
 
         // For database access, we need both Scout API key and Supabase API key
         let scout_api_key = std::env
-            ::var("SCOUT_API_KEY")
+            ::var("SCOUT_DEVICE_API_KEY")
             .map_err(|_|
-                anyhow!("SCOUT_API_KEY environment variable is required for database access")
+                anyhow!("SCOUT_DEVICE_API_KEY environment variable is required for database access")
             )?;
 
         let supabase_api_key = std::env

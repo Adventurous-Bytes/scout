@@ -28,7 +28,7 @@ let created_tags = client.create_tags(created_event.id.unwrap(), &tags).await?;
 
 ```bash
 SCOUT_DATABASE_REST_URL=https://your-db.supabase.co/rest/v1
-SCOUT_API_KEY=your_device_api_key_here
+SCOUT_DEVICE_API_KEY=your_device_api_key_here
 ```
 
 **Quick Setup:**

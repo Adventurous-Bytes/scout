@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("   Batch size: {}", args.batch_size);
 
     // Create Scout client
-    let mut client = ScoutClient::new(args.scout_url, api_key)?;
+    let mut client = ScoutClient::new(api_key)?;
 
     // Identify and load device/herd information into state
     client.identify().await?;

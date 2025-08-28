@@ -56,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         env::var("SCOUT_DEVICE_API_KEY").expect("SCOUT_DEVICE_API_KEY environment variable not set")
     });
 
-    let mut client = ScoutClient::new(args.scout_url, api_key)?;
+    let mut client = ScoutClient::new(api_key)?;
 
     match args.command.as_str() {
         "get_device" => {

@@ -30,7 +30,7 @@ use once_cell::sync::Lazy;
 /// To test with a real database, set these environment variables:
 /// ```bash
 /// export SCOUT_DATABASE_REST_URL="https://your-db.supabase.co/rest/v1"
-/// export SCOUT_API_KEY="your_device_api_key"
+/// export SCOUT_DEVICE_API_KEY="your_device_api_key"
 /// export SCOUT_DATABASE_URL="postgresql://user:pass@host:port/db"
 /// export SCOUT_DATABASE_ANON_KEY="your_anon_key"
 /// export SCOUT_DATABASE_SERVICE_KEY="your_service_key"
@@ -221,8 +221,8 @@ macro_rules! test_with_cleanup {
             
             // Clean up test data
             let mut client = ScoutClient::new(
-                env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-                env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+                
+                env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
             ).unwrap();
             
             if client.identify().await.is_ok() {
@@ -240,9 +240,8 @@ fn setup_test_env() {
 
     // Check for required environment variables and panic if missing
     let missing_vars = vec![
-        ("SCOUT_API_KEY", env::var("SCOUT_API_KEY").is_err()),
+        ("SCOUT_DEVICE_API_KEY", env::var("SCOUT_DEVICE_API_KEY").is_err()),
         ("SCOUT_DATABASE_REST_URL", env::var("SCOUT_DATABASE_REST_URL").is_err()),
-        ("SCOUT_URL", env::var("SCOUT_URL").is_err()),
         ("SCOUT_DEVICE_ID", env::var("SCOUT_DEVICE_ID").is_err()),
         ("SCOUT_HERD_ID", env::var("SCOUT_HERD_ID").is_err())
     ];
@@ -261,10 +260,10 @@ fn setup_test_env() {
     }
 
     // Check for Scout API key for custom authentication
-    let has_scout_api_key = env::var("SCOUT_API_KEY").is_ok();
+    let has_scout_api_key = env::var("SCOUT_DEVICE_API_KEY").is_ok();
 
     if !has_scout_api_key {
-        panic!("❌ Missing Scout API key. Set SCOUT_API_KEY in your .env file.");
+        panic!("❌ Missing Scout API key. Set SCOUT_DEVICE_API_KEY in your .env file.");
     }
 
     // Check for Supabase API key for PostgREST access
@@ -377,11 +376,10 @@ fn test_data_structures() {
 #[test]
 fn test_client_creation() {
     // Test that ScoutClient can be created
-    let client = ScoutClient::new("https://example.com".to_string(), "test_key".to_string());
+    let client = ScoutClient::new("test_key".to_string());
     assert!(client.is_ok());
 
     let client = client.unwrap();
-    assert_eq!(client.scout_url, "https://example.com");
     assert_eq!(client.api_key, "test_key");
     assert!(client.device.is_none());
     assert!(client.herd.is_none());
@@ -394,8 +392,7 @@ async fn test_client_identification() {
 
     // Create a client with actual credentials from .env file
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Test identification process
@@ -442,8 +439,7 @@ async fn test_event_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -500,8 +496,7 @@ async fn test_event_batch_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -601,8 +596,7 @@ async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -767,8 +761,7 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -826,8 +819,7 @@ async fn test_connectivity_creation() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -908,8 +900,7 @@ async fn test_compatibility_methods() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1050,10 +1041,7 @@ async fn test_compatibility_methods() {
 async fn test_error_handling() {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        "invalid_api_key".to_string()
-    ).unwrap();
+    let mut client = ScoutClient::new("invalid_api_key".to_string()).unwrap();
 
     // Test that operations fail gracefully when not identified
     let event = Event::new(
@@ -1094,8 +1082,7 @@ async fn test_error_handling_and_edge_cases() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Test 1: Operations before identification
@@ -1153,8 +1140,7 @@ async fn test_integration_workflow() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Test the complete workflow: identify -> create session -> create events -> create connectivity
@@ -1330,10 +1316,7 @@ async fn test_integration_workflow() {
 async fn test_real_database_integration() {
     // This test runs with real database credentials
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://real.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap()
-    ).unwrap();
+    let mut client = ScoutClient::new(env::var("SCOUT_DEVICE_API_KEY").unwrap()).unwrap();
 
     // Step 1: Real identification
     let identify_result = client.identify().await;
@@ -1475,8 +1458,7 @@ async fn test_device_events_with_tags_via_function() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1506,8 +1488,7 @@ async fn test_sessions_with_coordinates_via_function() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1537,8 +1518,7 @@ async fn test_connectivity_with_coordinates_via_function() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1599,8 +1579,7 @@ async fn test_plans_by_herd() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1630,8 +1609,7 @@ async fn test_zones_and_actions_by_herd() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client - should always succeed with proper credentials
@@ -1727,8 +1705,7 @@ async fn test_compatibility_methods_comprehensive() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Identify the client first
@@ -1880,8 +1857,7 @@ async fn test_response_handling_comprehensive() {
 
     // Test 2: Response creation helpers
     let _client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Test 3: Response with different data types
@@ -1939,8 +1915,7 @@ async fn test_complete_data_collection_workflow() {
     setup_test_env();
 
     let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Step 1: Identify the client
@@ -2096,10 +2071,7 @@ async fn test_complete_data_collection_workflow() {
 async fn test_real_database_integration_comprehensive() {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://real.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap()
-    ).unwrap();
+    let mut client = ScoutClient::new(env::var("SCOUT_DEVICE_API_KEY").unwrap()).unwrap();
 
     // Step 1: Real identification
     let identify_result = client.identify().await;
@@ -2244,14 +2216,10 @@ async fn test_integration_with_mock_data_comprehensive() {
     assert_eq!(mock_tag.class_name, "mock_animal");
 
     // Test 3: Client creation and validation
-    let mock_client = ScoutClient::new(
-        "https://mock.scout.com".to_string(),
-        "mock_api_key".to_string()
-    );
+    let mock_client = ScoutClient::new("mock_api_key".to_string());
     assert!(mock_client.is_ok());
 
     let mock_client = mock_client.unwrap();
-    assert_eq!(mock_client.scout_url, "https://mock.scout.com");
     assert_eq!(mock_client.api_key, "mock_api_key");
     assert!(mock_client.device.is_none());
     assert!(mock_client.herd.is_none());
@@ -2508,28 +2476,16 @@ async fn test_client_creation_comprehensive() {
     setup_test_env();
 
     // Test 1: Basic client creation
-    let client = ScoutClient::new("https://example.com".to_string(), "test_key".to_string());
+    let client = ScoutClient::new("test_key".to_string());
     assert!(client.is_ok());
 
     let client = client.unwrap();
-    assert_eq!(client.scout_url, "https://example.com");
     assert_eq!(client.api_key, "test_key");
     assert!(client.device.is_none());
     assert!(client.herd.is_none());
     assert!(!client.is_identified());
 
-    // Test 2: Client with different URLs
-    let urls = vec!["https://test.scout.com", "https://api.scout.com", "https://scout.example.com"];
-
-    for url in urls {
-        let client = ScoutClient::new(url.to_string(), "test_key".to_string());
-        assert!(client.is_ok());
-        let client = client.unwrap();
-        assert_eq!(client.scout_url, url);
-        assert_eq!(client.api_key, "test_key");
-    }
-
-    // Test 3: Client with different API keys
+    // Test 2: Client with different API keys
     let api_keys = vec![
         "key1",
         "key2",
@@ -2538,14 +2494,14 @@ async fn test_client_creation_comprehensive() {
     ];
 
     for api_key in api_keys {
-        let client = ScoutClient::new("https://test.com".to_string(), api_key.to_string());
+        let client = ScoutClient::new(api_key.to_string());
         assert!(client.is_ok());
         let client = client.unwrap();
         assert_eq!(client.api_key, api_key);
     }
 
-    // Test 4: Client state validation
-    let client = ScoutClient::new("https://test.com".to_string(), "test_key".to_string()).unwrap();
+    // Test 3: Client state validation
+    let client = ScoutClient::new("test_key".to_string()).unwrap();
 
     // Initial state
     assert!(client.device.is_none());
@@ -2554,13 +2510,11 @@ async fn test_client_creation_comprehensive() {
 
     // Check that we can't access private fields directly
     // (This is a compile-time check, so we just verify the public interface works)
-    assert_eq!(client.scout_url, "https://test.com");
     assert_eq!(client.api_key, "test_key");
 
     // Test 5: Client with environment variables
     let env_client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://env.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "env_test_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "env_test_key".to_string())
     );
     assert!(env_client.is_ok());
 }
@@ -2682,8 +2636,7 @@ async fn test_data_validation_comprehensive() {
     setup_test_env();
 
     let _client = ScoutClient::new(
-        env::var("SCOUT_URL").unwrap_or_else(|_| "https://test.scout.com".to_string()),
-        env::var("SCOUT_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
     ).unwrap();
 
     // Test 1: Valid event data
