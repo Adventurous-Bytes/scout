@@ -2,7 +2,7 @@
 
 import { useScoutRefresh } from "../hooks/useScoutRefresh";
 import { useScoutDbListener } from "../hooks/useScoutDbListener";
-import { createContext, useContext, useMemo, ReactNode } from "react";
+import { createContext, useContext, useMemo, ReactNode, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
@@ -46,14 +46,15 @@ export interface ScoutRefreshProviderProps {
 }
 
 export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-  const anon_key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+  // Use refs to store the URL and key to prevent unnecessary recreations
+  const urlRef = useRef(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+  const anonKeyRef = useRef(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "");
 
-  // Create a single Supabase client instance using useMemo to prevent recreation
+  // Create a single Supabase client instance that only runs once
   const supabaseClient = useMemo(() => {
     console.log("[ScoutRefreshProvider] Creating Supabase client");
-    return createBrowserClient<Database>(url, anon_key);
-  }, [url, anon_key]);
+    return createBrowserClient<Database>(urlRef.current, anonKeyRef.current);
+  }, []); // Empty dependency array ensures this only runs once
 
   // Use the enhanced DB listener with connection status
   useScoutDbListener(supabaseClient);
