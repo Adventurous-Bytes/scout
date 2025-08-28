@@ -525,7 +525,7 @@ impl ScoutClient {
 
     /// Identifies the device and herd, then establishes direct database connection
     pub async fn identify(&mut self) -> Result<()> {
-        let db_config = DatabaseConfig::from_env()?;
+        let db_config = DatabaseConfig::from_env_with_api_key(Some(self.api_key.clone()))?;
         let mut db_client = ScoutDbClient::new(db_config);
         db_client.connect()?;
 
