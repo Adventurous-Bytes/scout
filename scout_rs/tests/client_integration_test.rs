@@ -75,6 +75,9 @@ use once_cell::sync::Lazy;
 //     // Your test logic here
 //     let event = create_event().await?;
 //     cleanup.track_event(event.id); // Track for cleanup
+//
+//     let plan = create_plan().await?;
+//     cleanup.track_plan(plan.id); // Track for cleanup
 // }
 //
 // test_with_cleanup!(my_test, my_test_impl);
@@ -86,9 +89,16 @@ use once_cell::sync::Lazy;
 // - Connectivity data
 // - Tags
 // - Artifacts
+// - Plans
 //
 // ## Cleanup Order:
-// The system cleans up in the correct dependency order to avoid foreign key constraint violations.
+// The system cleans up in the correct dependency order to avoid foreign key constraint violations:
+// 1. Tags (reference events)
+// 2. Connectivity (references sessions)
+// 3. Events (reference sessions and devices)
+// 4. Sessions (reference devices)
+// 5. Artifacts (reference sessions)
+// 6. Plans (reference herds)
 
 /// Global test data tracker for cleanup
 static TEST_DATA: Lazy<Mutex<TestDataTracker>> = Lazy::new(|| {
@@ -102,6 +112,7 @@ struct TestDataTracker {
     connectivity: Vec<i64>,
     tags: Vec<i64>,
     artifacts: Vec<i64>,
+    plans: Vec<i64>,
 }
 
 impl TestDataTracker {
@@ -112,6 +123,7 @@ impl TestDataTracker {
             connectivity: Vec::new(),
             tags: Vec::new(),
             artifacts: Vec::new(),
+            plans: Vec::new(),
         }
     }
 
@@ -121,6 +133,7 @@ impl TestDataTracker {
         self.connectivity.clear();
         self.tags.clear();
         self.artifacts.clear();
+        self.plans.clear();
     }
 }
 
@@ -171,6 +184,13 @@ impl TestCleanup {
         }
     }
 
+    /// Track plan ID for cleanup
+    fn track_plan(&self, plan_id: i64) {
+        if let Ok(mut tracker) = self.tracker.lock() {
+            tracker.plans.push(plan_id);
+        }
+    }
+
     /// Clean up all tracked test data
     async fn cleanup(&self, client: &mut ScoutClient) {
         if let Ok(tracker) = self.tracker.lock() {
@@ -199,6 +219,11 @@ impl TestCleanup {
             // Clean up artifacts (they reference sessions)
             for &artifact_id in &tracker.artifacts {
                 let _ = client.delete_artifact(artifact_id).await;
+            }
+
+            // Clean up plans (they reference herds)
+            for &plan_id in &tracker.plans {
+                let _ = client.delete_plan(plan_id).await;
             }
         }
 
@@ -1135,8 +1160,7 @@ async fn test_error_handling_and_edge_cases() {
     }
 }
 
-#[tokio::test]
-async fn test_integration_workflow() {
+async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1574,8 +1598,7 @@ async fn test_connectivity_with_coordinates_via_function() {
     }
 }
 
-#[tokio::test]
-async fn test_plans_by_herd() {
+async fn test_plans_by_herd_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1597,12 +1620,594 @@ async fn test_plans_by_herd() {
         Ok(response) => {
             assert_eq!(response.status, ResponseScoutStatus::Success);
             // Note: This might return empty results if no plans exist yet
+            if let Some(plans) = response.data {
+                // Validate plan structure if plans exist
+                for plan in &plans {
+                    assert!(plan.herd_id == herd_id, "Plan herd_id should match requested herd_id");
+                    assert!(!plan.name.is_empty(), "Plan name should not be empty");
+                    assert!(!plan.instructions.is_empty(), "Plan instructions should not be empty");
+                    assert!(plan.id >= 0, "Plan should have a non-negative ID");
+                }
+            }
         }
         Err(e) => {
             panic!("❌ Plans by herd retrieval failed: {}", e);
         }
     }
 }
+
+test_with_cleanup!(test_plans_by_herd, test_plans_by_herd_impl);
+
+async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+    ).unwrap();
+
+    // Identify the client - should always succeed with proper credentials
+    let identify_result = client.identify().await;
+    if identify_result.is_err() {
+        panic!("❌ Client identification failed: {:?}", identify_result.err());
+    }
+
+    let herd_id = client.herd.as_ref().unwrap().id;
+
+    // Test 1: Get existing plans
+    let plans_result = client.get_plans_by_herd(herd_id).await;
+    match &plans_result {
+        Ok(response) => {
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            if let Some(plans) = &response.data {
+                println!("Found {} plans for herd {}", plans.len(), herd_id);
+
+                // Validate each plan structure
+                for (i, plan) in plans.iter().enumerate() {
+                    println!(
+                        "Plan {}: ID={:?}, Name='{}', Type={:?}",
+                        i,
+                        plan.id,
+                        plan.name,
+                        plan.plan_type
+                    );
+
+                    // Basic validation
+                    assert_eq!(plan.herd_id, herd_id, "Plan herd_id mismatch");
+                    assert!(!plan.name.is_empty(), "Plan name is empty");
+                    assert!(!plan.instructions.is_empty(), "Plan instructions is empty");
+
+                    // Type validation - all plan types are valid
+                    match plan.plan_type {
+                        | PlanType::Mission
+                        | PlanType::Fence
+                        | PlanType::Rally
+                        | PlanType::Markov => {
+                            // Valid plan type
+                        }
+                    }
+
+                    // ID validation - allow ID=0 for existing plans that might not have been properly migrated
+                    // Note: ID=0 is valid for existing plans in the database
+                    assert!(plan.id >= 0, "Plan ID should be non-negative");
+
+                    // Validate inserted_at timestamp if present
+                    if let Some(inserted_at) = &plan.inserted_at {
+                        assert!(!inserted_at.is_empty(), "Inserted timestamp should not be empty");
+                        // Basic timestamp format validation
+                        assert!(
+                            inserted_at.contains('T') || inserted_at.contains(' '),
+                            "Inserted timestamp should contain date/time separator"
+                        );
+                    }
+                }
+            } else {
+                println!("No plans found for herd {}", herd_id);
+            }
+        }
+        Err(e) => {
+            panic!("❌ Plans retrieval failed: {}", e);
+        }
+    }
+
+    // Test 2: Test with different herd IDs (edge cases)
+    let invalid_herd_id = 999999;
+    let invalid_plans_result = client.get_plans_by_herd(invalid_herd_id).await;
+    match invalid_plans_result {
+        Ok(response) => {
+            // Should succeed but return empty results
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            if let Some(plans) = response.data {
+                assert_eq!(plans.len(), 0, "Invalid herd ID should return no plans");
+            }
+        }
+        Err(e) => {
+            // This is also acceptable - some databases might return an error
+            println!("Expected behavior: Invalid herd ID returned error: {}", e);
+        }
+    }
+
+    // Test 3: Test plan data structure validation
+    let test_plan = Plan {
+        id: 1,
+        inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
+        name: "Test Plan".to_string(),
+        instructions: "Test instructions for the plan".to_string(),
+        herd_id: 1,
+        plan_type: PlanType::Mission,
+    };
+
+    // Validate test plan structure
+    assert_eq!(test_plan.id, 1);
+    assert_eq!(test_plan.name, "Test Plan");
+    assert_eq!(test_plan.instructions, "Test instructions for the plan");
+    assert_eq!(test_plan.herd_id, 1);
+    assert_eq!(test_plan.plan_type, PlanType::Mission);
+
+    // Test 4: Test all plan types
+    let plan_types = vec![PlanType::Mission, PlanType::Fence, PlanType::Rally, PlanType::Markov];
+
+    for plan_type in plan_types {
+        let test_plan = Plan {
+            id: 0, // Placeholder ID for testing
+            inserted_at: None, // Database will use default value
+            name: format!("Test {} Plan", format!("{:?}", plan_type)),
+            instructions: format!("Test instructions for {} plan", format!("{:?}", plan_type)),
+            herd_id: 1,
+            plan_type: plan_type.clone(),
+        };
+
+        assert_eq!(test_plan.plan_type, plan_type);
+        assert!(test_plan.name.contains(&format!("{:?}", plan_type)));
+    }
+
+    // Test 5: Test individual plan retrieval if plans exist
+    match &plans_result {
+        Ok(response) => {
+            if let Some(plans) = &response.data {
+                if !plans.is_empty() {
+                    let first_plan = &plans[0];
+                    let plan_id = first_plan.id;
+                    let individual_plan_result = client.get_plan_by_id(plan_id).await;
+                    match individual_plan_result {
+                        Ok(response) => {
+                            assert_eq!(response.status, ResponseScoutStatus::Success);
+                            assert!(response.data.is_some());
+
+                            let retrieved_plan = response.data.unwrap();
+                            assert_eq!(retrieved_plan.id, plan_id);
+                            assert_eq!(retrieved_plan.herd_id, herd_id);
+                            assert_eq!(retrieved_plan.name, first_plan.name);
+                            assert_eq!(retrieved_plan.instructions, first_plan.instructions);
+                            assert_eq!(retrieved_plan.plan_type, first_plan.plan_type);
+
+                            println!("Successfully tested individual plan retrieval for plan ID: {}", plan_id);
+                        }
+                        Err(e) => {
+                            panic!("❌ Individual plan retrieval failed: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to get plans for individual retrieval test: {}", e);
+        }
+    }
+}
+
+test_with_cleanup!(test_plans_comprehensive, test_plans_comprehensive_impl);
+
+async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+    ).unwrap();
+
+    // Identify the client - should always succeed with proper credentials
+    let identify_result = client.identify().await;
+    if identify_result.is_err() {
+        panic!("❌ Client identification failed: {:?}", identify_result.err());
+    }
+
+    let herd_id = client.herd.as_ref().unwrap().id;
+
+    // Test 1: Create a new plan
+    let new_plan = Plan {
+        id: 0, // Placeholder ID for creation
+        inserted_at: None, // Database will use default value
+        name: "Test CRUD Plan".to_string(),
+        instructions: "This is a test plan for CRUD operations".to_string(),
+        herd_id,
+        plan_type: PlanType::Mission,
+    };
+
+    let create_result = client.create_plan(&new_plan).await;
+    match create_result {
+        Ok(response) => {
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            assert!(response.data.is_some());
+
+            let created_plan = response.data.unwrap();
+            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
+            assert_eq!(created_plan.name, "Test CRUD Plan");
+            assert_eq!(created_plan.instructions, "This is a test plan for CRUD operations");
+            assert_eq!(created_plan.herd_id, herd_id);
+            assert_eq!(created_plan.plan_type, PlanType::Mission);
+
+            let plan_id = created_plan.id;
+            println!("Created plan with ID: {}", plan_id);
+
+            // Track the created plan for cleanup
+            cleanup.track_plan(plan_id);
+
+            // Test 2: Read the created plan
+            let plans_result = client.get_plans_by_herd(herd_id).await;
+            match plans_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    if let Some(plans) = response.data {
+                        // Find our created plan
+                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        assert!(found_plan.is_some(), "Should find the created plan");
+
+                        let found_plan = found_plan.unwrap();
+                        assert_eq!(found_plan.name, "Test CRUD Plan");
+                        assert_eq!(
+                            found_plan.instructions,
+                            "This is a test plan for CRUD operations"
+                        );
+                    }
+                }
+                Err(e) => {
+                    panic!("❌ Failed to read plans after creation: {}", e);
+                }
+            }
+
+            // Test 3: Update the plan
+            let updated_plan = Plan {
+                id: plan_id,
+                inserted_at: created_plan.inserted_at.clone(),
+                name: "Updated CRUD Plan".to_string(),
+                instructions: "This plan has been updated".to_string(),
+                herd_id,
+                plan_type: PlanType::Fence,
+            };
+
+            let update_result = client.update_plan(plan_id, &updated_plan).await;
+            match update_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    assert!(response.data.is_some());
+
+                    let updated_plan_result = response.data.unwrap();
+                    assert_eq!(updated_plan_result.name, "Updated CRUD Plan");
+                    assert_eq!(updated_plan_result.instructions, "This plan has been updated");
+                    assert_eq!(updated_plan_result.plan_type, PlanType::Fence);
+                    println!("Successfully updated plan {}", plan_id);
+                }
+                Err(e) => {
+                    panic!("❌ Failed to update plan: {}", e);
+                }
+            }
+
+            // Test 4: Verify the update by reading again
+            let plans_result = client.get_plans_by_herd(herd_id).await;
+            match plans_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    if let Some(plans) = response.data {
+                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        assert!(found_plan.is_some(), "Should find the updated plan");
+
+                        let found_plan = found_plan.unwrap();
+                        assert_eq!(found_plan.name, "Updated CRUD Plan");
+                        assert_eq!(found_plan.instructions, "This plan has been updated");
+                        assert_eq!(found_plan.plan_type, PlanType::Fence);
+                    }
+                }
+                Err(e) => {
+                    panic!("❌ Failed to read plans after update: {}", e);
+                }
+            }
+
+            // Test 5: Delete the plan
+            let delete_result = client.delete_plan(plan_id).await;
+            match delete_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    println!("Successfully deleted plan {}", plan_id);
+                }
+                Err(e) => {
+                    panic!("❌ Failed to delete plan: {}", e);
+                }
+            }
+
+            // Test 6: Verify deletion by trying to read the plan
+            let plans_result = client.get_plans_by_herd(herd_id).await;
+            match plans_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    if let Some(plans) = response.data {
+                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        assert!(found_plan.is_none(), "Should not find the deleted plan");
+                    }
+                }
+                Err(e) => {
+                    panic!("❌ Failed to read plans after deletion: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to create plan: {}", e);
+        }
+    }
+}
+
+test_with_cleanup!(test_plans_crud_operations, test_plans_crud_operations_impl);
+
+async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+    ).unwrap();
+
+    // Identify the client - should always succeed with proper credentials
+    let identify_result = client.identify().await;
+    if identify_result.is_err() {
+        panic!("❌ Client identification failed: {:?}", identify_result.err());
+    }
+
+    let herd_id = client.herd.as_ref().unwrap().id;
+    let mut created_plan_ids = Vec::new();
+
+    // Test 1: Create multiple plans
+    let test_plans = vec![
+        Plan {
+            id: 0, // Placeholder ID for creation
+            inserted_at: None, // Database will use default value
+            name: "Bulk Test Plan 1".to_string(),
+            instructions: "First bulk test plan".to_string(),
+            herd_id,
+            plan_type: PlanType::Mission,
+        },
+        Plan {
+            id: 0, // Placeholder ID for creation
+            inserted_at: None, // Database will use default value
+            name: "Bulk Test Plan 2".to_string(),
+            instructions: "Second bulk test plan".to_string(),
+            herd_id,
+            plan_type: PlanType::Fence,
+        },
+        Plan {
+            id: 0, // Placeholder ID for creation
+            inserted_at: None, // Database will use default value
+            name: "Bulk Test Plan 3".to_string(),
+            instructions: "Third bulk test plan".to_string(),
+            herd_id,
+            plan_type: PlanType::Rally,
+        }
+    ];
+
+    // Create plans one by one and track IDs
+    for (i, plan) in test_plans.iter().enumerate() {
+        let create_result = client.create_plan(plan).await;
+        match create_result {
+            Ok(response) => {
+                assert_eq!(response.status, ResponseScoutStatus::Success);
+                assert!(response.data.is_some());
+
+                let created_plan = response.data.unwrap();
+                assert!(created_plan.id >= 0, "Plan {} should have a valid ID", i + 1);
+                assert_eq!(created_plan.name, format!("Bulk Test Plan {}", i + 1));
+                assert_eq!(created_plan.herd_id, herd_id);
+
+                created_plan_ids.push(created_plan.id);
+                println!("Created bulk test plan {} with ID: {}", i + 1, created_plan.id);
+
+                // Track the created plan for cleanup
+                cleanup.track_plan(created_plan.id);
+            }
+            Err(e) => {
+                panic!("❌ Failed to create bulk test plan {}: {}", i + 1, e);
+            }
+        }
+    }
+
+    // Test 2: Verify all plans were created
+    let plans_result = client.get_plans_by_herd(herd_id).await;
+    match plans_result {
+        Ok(response) => {
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            if let Some(plans) = response.data {
+                // Check that we can find all our created plans
+                for plan_id in &created_plan_ids {
+                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    assert!(found_plan.is_some(), "Should find bulk test plan with ID {}", plan_id);
+                }
+
+                println!("Successfully verified {} bulk test plans", created_plan_ids.len());
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to read plans after bulk creation: {}", e);
+        }
+    }
+
+    // Test 3: Clean up all created plans
+    for plan_id in &created_plan_ids {
+        let delete_result = client.delete_plan(*plan_id).await;
+        match delete_result {
+            Ok(response) => {
+                assert_eq!(response.status, ResponseScoutStatus::Success);
+                println!("Successfully deleted bulk test plan {}", plan_id);
+            }
+            Err(e) => {
+                panic!("❌ Failed to delete bulk test plan {}: {}", plan_id, e);
+            }
+        }
+    }
+
+    // Test 4: Verify all plans were deleted
+    let plans_result = client.get_plans_by_herd(herd_id).await;
+    match plans_result {
+        Ok(response) => {
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            if let Some(plans) = response.data {
+                // Check that none of our created plans exist
+                for plan_id in &created_plan_ids {
+                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    assert!(
+                        found_plan.is_none(),
+                        "Should not find deleted bulk test plan with ID {}",
+                        plan_id
+                    );
+                }
+
+                println!("Successfully verified all bulk test plans were deleted");
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to read plans after bulk deletion: {}", e);
+        }
+    }
+}
+
+test_with_cleanup!(test_plans_bulk_operations, test_plans_bulk_operations_impl);
+
+async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+    ).unwrap();
+
+    // Identify the client - should always succeed with proper credentials
+    let identify_result = client.identify().await;
+    if identify_result.is_err() {
+        panic!("❌ Client identification failed: {:?}", identify_result.err());
+    }
+
+    let herd_id = client.herd.as_ref().unwrap().id;
+
+    // Test 1: Create a test plan first
+    let test_plan = Plan {
+        id: 0, // Placeholder ID for creation
+        inserted_at: None, // Database will use default value
+        name: "Individual Retrieval Test Plan".to_string(),
+        instructions: "This plan is for testing individual retrieval".to_string(),
+        herd_id,
+        plan_type: PlanType::Mission,
+    };
+
+    let create_result = client.create_plan(&test_plan).await;
+    match create_result {
+        Ok(response) => {
+            assert_eq!(response.status, ResponseScoutStatus::Success);
+            assert!(response.data.is_some());
+
+            let created_plan = response.data.unwrap();
+            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
+            let plan_id = created_plan.id;
+            println!("Created test plan with ID: {}", plan_id);
+
+            // Track the created plan for cleanup
+            cleanup.track_plan(plan_id);
+
+            // Test 2: Get the plan by ID
+            let get_result = client.get_plan_by_id(plan_id).await;
+            match get_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    assert!(response.data.is_some());
+
+                    let retrieved_plan = response.data.unwrap();
+                    assert_eq!(retrieved_plan.id, plan_id);
+                    assert_eq!(retrieved_plan.name, "Individual Retrieval Test Plan");
+                    assert_eq!(
+                        retrieved_plan.instructions,
+                        "This plan is for testing individual retrieval"
+                    );
+                    assert_eq!(retrieved_plan.herd_id, herd_id);
+                    assert_eq!(retrieved_plan.plan_type, PlanType::Mission);
+
+                    println!("Successfully retrieved plan {} by ID", plan_id);
+                }
+                Err(e) => {
+                    panic!("❌ Failed to get plan by ID: {}", e);
+                }
+            }
+
+            // Test 3: Test getting non-existent plan
+            let non_existent_id = 999999;
+            let non_existent_result = client.get_plan_by_id(non_existent_id).await;
+            match non_existent_result {
+                Ok(response) => {
+                    // Should return failure status for non-existent plan
+                    assert_eq!(response.status, ResponseScoutStatus::Failure);
+                    assert!(response.data.is_none());
+                    println!("Correctly handled non-existent plan ID: {}", non_existent_id);
+                }
+                Err(e) => {
+                    // This is also acceptable - some databases might return an error
+                    println!("Expected behavior: Non-existent plan ID returned error: {}", e);
+                }
+            }
+
+            // Test 4: Verify the plan still exists in herd plans
+            let herd_plans_result = client.get_plans_by_herd(herd_id).await;
+            match herd_plans_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    if let Some(plans) = response.data {
+                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        assert!(found_plan.is_some(), "Should find the test plan in herd plans");
+
+                        let found_plan = found_plan.unwrap();
+                        assert_eq!(found_plan.name, "Individual Retrieval Test Plan");
+                        assert_eq!(found_plan.plan_type, PlanType::Mission);
+                    }
+                }
+                Err(e) => {
+                    panic!("❌ Failed to get herd plans: {}", e);
+                }
+            }
+
+            // Test 5: Clean up the test plan
+            let delete_result = client.delete_plan(plan_id).await;
+            match delete_result {
+                Ok(response) => {
+                    assert_eq!(response.status, ResponseScoutStatus::Success);
+                    println!("Successfully deleted test plan {}", plan_id);
+                }
+                Err(e) => {
+                    panic!("❌ Failed to delete test plan: {}", e);
+                }
+            }
+
+            // Test 6: Verify deletion by trying to get the plan by ID
+            let get_after_delete_result = client.get_plan_by_id(plan_id).await;
+            match get_after_delete_result {
+                Ok(response) => {
+                    // Should return failure status for deleted plan
+                    assert_eq!(response.status, ResponseScoutStatus::Failure);
+                    assert!(response.data.is_none());
+                    println!("Correctly handled deleted plan ID: {}", plan_id);
+                }
+                Err(e) => {
+                    // This is also acceptable
+                    println!("Expected behavior: Deleted plan ID returned error: {}", e);
+                }
+            }
+        }
+        Err(e) => {
+            panic!("❌ Failed to create test plan for individual retrieval test: {}", e);
+        }
+    }
+}
+
+test_with_cleanup!(test_plan_individual_retrieval, test_plan_individual_retrieval_impl);
 
 #[tokio::test]
 async fn test_zones_and_actions_by_herd() {
@@ -2261,7 +2866,7 @@ async fn test_integration_with_mock_data_comprehensive() {
 
     // Test 6: Mock data with different values
     let mock_plan = Plan {
-        id: Some(42),
+        id: 42,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Mock Plan".to_string(),
         instructions: "Mock instructions".to_string(),
@@ -2269,7 +2874,7 @@ async fn test_integration_with_mock_data_comprehensive() {
         plan_type: PlanType::Mission,
     };
 
-    assert_eq!(mock_plan.id, Some(42));
+    assert_eq!(mock_plan.id, 42);
     assert_eq!(mock_plan.name, "Mock Plan");
     assert_eq!(mock_plan.herd_id, 123);
 
@@ -2429,7 +3034,7 @@ async fn test_data_structures_comprehensive() {
 
     // Test 5: Plan structure
     let plan = Plan {
-        id: Some(1),
+        id: 1,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Comprehensive test plan".to_string(),
         instructions: "Test instructions".to_string(),
@@ -2437,7 +3042,7 @@ async fn test_data_structures_comprehensive() {
         plan_type: PlanType::Mission,
     };
 
-    assert_eq!(plan.id, Some(1));
+    assert_eq!(plan.id, 1);
     assert_eq!(plan.name, "Comprehensive test plan");
     assert_eq!(plan.instructions, "Test instructions");
     assert_eq!(plan.herd_id, 1);

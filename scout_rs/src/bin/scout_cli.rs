@@ -1,12 +1,12 @@
 use clap::Parser;
 use serde_json;
 use std::env;
-use scout_rs::client::{ ScoutClient, Event, Tag, ResponseScoutStatus };
+use scout_rs::client::{ ScoutClient, Event, Tag, Plan, ResponseScoutStatus };
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
 struct Args {
-    /// Command to execute: get_device, get_herd, get_plans_by_herd, post_event, update_event, delete_event
+    /// Command to execute: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event
     #[arg(short, long)]
     command: String,
 
@@ -37,12 +37,24 @@ struct Args {
     /// Event ID (for update_event and delete_event commands)
     #[arg(long, name = "event_id")]
     event_id: Option<i64>,
+
+    /// Plan ID (for get_plan_by_id, update_plan, and delete_plan commands)
+    #[arg(long, name = "plan_id")]
+    plan_id: Option<i64>,
+
+    /// Plan data as JSON (for create_plan and update_plan commands)
+    #[arg(long, name = "plan_json")]
+    plan_json: Option<String>,
 }
 
 // example usage:
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_herd
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plans_by_herd --herd_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plan_by_id --plan_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command create_plan --plan_json '{"name": "Test Plan", "instructions": "Test instructions", "herd_id": 123, "plan_type": "mission"}' --herd_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_plan --plan_id 123 --plan_json '{"name": "Updated Plan", "instructions": "Updated instructions", "herd_id": 123, "plan_type": "fence"}' --herd_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_plan --plan_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[]' --file_path 'path/to/image.jpg'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_event --event_id 123 --event_json '{"message": "Updated event", "media_url": "https://example.com/updated.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 25.0, "heading": 180.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": false, "session_id": null, "id": 123}'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_event --event_id 123
@@ -99,6 +111,74 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
         }
+        "get_plan_by_id" => {
+            let plan_id = args.plan_id.expect("plan_id required for get_plan_by_id");
+            let response = client.get_plan_by_id(plan_id).await?;
+            if response.status == ResponseScoutStatus::Success {
+                if let Some(plan) = response.data {
+                    println!("{}", serde_json::to_string_pretty(&plan)?);
+                } else {
+                    println!("{{}}");
+                }
+            } else {
+                eprintln!("Failed to get plan: {:?}", response.status);
+                std::process::exit(1);
+            }
+        }
+        "create_plan" => {
+            let plan_json = args.plan_json.expect("plan_json required for create_plan");
+            let herd_id = args.herd_id.expect("herd_id required for create_plan");
+
+            // Parse plan JSON
+            let mut plan: Plan = serde_json::from_str(&plan_json)?;
+
+            // Ensure the herd_id matches
+            plan.herd_id = herd_id;
+
+            let response = client.create_plan(&plan).await?;
+            if response.status == ResponseScoutStatus::Success {
+                if let Some(created_plan) = response.data {
+                    println!("Plan created successfully");
+                    println!("{}", serde_json::to_string_pretty(&created_plan)?);
+                } else {
+                    println!("Plan created successfully (no data returned)");
+                }
+            } else {
+                eprintln!("Failed to create plan: {:?}", response.status);
+                std::process::exit(1);
+            }
+        }
+        "update_plan" => {
+            let plan_id = args.plan_id.expect("plan_id required for update_plan");
+            let plan_json = args.plan_json.expect("plan_json required for update_plan");
+
+            // Parse plan JSON
+            let plan: Plan = serde_json::from_str(&plan_json)?;
+
+            let response = client.update_plan(plan_id, &plan).await?;
+            if response.status == ResponseScoutStatus::Success {
+                if let Some(updated_plan) = response.data {
+                    println!("Plan updated successfully");
+                    println!("{}", serde_json::to_string_pretty(&updated_plan)?);
+                } else {
+                    println!("Plan updated successfully (no data returned)");
+                }
+            } else {
+                eprintln!("Failed to update plan: {:?}", response.status);
+                std::process::exit(1);
+            }
+        }
+        "delete_plan" => {
+            let plan_id = args.plan_id.expect("plan_id required for delete_plan");
+
+            let response = client.delete_plan(plan_id).await?;
+            if response.status == ResponseScoutStatus::Success {
+                println!("Plan deleted successfully");
+            } else {
+                eprintln!("Failed to delete plan: {:?}", response.status);
+                std::process::exit(1);
+            }
+        }
         "post_event" => {
             let event_json = args.event_json.expect("event_json required for post_event");
             let tags_json = args.tags_json.expect("tags_json required for post_event");
@@ -152,7 +232,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => {
             eprintln!("Unknown command: {}", args.command);
             eprintln!(
-                "Available commands: get_device, get_herd, get_plans_by_herd, post_event, update_event, delete_event"
+                "Available commands: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event"
             );
             std::process::exit(1);
         }
