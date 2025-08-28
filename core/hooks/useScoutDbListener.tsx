@@ -23,12 +23,6 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
   const supabase = useRef<any>(null);
   const channels = useRef<any[]>([]);
   const dispatch = useAppDispatch();
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
-  const maxReconnectAttempts = 10;
-  const baseDelay = 1000; // 1 second
-  const maxDelay = 5000; // 5 seconds
-  const lastChannelIdRef = useRef<string | null>(null);
 
   function handleTagInserts(payload: any) {
     console.log("[DB Listener] Tag INSERT received:", payload.new);
@@ -132,7 +126,6 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
       .toString(36)
       .substr(2, 9)}`;
     const mainChannel = scoutSupabase.channel(channelId);
-    lastChannelIdRef.current = channelId;
 
     console.log(`[DB Listener] Creating channel: ${channelId}`);
 
@@ -219,66 +212,10 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
           console.log(
             "[DB Listener] ✅ Successfully subscribed to real-time updates"
           );
-          reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
-        } else if (status === "CHANNEL_ERROR") {
-          console.warn(
-            "[DB Listener] ❌ Channel error occurred. Reconnecting..."
-          );
-          handleReconnect();
-        } else if (status === "TIMED_OUT") {
-          console.warn(
-            "[DB Listener] ⏰ Subscription timed out. Reconnecting..."
-          );
-          handleReconnect();
-        } else if (status === "CLOSED") {
-          console.log(
-            `[DB Listener] 🔒 Channel closed: ${lastChannelIdRef.current}`
-          );
-          // Only reconnect if this isn't an immediate closure after subscription
-          if (reconnectAttemptsRef.current > 0) {
-            console.log("[DB Listener] Reconnecting...");
-            handleReconnect();
-          } else {
-            console.log(
-              "[DB Listener] Channel closed immediately after subscription, not reconnecting"
-            );
-          }
         }
       });
 
     return mainChannel;
-  };
-
-  // Handle reconnection with exponential backoff
-  const handleReconnect = () => {
-    if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
-      console.error("[DB Listener] 🚫 Max reconnection attempts reached");
-      return;
-    }
-
-    // Clear any existing timeout
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-    }
-
-    const delay = Math.min(
-      baseDelay * (reconnectAttemptsRef.current + 1),
-      maxDelay
-    );
-    console.log(
-      `[DB Listener] 🔄 Attempting reconnection in ${delay}ms (attempt ${
-        reconnectAttemptsRef.current + 1
-      }/${maxReconnectAttempts})`
-    );
-
-    reconnectTimeoutRef.current = setTimeout(() => {
-      reconnectAttemptsRef.current++;
-      cleanupChannels();
-      const newChannel = setupChannel();
-      if (newChannel) {
-        channels.current.push(newChannel);
-      }
-    }, delay);
   };
 
   useEffect(() => {
@@ -298,18 +235,6 @@ export function useScoutDbListener(scoutSupabase: SupabaseClient<Database>) {
     // Cleanup function
     return () => {
       console.log("[DB Listener] 🧹 Cleaning up channels");
-
-      // Clear any pending reconnection attempts
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-
-      // Reset reconnect attempts and channel tracking
-      reconnectAttemptsRef.current = 0;
-      lastChannelIdRef.current = null;
-
-      // Clean up channels
       cleanupChannels();
     };
   }, [scoutSupabase, dispatch]);
