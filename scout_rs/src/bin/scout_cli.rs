@@ -18,7 +18,7 @@ struct Args {
     #[arg(long, name = "api_key")]
     api_key: Option<String>,
 
-    /// Herd ID (for get_herd command)
+    /// Herd ID (required for plan operations, optional for get_herd command)
     #[arg(long, name = "herd_id")]
     herd_id: Option<i64>,
 
@@ -51,10 +51,10 @@ struct Args {
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_herd
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plans_by_herd --herd_id 123
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plan_by_id --plan_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plan_by_id --plan_id 123 --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command create_plan --plan_json '{"name": "Test Plan", "instructions": "Test instructions", "herd_id": 123, "plan_type": "mission"}' --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_plan --plan_id 123 --plan_json '{"name": "Updated Plan", "instructions": "Updated instructions", "herd_id": 123, "plan_type": "fence"}' --herd_id 123
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_plan --plan_id 123
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_plan --plan_id 123 --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[]' --file_path 'path/to/image.jpg'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_event --event_id 123 --event_json '{"message": "Updated event", "media_url": "https://example.com/updated.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 25.0, "heading": 180.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": false, "session_id": null, "id": 123}'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_event --event_id 123
@@ -99,6 +99,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "get_plans_by_herd" => {
             let herd_id = args.herd_id.expect("herd_id required for get_plans_by_herd");
+
+            // Identify the client first to establish database connection
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
+
             let response = client.get_plans_by_herd(herd_id).await?;
             if response.status == ResponseScoutStatus::Success {
                 if let Some(plans) = response.data {
@@ -113,9 +120,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "get_plan_by_id" => {
             let plan_id = args.plan_id.expect("plan_id required for get_plan_by_id");
+            let herd_id = args.herd_id.expect("herd_id required for get_plan_by_id");
+
+            // Identify the client first to establish database connection
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
+
+            // Verify the plan belongs to the specified herd
             let response = client.get_plan_by_id(plan_id).await?;
             if response.status == ResponseScoutStatus::Success {
                 if let Some(plan) = response.data {
+                    if plan.herd_id != herd_id {
+                        eprintln!("Plan {} does not belong to herd {}", plan_id, herd_id);
+                        std::process::exit(1);
+                    }
                     println!("{}", serde_json::to_string_pretty(&plan)?);
                 } else {
                     println!("{{}}");
@@ -128,6 +148,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "create_plan" => {
             let plan_json = args.plan_json.expect("plan_json required for create_plan");
             let herd_id = args.herd_id.expect("herd_id required for create_plan");
+
+            // Identify the client first to establish database connection
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
 
             // Parse plan JSON
             let mut plan: Plan = serde_json::from_str(&plan_json)?;
@@ -151,9 +177,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "update_plan" => {
             let plan_id = args.plan_id.expect("plan_id required for update_plan");
             let plan_json = args.plan_json.expect("plan_json required for update_plan");
+            let herd_id = args.herd_id.expect("herd_id required for update_plan");
+
+            // Identify the client first to establish database connection
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
 
             // Parse plan JSON
-            let plan: Plan = serde_json::from_str(&plan_json)?;
+            let mut plan: Plan = serde_json::from_str(&plan_json)?;
+
+            // Ensure the herd_id matches
+            plan.herd_id = herd_id;
 
             let response = client.update_plan(plan_id, &plan).await?;
             if response.status == ResponseScoutStatus::Success {
@@ -170,6 +206,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "delete_plan" => {
             let plan_id = args.plan_id.expect("plan_id required for delete_plan");
+            let herd_id = args.herd_id.expect("herd_id required for delete_plan");
+
+            // Identify the client first to establish database connection
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
+
+            // First verify the plan belongs to the specified herd before deleting
+            let plan_response = client.get_plan_by_id(plan_id).await?;
+            if plan_response.status == ResponseScoutStatus::Success {
+                if let Some(plan) = plan_response.data {
+                    if plan.herd_id != herd_id {
+                        eprintln!(
+                            "Failed to delete plan: Plan {} does not belong to herd {}",
+                            plan_id,
+                            herd_id
+                        );
+                        std::process::exit(1);
+                    }
+                }
+            }
 
             let response = client.delete_plan(plan_id).await?;
             if response.status == ResponseScoutStatus::Success {
