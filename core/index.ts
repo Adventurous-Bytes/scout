@@ -16,6 +16,7 @@ export * from "./types/events";
 // Helpers
 export * from "./helpers/auth";
 export * from "./helpers/bounding_boxes";
+export * from "./helpers/chat";
 export * from "./helpers/db";
 export * from "./helpers/devices";
 export * from "./helpers/email";
