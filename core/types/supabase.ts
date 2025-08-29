@@ -85,21 +85,21 @@ export type Database = {
       chat: {
         Row: {
           created_at: string
-          herd_id: number | null
+          herd_id: number
           id: number
           message: string
           sender: string | null
         }
         Insert: {
           created_at?: string
-          herd_id?: number | null
+          herd_id: number
           id?: number
           message: string
           sender?: string | null
         }
         Update: {
           created_at?: string
-          herd_id?: number | null
+          herd_id?: number
           id?: number
           message?: string
           sender?: string | null
@@ -389,7 +389,7 @@ export type Database = {
         Row: {
           herd_id: number
           id: number
-          inserted_at: string
+          inserted_at: string | null
           instructions: string
           name: string
           plan_type: Database["public"]["Enums"]["plan_type"]
@@ -397,7 +397,7 @@ export type Database = {
         Insert: {
           herd_id: number
           id?: number
-          inserted_at?: string
+          inserted_at?: string | null
           instructions: string
           name: string
           plan_type?: Database["public"]["Enums"]["plan_type"]
@@ -405,7 +405,7 @@ export type Database = {
         Update: {
           herd_id?: number
           id?: number
-          inserted_at?: string
+          inserted_at?: string | null
           instructions?: string
           name?: string
           plan_type?: Database["public"]["Enums"]["plan_type"]
