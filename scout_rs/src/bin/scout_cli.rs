@@ -29,7 +29,13 @@ struct Args {
     /// Tags data as JSON array (for post_event command)
     #[arg(long, name = "tags_json")]
     tags_json: Option<String>,
+    /// Location latitude for tags (optional)
+    #[arg(long, name = "tag_latitude")]
+    tag_latitude: Option<f64>,
 
+    /// Location longitude for tags (optional)
+    #[arg(long, name = "tag_longitude")]
+    tag_longitude: Option<f64>,
     /// File path (for post_event command)
     #[arg(long, name = "file_path")]
     file_path: Option<String>,
@@ -48,15 +54,17 @@ struct Args {
 }
 
 // example usage:
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
+// With location support for tags:
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "POINT(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[{"x": 0.5, "y": 0.5, "width": 0.2, "height": 0.2, "conf": 0.9, "observation_type": "manual", "class_name": "animal", "event_id": 0}]' --file_path 'path/to/image.jpg' --tag_latitude 40.7128 --tag_longitude -74.0060
+// This will create tags with location coordinates extracted from the provided latitude/longitude// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_device
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_herd
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plans_by_herd --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command get_plan_by_id --plan_id 123 --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command create_plan --plan_json '{"name": "Test Plan", "instructions": "Test instructions", "herd_id": 123, "plan_type": "mission"}' --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_plan --plan_id 123 --plan_json '{"name": "Updated Plan", "instructions": "Updated instructions", "herd_id": 123, "plan_type": "fence"}' --herd_id 123
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_plan --plan_id 123 --herd_id 123
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[]' --file_path 'path/to/image.jpg'
-// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_event --event_id 123 --event_json '{"message": "Updated event", "media_url": "https://example.com/updated.jpg", "file_path": "path/to/image.jpg", "location": "Point(0,0)", "altitude": 25.0, "heading": 180.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": false, "session_id": null, "id": 123}'
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command post_event --event_json '{"message": "Test event", "media_url": "https://example.com/image.jpg", "file_path": "path/to/image.jpg", "location": "POINT(0,0)", "altitude": 20.3, "heading": 90.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": true, "session_id": null}' --tags_json '[{"x": 0.5, "y": 0.5, "width": 0.2, "height": 0.2, "conf": 0.9, "observation_type": "manual", "class_name": "animal", "event_id": 0}]' --file_path 'path/to/image.jpg' --tag_latitude 40.7128 --tag_longitude -74.0060
+// SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command update_event --event_id 123 --event_json '{"message": "Updated event", "media_url": "https://example.com/updated.jpg", "file_path": "path/to/image.jpg", "location": "POINT(0,0)", "altitude": 25.0, "heading": 180.0, "media_type": "image", "device_id": "123", "earthranger_url": null, "timestamp_observation": "2024-01-01T00:00:00Z", "is_public": false, "session_id": null, "id": 123}'
 // SCOUT_DEVICE_API_KEY=1234567890 ./target/release/scout_cli --command delete_event --event_id 123
 
 #[tokio::main]
@@ -248,6 +256,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Parse tags JSON
             let tags: Vec<Tag> = serde_json::from_str(&tags_json)?;
 
+            // Apply location to tags if provided
+            let mut tags: Vec<Tag> = serde_json::from_str(&tags_json)?;
+            if let (Some(lat), Some(lon)) = (args.tag_latitude, args.tag_longitude) {
+                for tag in &mut tags {
+                    tag.set_location(lat, lon);
+                }
+            }
             let response = client.create_event_with_tags(&event, &tags, Some(&file_path)).await?;
             if response.status == ResponseScoutStatus::Success {
                 println!("Event posted successfully");

@@ -218,7 +218,7 @@ impl Session {
             .unwrap_or_else(|| Utc::now())
             .to_rfc3339();
 
-        let locations = locations_wkt.unwrap_or_else(|| "Point(0 0)".to_string());
+        let locations = locations_wkt.unwrap_or_else(|| "POINT(0 0)".to_string());
 
         Self {
             id: None,
@@ -395,7 +395,7 @@ impl Event {
     }
 
     pub fn format_location(latitude: f64, longitude: f64) -> String {
-        format!("Point({} {})", longitude, latitude)
+        format!("POINT({} {})", longitude, latitude)
     }
 
     pub fn with_id(mut self, id: i64) -> Self {
@@ -418,6 +418,8 @@ pub struct Tag {
     pub observation_type: TagObservationType,
     pub class_name: String,
     pub event_id: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
 }
 
 impl Tag {
@@ -442,15 +444,69 @@ impl Tag {
             observation_type,
             class_name,
             event_id: 0,
+            location: None,
+        }
+    }
+
+    pub fn new_with_location(
+        _class_id: i64,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        conf: f64,
+        observation_type: TagObservationType,
+        class_name: String,
+        latitude: f64,
+        longitude: f64
+    ) -> Self {
+        Self {
+            id: None,
+            inserted_at: None,
+            x,
+            y,
+            width,
+            height,
+            conf,
+            observation_type,
+            class_name,
+            event_id: 0,
+            location: Some(Self::format_location(latitude, longitude)),
         }
     }
 
     pub fn update_event_id(&mut self, event_id: i64) {
         self.event_id = event_id;
     }
-}
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    pub fn set_location(&mut self, latitude: f64, longitude: f64) {
+        self.location = Some(Self::format_location(latitude, longitude));
+    }
+
+    pub fn clear_location(&mut self) {
+        self.location = None;
+    }
+
+    pub fn format_location(latitude: f64, longitude: f64) -> String {
+        format!("POINT({} {})", longitude, latitude)
+    }
+
+    pub fn parse_location(location: &str) -> Option<(f64, f64)> {
+        if let Some(coords) = location.strip_prefix("POINT(").and_then(|s| s.strip_suffix(")")) {
+            let parts: Vec<&str> = coords.split_whitespace().collect();
+            if parts.len() == 2 {
+                if let (Ok(lon), Ok(lat)) = (parts[0].parse::<f64>(), parts[1].parse::<f64>()) {
+                    return Some((lat, lon));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn get_coordinates(&self) -> Option<(f64, f64)> {
+        self.location.as_ref().and_then(|loc| Self::parse_location(loc))
+    }
+}#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub id: i64,
     pub inserted_at: Option<String>,

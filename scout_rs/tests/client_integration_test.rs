@@ -640,7 +640,7 @@ async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
         1640995200,
         1640998800,
         "tags_test_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -805,7 +805,7 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
         1640995200,
         1640998800,
         "v2.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -863,7 +863,7 @@ async fn test_connectivity_creation() {
         1640995200,
         1640998800,
         "connectivity_test_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -888,7 +888,7 @@ async fn test_connectivity_creation() {
                 -60.0, // noise
                 100.0, // altitude
                 180.0, // heading
-                "Point(-155.15393 19.754824)".to_string(),
+                "POINT(-155.15393 19.754824)".to_string(),
                 "H14_INDEX".to_string(),
                 "H13_INDEX".to_string(),
                 "H12_INDEX".to_string(),
@@ -945,7 +945,7 @@ async fn test_compatibility_methods() {
         1640995200,
         1640998800,
         "compat_test_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -1183,7 +1183,7 @@ async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
             1640995200,
             1640998800,
             "v2.0.0".to_string(),
-            Some("Point(-155.15393 19.754824)".to_string()),
+            Some("POINT(-155.15393 19.754824)".to_string()),
             120.0,
             45.0,
             82.5,
@@ -1291,7 +1291,7 @@ async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
                     -60.0,
                     100.0,
                     180.0,
-                    "Point(-155.15393 19.754824)".to_string(),
+                    "POINT(-155.15393 19.754824)".to_string(),
                     "H14_INDEX".to_string(),
                     "H13_INDEX".to_string(),
                     "H12_INDEX".to_string(),
@@ -1360,7 +1360,7 @@ async fn test_real_database_integration() {
                 chrono::Utc::now().timestamp() as u64,
                 (chrono::Utc::now().timestamp() as u64) + 3600,
                 "integration_test_v1.0.0".to_string(),
-                Some("Point(-155.15393 19.754824)".to_string()),
+                Some("POINT(-155.15393 19.754824)".to_string()),
                 120.0,
                 45.0,
                 82.5,
@@ -1423,7 +1423,7 @@ async fn test_real_database_integration() {
                                 -60.0,
                                 100.0,
                                 180.0,
-                                "Point(-155.15393 19.754824)".to_string(),
+                                "POINT(-155.15393 19.754824)".to_string(),
                                 "H14_INDEX".to_string(),
                                 "H13_INDEX".to_string(),
                                 "H12_INDEX".to_string(),
@@ -1561,7 +1561,7 @@ async fn test_connectivity_with_coordinates_via_function() {
         1640995200,
         1640998800,
         "v2.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -2263,7 +2263,7 @@ fn test_data_validation() {
     );
 
     assert!(valid_event.location.is_some());
-    assert_eq!(valid_event.location.unwrap(), "Point(-180 90)");
+    assert_eq!(valid_event.location.unwrap(), "POINT(-180 90)");
 
     // Test Session validation
     let valid_session = Session::new(
@@ -2327,7 +2327,7 @@ async fn test_compatibility_methods_comprehensive() {
         1640995200,
         1640998800,
         "compat_test_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -2352,7 +2352,7 @@ async fn test_compatibility_methods_comprehensive() {
                 -60.0,
                 100.0,
                 180.0,
-                "Point(-155.15393 19.754824)".to_string(),
+                "POINT(-155.15393 19.754824)".to_string(),
                 "H14_INDEX".to_string(),
                 "H13_INDEX".to_string(),
                 "H12_INDEX".to_string(),
@@ -2538,7 +2538,7 @@ async fn test_complete_data_collection_workflow() {
         chrono::Utc::now().timestamp() as u64,
         (chrono::Utc::now().timestamp() as u64) + 3600,
         "workflow_test_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -2627,7 +2627,7 @@ async fn test_complete_data_collection_workflow() {
                     -60.0,
                     100.0,
                     180.0,
-                    "Point(-155.15393 19.754824)".to_string(),
+                    "POINT(-155.15393 19.754824)".to_string(),
                     "H14_INDEX".to_string(),
                     "H13_INDEX".to_string(),
                     "H12_INDEX".to_string(),
@@ -2788,7 +2788,7 @@ async fn test_integration_with_mock_data_comprehensive() {
         1640995200,
         1640998800,
         "mock_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         100.0,
         50.0,
         75.0,
@@ -2853,7 +2853,7 @@ async fn test_integration_with_mock_data_comprehensive() {
         -60.0,
         100.0,
         180.0,
-        "Point(-155.15393 19.754824)".to_string(),
+        "POINT(-155.15393 19.754824)".to_string(),
         "H14_INDEX".to_string(),
         "H13_INDEX".to_string(),
         "H12_INDEX".to_string(),
@@ -2954,7 +2954,7 @@ async fn test_data_structures_comprehensive() {
     assert_eq!(event.is_public, true);
     assert_eq!(event.session_id, Some(1));
     assert!(event.location.is_some());
-    assert_eq!(event.location.unwrap(), "Point(-155.15393 19.754824)");
+    assert_eq!(event.location.unwrap(), "POINT(-155.15393 19.754824)");
 
     // Test 2: Session structure
     let session = Session::new(
@@ -2962,7 +2962,7 @@ async fn test_data_structures_comprehensive() {
         1640995200,
         1640998800,
         "comprehensive_v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
         82.5,
@@ -3014,7 +3014,7 @@ async fn test_data_structures_comprehensive() {
         -60.0,
         100.0,
         180.0,
-        "Point(-155.15393 19.754824)".to_string(),
+        "POINT(-155.15393 19.754824)".to_string(),
         "H14_INDEX".to_string(),
         "H13_INDEX".to_string(),
         "H12_INDEX".to_string(),
@@ -3026,7 +3026,7 @@ async fn test_data_structures_comprehensive() {
     assert_eq!(connectivity.noise, -60.0);
     assert_eq!(connectivity.altitude, 100.0);
     assert_eq!(connectivity.heading, 180.0);
-    assert_eq!(connectivity.location, "Point(-155.15393 19.754824)");
+    assert_eq!(connectivity.location, "POINT(-155.15393 19.754824)");
     assert_eq!(connectivity.h14_index, "H14_INDEX");
     assert_eq!(connectivity.h13_index, "H13_INDEX");
     assert_eq!(connectivity.h12_index, "H12_INDEX");
@@ -3266,7 +3266,7 @@ async fn test_data_validation_comprehensive() {
     );
 
     assert!(valid_event.location.is_some());
-    assert_eq!(valid_event.location.unwrap(), "Point(-155.15393 19.754824)");
+    assert_eq!(valid_event.location.unwrap(), "POINT(-155.15393 19.754824)");
     assert_eq!(valid_event.media_type, MediaType::Image);
     assert_eq!(valid_event.is_public, false);
 
@@ -3280,7 +3280,7 @@ async fn test_data_validation_comprehensive() {
         1640995200, // Start time
         1640998800, // End time (after start time)
         "v1.0.0".to_string(),
-        Some("Point(-155.15393 19.754824)".to_string()),
+        Some("POINT(-155.15393 19.754824)".to_string()),
         100.0, // altitude_max
         50.0, // altitude_min
         75.0, // altitude_average
@@ -3323,7 +3323,7 @@ async fn test_data_validation_comprehensive() {
         -60.0, // noise
         100.0, // altitude
         180.0, // heading
-        "Point(-155.15393 19.754824)".to_string(),
+        "POINT(-155.15393 19.754824)".to_string(),
         "H14_INDEX".to_string(),
         "H13_INDEX".to_string(),
         "H12_INDEX".to_string(),
@@ -3402,4 +3402,364 @@ async fn test_data_validation_comprehensive() {
     assert_eq!(invalid_tag.y, -200.0);
     assert_eq!(invalid_tag.conf, 1.5);
     assert_eq!(invalid_tag.observation_type, TagObservationType::Auto);
+}
+
+#[test]
+fn test_tag_location_functionality() {
+    println!("🧪 Testing Tag location functionality...");
+
+    // Test 1: Create tag without location
+    let mut tag = Tag::new(
+        1,
+        0.5,
+        0.5,
+        0.2,
+        0.2,
+        0.9,
+        TagObservationType::Manual,
+        "animal".to_string()
+    );
+    
+    assert!(tag.location.is_none());
+    assert!(tag.get_coordinates().is_none());
+    println!("✅ Tag without location created successfully");
+
+    // Test 2: Create tag with location using new_with_location
+    let tag_with_location = Tag::new_with_location(
+        1,
+        0.5,
+        0.5,
+        0.2,
+        0.2,
+        0.9,
+        TagObservationType::Manual,
+        "animal".to_string(),
+        40.7128,
+        -74.0060
+    );
+    
+    assert!(tag_with_location.location.is_some());
+    assert!(tag_with_location.location.is_some());
+    assert!(tag_with_location.location.as_ref().unwrap().contains("POINT("));
+    assert!(tag_with_location.location.as_ref().unwrap().contains("40.7128"));
+    assert!(tag_with_location.location.as_ref().unwrap().contains("-74.006"));
+    
+    if let Some((lat, lon)) = tag_with_location.get_coordinates() {
+        assert!((lat - 40.7128).abs() < 0.0001);
+        assert!((lon - (-74.0060)).abs() < 0.0001);
+        println!("✅ Tag with location created successfully: lat={}, lon={}", lat, lon);
+    } else {
+        panic!("❌ Failed to get coordinates from tag with location");
+    }
+
+    // Test 3: Set location after creation
+    tag.set_location(37.7749, -122.4194);
+    assert!(tag.location.is_some());
+    assert!(tag.location.is_some());
+    assert!(tag.location.as_ref().unwrap().contains("POINT("));
+    assert!(tag.location.as_ref().unwrap().contains("37.7749"));
+    assert!(tag.location.as_ref().unwrap().contains("-122.4194"));
+    
+    if let Some((lat, lon)) = tag.get_coordinates() {
+        assert!((lat - 37.7749).abs() < 0.0001);
+        assert!((lon - (-122.4194)).abs() < 0.0001);
+        println!("✅ Location set after creation: lat={}, lon={}", lat, lon);
+    } else {
+        panic!("❌ Failed to get coordinates after setting location");
+    }
+
+    // Test 4: Parse location string
+    if let Some((lat, lon)) = Tag::parse_location("POINT(-74.0060 40.7128)") {
+        assert!((lat - 40.7128).abs() < 0.0001);
+        assert!((lon - (-74.0060)).abs() < 0.0001);
+        println!("✅ Location parsing successful: lat={}, lon={}", lat, lon);
+    } else {
+        panic!("❌ Failed to parse location string");
+    }
+
+    // Test 5: Clear location
+    tag.clear_location();
+    assert!(tag.location.is_none());
+    assert!(tag.get_coordinates().is_none());
+    println!("✅ Location cleared successfully");
+
+    // Test 6: Invalid location string parsing
+    assert!(Tag::parse_location("Invalid format").is_none());
+    assert!(Tag::parse_location("POINT(invalid coords)").is_none());
+    assert!(Tag::parse_location("POINT(1)").is_none());
+    println!("✅ Invalid location string handling works correctly");
+
+    println!("🎉 All tag location functionality tests passed!");
+}
+
+#[test]
+fn test_tag_upload_with_location() {
+    println!("🧪 Testing Tag upload with location...");
+
+    // This test verifies that tags with location can be serialized correctly
+    // for database upload (even though we can't actually upload without a real DB)
+    
+    // Create a tag with location
+    let mut tag = Tag::new_with_location(
+        1,
+        0.5, 0.5, 0.2, 0.2, 0.9,
+        TagObservationType::Manual,
+        "elephant".to_string(),
+        40.7128, -74.0060
+    );
+    
+    // Set event_id as would happen in real upload
+    tag.update_event_id(123);
+    
+    // Verify the tag has location
+    assert!(tag.location.is_some());
+    assert_eq!(tag.location, Some("POINT(-74.006 40.7128)".to_string()));
+    
+    // Test serialization (what happens when uploading to database)
+    let serialized = serde_json::to_string(&tag).unwrap();
+    println!("Serialized tag: {}", serialized);
+    
+    // Verify location is included in serialized JSON
+    assert!(serialized.contains("POINT(-74.006 40.7128)"));
+    assert!(serialized.contains("\"location\""));
+    
+    // Test deserialization
+    let deserialized: Tag = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized.location, tag.location);
+    assert_eq!(deserialized.event_id, tag.event_id);
+    
+    // Test that coordinates can be extracted
+    if let Some((lat, lon)) = deserialized.get_coordinates() {
+        assert!((lat - 40.7128).abs() < 0.0001);
+        assert!((lon - (-74.0060)).abs() < 0.0001);
+        println!("✅ Coordinates extracted correctly: lat={}, lon={}", lat, lon);
+    } else {
+        panic!("❌ Failed to extract coordinates from deserialized tag");
+    }
+    
+    println!("✅ Tag upload with location test passed!");
+}
+
+#[tokio::test]
+async fn test_tag_upload_with_location_integration() {
+    println!("🧪 Testing Tag upload with location integration...");
+
+    // This test would require a real database connection to actually upload
+    // For now, we'll test the serialization and preparation for upload
+    
+    // Create a tag with location
+    let mut tag = Tag::new_with_location(
+        1,
+        0.5, 0.5, 0.2, 0.2, 0.9,
+        TagObservationType::Manual,
+        "elephant".to_string(),
+        40.7128, -74.0060
+    );
+    
+    // Set event_id as would happen in real upload
+    tag.update_event_id(123);
+    
+    // Test that the tag is ready for database upload
+    assert!(tag.location.is_some());
+    assert_eq!(tag.location, Some("POINT(-74.006 40.7128)".to_string()));
+    assert_eq!(tag.event_id, 123);
+    
+    // Test serialization for database upload
+    let serialized = serde_json::to_string(&tag).unwrap();
+    assert!(serialized.contains("\"location\":\"POINT(-74.006 40.7128)\""));
+    assert!(serialized.contains("\"event_id\":123"));
+    
+    // Test that the tag can be deserialized correctly
+    let deserialized: Tag = serde_json::from_str(&serialized).unwrap();
+    assert_eq!(deserialized.location, tag.location);
+    assert_eq!(deserialized.event_id, tag.event_id);
+    
+    // Test coordinate extraction
+    if let Some((lat, lon)) = deserialized.get_coordinates() {
+        assert!((lat - 40.7128).abs() < 0.0001);
+        assert!((lon - (-74.0060)).abs() < 0.0001);
+        println!("✅ Coordinates extracted correctly: lat={}, lon={}", lat, lon);
+    } else {
+        panic!("❌ Failed to extract coordinates from tag");
+    }
+    
+    // Test that the tag would be compatible with database upload
+    // (This simulates what happens in create_tags function)
+    let tags_for_upload = vec![tag];
+    let serialized_array = serde_json::to_string(&tags_for_upload).unwrap();
+    assert!(serialized_array.contains("\"location\":\"POINT(-74.006 40.7128)\""));
+    
+    println!("✅ Tag upload with location integration test passed!");
+    println!("   Serialized array: {}", serialized_array);
+}
+
+
+
+#[tokio::test]
+async fn test_tag_upload_with_location_database() {
+    let cleanup = TestCleanup::new();
+    test_tag_upload_with_location_database_impl(&cleanup).await;
+}
+
+async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string())
+    ).unwrap();
+
+    // Identify the client - should always succeed with proper credentials
+    let identify_result = client.identify().await;
+    if identify_result.is_err() {
+        panic!("❌ Client identification failed: {:?}", identify_result.err());
+    }
+
+    println!("🧪 Testing Tag upload with location to database...");
+
+    // First create a real session for the event
+    let session = Session::new(
+        env::var("SCOUT_DEVICE_ID")
+            .unwrap_or_else(|_| "123".to_string())
+            .parse()
+            .unwrap_or(123),
+        1640995200,
+        1640998800,
+        "tag_location_test_v1.0.0".to_string(),
+        Some("POINT(-155.15393 19.754824)".to_string()),
+        120.0,
+        45.0,
+        82.5,
+        15.0,
+        3.0,
+        9.0,
+        1200.0,
+        500.0
+    );
+
+    // Create the session first
+    let session_result = client.create_session(&session).await;
+    let session_id = match session_result {
+        Ok(session_response) => {
+            if session_response.status == ResponseScoutStatus::Success {
+                let created_session = session_response.data.unwrap();
+                let session_id = created_session.id.unwrap();
+                cleanup.track_session(session_id);
+                println!("✅ Session created with ID: {}", session_id);
+                session_id
+            } else {
+                panic!("❌ Session creation failed: {:?}", session_response.status);
+            }
+        }
+        Err(e) => {
+            panic!("❌ Session creation failed: {}. This test requires successful session creation.", e);
+        }
+    };
+
+    // Create an event
+    let event = Event::new(
+        Some("Test event with tagged location".to_string()),
+        Some("https://example.com/tagged_image.jpg".to_string()),
+        None, // file_path
+        None, // earthranger_url
+        -155.15393, // latitude
+        19.754824,  // longitude
+        120.0,      // altitude
+        45.0,       // heading
+        MediaType::Image,
+        env::var("SCOUT_DEVICE_ID")
+            .unwrap_or_else(|_| "123".to_string())
+            .parse()
+            .unwrap_or(123),
+        1640995200, // timestamp_observation
+        false,      // is_public
+        Some(session_id)
+    );
+
+    // Create the event first
+    let event_result = client.create_event(&event).await;
+    match event_result {
+        Ok(event_response) => {
+            if event_response.status == ResponseScoutStatus::Success {
+                let created_event = event_response.data.unwrap();
+                let event_id = created_event.id.unwrap();
+                cleanup.track_event(event_id);
+                println!("✅ Event created with ID: {}", event_id);
+
+                // Create tags with location data
+                let mut tags_with_location = vec![
+                    Tag::new_with_location(
+                        1,
+                        0.3, 0.4, 0.1, 0.15, 0.95,
+                        TagObservationType::Manual,
+                        "elephant".to_string(),
+                        40.7128, -74.0060  // New York City coordinates
+                    ),
+                    Tag::new_with_location(
+                        2,
+                        0.6, 0.7, 0.2, 0.25, 0.87,
+                        TagObservationType::Auto,
+                        "giraffe".to_string(),
+                        37.7749, -122.4194  // San Francisco coordinates
+                    )
+                ];
+
+                // Set event_id for all tags
+                for tag in &mut tags_with_location {
+                    tag.update_event_id(event_id);
+                }
+
+                // Verify tags have location data before upload
+                for (i, tag) in tags_with_location.iter().enumerate() {
+                    assert!(tag.location.is_some(), "Tag {} should have location data", i);
+                    println!("✅ Tag {} location: {:?}", i, tag.location);
+                }
+
+                // Upload tags to database
+                let tags_result = client.create_tags(event_id, &tags_with_location).await;
+                match tags_result {
+                    Ok(tags_response) => {
+                        if tags_response.status == ResponseScoutStatus::Success {
+                            let created_tags = tags_response.data.unwrap();
+                            println!("✅ Successfully uploaded {} tags with location data", created_tags.len());
+
+                            // Verify the uploaded tags have the correct event_id
+                            for (i, tag) in created_tags.iter().enumerate() {
+                                assert_eq!(tag.event_id, event_id, "Tag {} should have correct event_id", i);
+                                
+                                // Verify location data was preserved
+                                if let Some(location) = &tag.location {
+                                    println!("Tag {} location from database: {}", i, location);
+                                    // Location is stored in PostGIS binary format, which is correct
+                                    assert!(!location.is_empty(), "Tag {} should have location data", i);
+                                    println!("✅ Tag {} uploaded with location: {}", i, location);
+                                    
+                                } else {
+                                    panic!("❌ Tag {} should have location data after upload", i);
+                                }
+                            }
+
+                            // Track all created tags for cleanup
+                            for created_tag in &created_tags {
+                                if let Some(tag_id) = created_tag.id {
+                                    cleanup.track_tag(tag_id);
+                                }
+                            }
+
+                            println!("�� All tags with location data successfully uploaded to database!");
+                        } else {
+                            panic!("❌ Tags creation failed: {:?}", tags_response.status);
+                        }
+                    }
+                    Err(e) => {
+                        panic!("❌ Tags creation failed: {}. This test requires successful tag creation.", e);
+                    }
+                }
+            } else {
+                panic!("❌ Event creation failed: {:?}", event_response.status);
+            }
+        }
+        Err(e) => {
+            panic!("❌ Event creation failed: {}. This test requires successful event creation.", e);
+        }
+    }
 }
