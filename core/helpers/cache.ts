@@ -71,16 +71,22 @@ export class ScoutCache {
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
-        
+
         // Create herd modules store
         if (!db.objectStoreNames.contains(HERD_MODULES_STORE)) {
-          const herdModulesStore = db.createObjectStore(HERD_MODULES_STORE, { keyPath: "herdId" });
-          herdModulesStore.createIndex("timestamp", "timestamp", { unique: false });
+          const herdModulesStore = db.createObjectStore(HERD_MODULES_STORE, {
+            keyPath: "herdId",
+          });
+          herdModulesStore.createIndex("timestamp", "timestamp", {
+            unique: false,
+          });
         }
 
         // Create cache metadata store
         if (!db.objectStoreNames.contains(CACHE_METADATA_STORE)) {
-          const metadataStore = db.createObjectStore(CACHE_METADATA_STORE, { keyPath: "key" });
+          const metadataStore = db.createObjectStore(CACHE_METADATA_STORE, {
+            keyPath: "key",
+          });
         }
 
         console.log("[ScoutCache] Database schema upgraded");
@@ -91,15 +97,18 @@ export class ScoutCache {
   }
 
   async setHerdModules(
-    herdModules: IHerdModule[], 
+    herdModules: IHerdModule[],
     ttlMs: number = DEFAULT_TTL_MS,
     etag?: string
   ): Promise<void> {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    const transaction = this.db.transaction([HERD_MODULES_STORE, CACHE_METADATA_STORE], "readwrite");
-    
+    const transaction = this.db.transaction(
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
+      "readwrite"
+    );
+
     return new Promise((resolve, reject) => {
       transaction.onerror = () => reject(transaction.error);
       transaction.oncomplete = () => resolve();
@@ -137,8 +146,11 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    const transaction = this.db.transaction([HERD_MODULES_STORE, CACHE_METADATA_STORE], "readonly");
-    
+    const transaction = this.db.transaction(
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
+      "readonly"
+    );
+
     return new Promise((resolve, reject) => {
       transaction.onerror = () => reject(transaction.error);
 
@@ -165,8 +177,9 @@ export class ScoutCache {
         getAllRequest.onsuccess = () => {
           const cacheEntries = getAllRequest.result;
           const herdModules = cacheEntries
-            .map(entry => entry.data)
-            .sort((a, b) => a.herd.name.localeCompare(b.herd.name));
+            .filter((entry) => entry.data && entry.data.herd && entry.data.herd.slug)
+            .map((entry) => entry.data)
+            .sort((a, b) => (a.herd?.slug || "").localeCompare(b.herd?.slug || ""));
 
           // Update stats
           if (herdModules.length > 0) {
@@ -190,8 +203,11 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    const transaction = this.db.transaction([HERD_MODULES_STORE, CACHE_METADATA_STORE], "readwrite");
-    
+    const transaction = this.db.transaction(
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
+      "readwrite"
+    );
+
     return new Promise((resolve, reject) => {
       transaction.onerror = () => reject(transaction.error);
       transaction.oncomplete = () => resolve();
@@ -208,8 +224,11 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    const transaction = this.db.transaction([CACHE_METADATA_STORE], "readwrite");
-    
+    const transaction = this.db.transaction(
+      [CACHE_METADATA_STORE],
+      "readwrite"
+    );
+
     return new Promise((resolve, reject) => {
       transaction.onerror = () => reject(transaction.error);
       transaction.oncomplete = () => resolve();
@@ -237,7 +256,7 @@ export class ScoutCache {
   async isCacheValid(ttlMs?: number): Promise<boolean> {
     const result = await this.getHerdModules();
     if (!result.data || !result.metadata) return false;
-    
+
     const effectiveTtl = ttlMs || result.metadata.ttl;
     return !result.isStale && result.age < effectiveTtl;
   }
@@ -257,7 +276,7 @@ export class ScoutCache {
     }
 
     const result = await this.getHerdModules();
-    
+
     if (!result.data || result.data.length === 0) {
       return { shouldRefresh: true, reason: "No cached data" };
     }
@@ -267,7 +286,12 @@ export class ScoutCache {
     }
 
     if (maxAgeMs && result.age > maxAgeMs) {
-      return { shouldRefresh: true, reason: `Cache age (${Math.round(result.age / 1000)}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)` };
+      return {
+        shouldRefresh: true,
+        reason: `Cache age (${Math.round(
+          result.age / 1000
+        )}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
+      };
     }
 
     return { shouldRefresh: false, reason: "Cache is valid and fresh" };
@@ -281,10 +305,10 @@ export class ScoutCache {
     try {
       console.log("[ScoutCache] Starting background cache preload...");
       const startTime = Date.now();
-      
+
       const herdModules = await loadFunction();
       await this.setHerdModules(herdModules, ttlMs);
-      
+
       const duration = Date.now() - startTime;
       console.log(`[ScoutCache] Background preload completed in ${duration}ms`);
     } catch (error) {
