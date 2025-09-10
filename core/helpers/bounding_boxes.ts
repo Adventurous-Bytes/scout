@@ -26,6 +26,7 @@ export function convertManualBoundingBoxToTag(
     observation_type: "manual",
     class_name: newClassName,
     event_id: event_id,
+    location: null,
   };
   return newTag;
 }

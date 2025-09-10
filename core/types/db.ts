@@ -13,10 +13,11 @@ export type IUser = User;
 export type IDevice =
   Database["public"]["CompositeTypes"]["device_pretty_location"] & {
     api_keys_scout?: IApiKeyScout[];
-    recent_events?: IEventWithTags[];
+    recent_events?: IEventAndTagsPrettyLocation[];
   };
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
+export type ITagPrettyLocation = Database["public"]["CompositeTypes"]["tags_pretty_location"];
 export type IPlan = Database["public"]["Tables"]["plans"]["Row"];
 export type ILayer = Database["public"]["Tables"]["layers"]["Row"];
 export type IAction = Database["public"]["Tables"]["actions"]["Row"];

@@ -11,6 +11,7 @@ import { server_get_users_with_herd_access } from "../helpers/users";
 import {
   IDevice,
   IEventWithTags,
+  IEventAndTagsPrettyLocation,
   IHerd,
   IPlan,
   ILayer,
@@ -18,11 +19,11 @@ import {
   IZoneWithActions,
   ISessionWithCoordinates,
 } from "../types/db";
+
 import { EnumWebResponse } from "./requests";
 import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
 import { server_list_api_keys_batch } from "../api_keys/actions";
 import { getSessionsByHerdId } from "../helpers/sessions";
-
 export enum EnumHerdModulesLoadingState {
   NOT_LOADING = "NOT_LOADING",
   LOADING = "LOADING",
@@ -109,7 +110,7 @@ export class HerdModule {
       const new_devices = response_new_devices.data;
 
       // get api keys and events for all devices in batch
-      let recent_events_batch: { [device_id: number]: IEventWithTags[] } = {};
+      let recent_events_batch: { [device_id: number]: IEventAndTagsPrettyLocation[] } = {};
       if (new_devices.length > 0) {
         try {
           const device_ids = new_devices.map((device) => device.id ?? 0);

@@ -3,8 +3,58 @@
 // add tag to db
 
 import { newServerClient } from "../supabase/server";
-import { IEventWithTags, ITag } from "../types/db";
-import {
+import { IEventWithTags, IEventAndTagsPrettyLocation, ITag, ITagPrettyLocation } from "../types/db";
+
+// Helper functions to extract coordinates from location field
+function extractLatitude(location: any): number | null {
+  try {
+    if (typeof location === "object" && location !== null) {
+      if ("coordinates" in location && Array.isArray(location.coordinates)) {
+        return location.coordinates[1]; // latitude is second coordinate
+      }
+      if ("y" in location) {
+        return location.y;
+      }
+    }
+    if (typeof location === "string") {
+      const match = location.match(/Point\(([^)]+)\)/);
+      if (match) {
+        const coords = match[1].split(" ").map(Number);
+        if (coords.length === 2) {
+          return coords[1]; // latitude is second coordinate
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Error extracting latitude:", error);
+  }
+  return null;
+}
+
+function extractLongitude(location: any): number | null {
+  try {
+    if (typeof location === "object" && location !== null) {
+      if ("coordinates" in location && Array.isArray(location.coordinates)) {
+        return location.coordinates[0]; // longitude is first coordinate
+      }
+      if ("x" in location) {
+        return location.x;
+      }
+    }
+    if (typeof location === "string") {
+      const match = location.match(/Point\(([^)]+)\)/);
+      if (match) {
+        const coords = match[1].split(" ").map(Number);
+        if (coords.length === 2) {
+          return coords[0]; // longitude is first coordinate
+        }
+      }
+    }
+  } catch (error) {
+    console.warn("Error extracting longitude:", error);
+  }
+  return null;
+}import {
   EnumWebResponse,
   IWebResponse,
   IWebResponseCompatible,
@@ -100,7 +150,7 @@ export async function server_get_more_events_with_tags_by_herd(
   herd_id: number,
   offset: number,
   page_count: number = 10
-): Promise<IWebResponseCompatible<IEventWithTags[]>> {
+): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const from = offset * page_count;
   const to = from + page_count - 1;
   const supabase = await newServerClient();
@@ -120,9 +170,9 @@ export async function server_get_more_events_with_tags_by_herd(
   }
 
   // iterate through data if tags contains null, remove it
-  const filtered_data = (data || []).map((event: IEventWithTags) => {
+  const filtered_data = (data || []).map((event: IEventAndTagsPrettyLocation) => {
     if (!event.tags) return event;
-    event.tags = event.tags.filter((tag: ITag | null) => tag !== null);
+    event.tags = event.tags.filter((tag: ITagPrettyLocation | null) => tag !== null);
     return event;
   });
 
@@ -138,7 +188,7 @@ export async function server_get_more_events_with_tags_by_herd(
 export async function server_get_events_and_tags_for_device(
   device_id: number,
   limit: number = 3
-): Promise<IWebResponseCompatible<IEventWithTags[]>> {
+): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const supabase = await newServerClient();
   // make rpc call to get_events_with_tags_for_device(device_id, limit)
   const { data, error } = await supabase.rpc("get_events_and_tags_for_device", {
@@ -169,7 +219,7 @@ export async function server_get_events_and_tags_for_device(
 export async function server_get_events_and_tags_for_devices_batch(
   device_ids: number[],
   limit: number = 1
-): Promise<IWebResponseCompatible<{ [device_id: number]: IEventWithTags[] }>> {
+): Promise<IWebResponseCompatible<{ [device_id: number]: IEventAndTagsPrettyLocation[] }>> {
   const supabase = await newServerClient();
 
   // Use single RPC call for all devices
@@ -186,7 +236,7 @@ export async function server_get_events_and_tags_for_devices_batch(
     console.log(`[Events Batch] Falling back to individual calls...`);
 
     // Fallback to individual event loading
-    const result: { [device_id: number]: IEventWithTags[] } = {};
+    const result: { [device_id: number]: IEventAndTagsPrettyLocation[] } = {};
     const promises = device_ids.map(async (device_id) => {
       try {
         const events_response = await server_get_events_and_tags_for_device(
@@ -247,7 +297,7 @@ export async function server_get_events_and_tags_for_devices_batch(
   });
 
   // Add signed URLs to all events
-  const result: { [device_id: number]: IEventWithTags[] } = {};
+  const result: { [device_id: number]: IEventAndTagsPrettyLocation[] } = {};
 
   for (const device_id in eventsByDevice) {
     const events = eventsByDevice[device_id];
@@ -260,18 +310,18 @@ export async function server_get_events_and_tags_for_devices_batch(
 
 export async function get_event_and_tags_by_event_id(
   event_id: number
-): Promise<IWebResponseCompatible<IEventWithTags>> {
+): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation>> {
   const supabase = await newServerClient();
-  // use actual sql query to get event and tags instead of rpc
+  
+  // Get event and tags
   const { data, error } = await supabase
     .from("events")
-    .select(
-      `
+    .select(`
       *,
       tags: tags (*)
-      `
-    )
+    `)
     .eq("id", event_id);
+    
   if (error) {
     console.warn("Error fetching event with tags by event id:", error.message);
     return {
@@ -280,10 +330,27 @@ export async function get_event_and_tags_by_event_id(
       data: null,
     };
   }
+  
   if (!data || data.length === 0) {
     return {
       status: EnumWebResponse.ERROR,
       msg: "Event not found",
+      data: null,
+    };
+  }
+
+  // Get herd_id from device
+  const { data: deviceData, error: deviceError } = await supabase
+    .from("devices")
+    .select("herd_id")
+    .eq("id", data[0].device_id)
+    .single();
+    
+  if (deviceError) {
+    console.warn("Error fetching device herd_id:", deviceError.message);
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: deviceError.message,
       data: null,
     };
   }
@@ -326,7 +393,7 @@ export async function get_event_and_tags_by_event_id(
     // Continue with null coordinates
   }
 
-  const transformedData: IEventWithTags = {
+  const transformedData: IEventAndTagsPrettyLocation = {
     id: data[0].id,
     inserted_at: data[0].inserted_at,
     message: data[0].message,
@@ -339,7 +406,22 @@ export async function get_event_and_tags_by_event_id(
     device_id: data[0].device_id,
     timestamp_observation: data[0].timestamp_observation,
     is_public: data[0].is_public,
-    tags: data[0].tags || [],
+    herd_id: deviceData.herd_id,
+    tags: (data[0].tags || []).map((tag: any) => ({
+      id: tag.id,
+      inserted_at: tag.inserted_at,
+      x: tag.x,
+      y: tag.y,
+      width: tag.width,
+      conf: tag.conf,
+      observation_type: tag.observation_type,
+      event_id: tag.event_id,
+      class_name: tag.class_name,
+      height: tag.height,
+      location: tag.location,
+      latitude: tag.location ? extractLatitude(tag.location) : null,
+      longitude: tag.location ? extractLongitude(tag.location) : null,
+    })),
     earthranger_url: data[0].earthranger_url,
     file_path: data[0].file_path,
   };
