@@ -23,7 +23,7 @@ import {
 import { EnumWebResponse } from "./requests";
 import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
 import { server_list_api_keys_batch } from "../api_keys/actions";
-import { getSessionsByHerdId } from "../helpers/sessions";
+import { server_get_sessions_by_herd_id } from "../helpers/sessions";
 export enum EnumHerdModulesLoadingState {
   NOT_LOADING = "NOT_LOADING",
   LOADING = "LOADING",
@@ -173,9 +173,9 @@ export class HerdModule {
           console.warn(`[HerdModule] Failed to get plans:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
-        getSessionsByHerdId(client, herd.id).catch((error) => {
+        server_get_sessions_by_herd_id(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get sessions:`, error);
-          return [];
+          return { status: EnumWebResponse.ERROR, data: [], msg: error.message };
         }),
         server_get_layers_by_herd(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get layers:`, error);
@@ -218,7 +218,7 @@ export class HerdModule {
           ? res_plans.value.data
           : [];
       const sessions =
-        res_sessions.status === "fulfilled" ? res_sessions.value : [];
+        res_sessions.status === "fulfilled" && res_sessions.value?.data ? res_sessions.value.data : [];
       const layers =
         res_layers.status === "fulfilled" && res_layers.value?.data
           ? res_layers.value.data
