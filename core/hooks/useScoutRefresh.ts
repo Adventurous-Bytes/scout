@@ -12,31 +12,43 @@ import {
   setDataProcessingDuration,
   setLocalStorageDuration,
   setUser,
+  setDataSource,
+  setDataSourceInfo,
 } from "../store/scout";
 import { EnumHerdModulesLoadingState } from "../types/herd_module";
 import { server_load_herd_modules } from "../helpers/herds";
 import { server_get_user } from "../helpers/users";
-import { EnumWebResponse } from "../types/requests";
+import { scoutCache, CacheStats, TimingStats } from "../helpers/cache";
+import { EnumDataSource } from "../types/data_source";
 
 export interface UseScoutRefreshOptions {
   autoRefresh?: boolean;
   onRefreshComplete?: () => void;
+  cacheFirst?: boolean; // New option to enable cache-first loading
+  cacheTtlMs?: number; // Cache TTL in milliseconds (default: 24 hours)
 }
 
 /**
- * Hook for refreshing scout data with detailed timing measurements
+ * Hook for refreshing scout data with detailed timing measurements and cache-first loading
  *
  * @param options - Configuration options for the refresh behavior
  * @param options.autoRefresh - Whether to automatically refresh on mount (default: true)
  * @param options.onRefreshComplete - Callback function called when refresh completes
+ * @param options.cacheFirst - Whether to load from cache first, then refresh (default: true)
+ * @param options.cacheTtlMs - Cache time-to-live in milliseconds (default: 24 hours)
  *
  * @returns Object containing:
  * - handleRefresh: Function to manually trigger a refresh
  * - getTimingStats: Function to get detailed timing statistics for the last refresh
+ * - clearCache: Function to clear the cache
+ * - getCacheStats: Function to get cache statistics
  *
  * @example
  * ```tsx
- * const { handleRefresh, getTimingStats } = useScoutRefresh();
+ * const { handleRefresh, getTimingStats, clearCache, getCacheStats } = useScoutRefresh({
+ *   cacheFirst: true,
+ *   cacheTtlMs: 10 * 60 * 1000 // 10 minutes
+ * });
  *
  * // Get timing stats after a refresh
  * const stats = getTimingStats();
@@ -48,7 +60,12 @@ export interface UseScoutRefreshOptions {
  * ```
  */
 export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
-  const { autoRefresh = true, onRefreshComplete } = options;
+  const {
+    autoRefresh = true,
+    onRefreshComplete,
+    cacheFirst = true,
+    cacheTtlMs = 24 * 60 * 60 * 1000, // 24 hours default (1 day)
+  } = options;
   const dispatch = useAppDispatch();
   const refreshInProgressRef = useRef(false);
 
@@ -59,6 +76,8 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     userApiDuration: 0,
     dataProcessingDuration: 0,
     localStorageDuration: 0,
+    cacheLoadDuration: 0,
+    cacheSaveDuration: 0,
   });
 
   const handleRefresh = useCallback(async () => {
@@ -76,8 +95,85 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       dispatch(setStatus(EnumScoutStateStatus.LOADING));
       dispatch(setHerdModulesLoadingState(EnumHerdModulesLoadingState.LOADING));
 
-      // Run API requests in parallel for better performance
-      console.log("[useScoutRefresh] Starting parallel API requests...");
+      let cachedHerdModules: any[] | null = null;
+      let cacheLoadDuration = 0;
+
+      // Step 1: Load from cache first if enabled
+      if (cacheFirst) {
+        const cacheStartTime = Date.now();
+        try {
+          console.log("[useScoutRefresh] Loading from cache...");
+          const cacheResult = await scoutCache.getHerdModules();
+          cacheLoadDuration = Date.now() - cacheStartTime;
+          timingRefs.current.cacheLoadDuration = cacheLoadDuration;
+
+          if (cacheResult.data && cacheResult.data.length > 0) {
+            cachedHerdModules = cacheResult.data;
+            console.log(
+              `[useScoutRefresh] Loaded ${
+                cachedHerdModules.length
+              } herd modules from cache in ${cacheLoadDuration}ms (age: ${Math.round(
+                cacheResult.age / 1000
+              )}s, stale: ${cacheResult.isStale})`
+            );
+
+            // Set data source to CACHE
+            dispatch(setDataSource(EnumDataSource.CACHE));
+            dispatch(
+              setDataSourceInfo({
+                source: EnumDataSource.CACHE,
+                timestamp: Date.now(),
+                cacheAge: cacheResult.age,
+                isStale: cacheResult.isStale,
+              })
+            );
+
+            // Immediately update the store with cached data
+            dispatch(setHerdModules(cachedHerdModules));
+            dispatch(
+              setHerdModulesLoadingState(
+                EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED
+              )
+            );
+
+            // If cache is fresh, we can return early
+            if (!cacheResult.isStale) {
+              console.log(
+                "[useScoutRefresh] Cache is fresh, skipping API call"
+              );
+
+              // Still need to load user data
+              const userStartTime = Date.now();
+              const res_new_user = await server_get_user();
+              const userApiDuration = Date.now() - userStartTime;
+              timingRefs.current.userApiDuration = userApiDuration;
+              dispatch(setUserApiDuration(userApiDuration));
+
+              if (res_new_user && res_new_user.data) {
+                dispatch(setUser(res_new_user.data));
+              }
+
+              const totalDuration = Date.now() - startTime;
+              dispatch(setHerdModulesLoadedInMs(totalDuration));
+              dispatch(setStatus(EnumScoutStateStatus.DONE_LOADING));
+
+              console.log(
+                `[useScoutRefresh] Cache-first refresh completed in ${totalDuration}ms`
+              );
+              onRefreshComplete?.();
+              return;
+            }
+          } else {
+            console.log("[useScoutRefresh] No cached data found");
+          }
+        } catch (cacheError) {
+          console.warn("[useScoutRefresh] Cache load failed:", cacheError);
+          // Continue with API call
+        }
+      }
+
+      // Step 2: Load fresh data from API
+      console.log("[useScoutRefresh] Loading fresh data from API...");
       const parallelStartTime = Date.now();
 
       const [herdModulesResult, userResult] = await Promise.all([
@@ -89,7 +185,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             ).toISOString()}`
           );
 
-          // High priority request with optimization
           const result = await server_load_herd_modules();
           const duration = Date.now() - start;
           console.log(
@@ -105,7 +200,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             ).toISOString()}`
           );
 
-          // High priority request with optimization
           const result = await server_get_user();
           const duration = Date.now() - start;
           console.log(
@@ -126,43 +220,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       const herdModulesDuration = herdModulesResult.duration;
       const userApiDuration = userResult.duration;
 
-      // Calculate request timing breakdown
-      const requestStartTime = parallelStartTime;
-      const requestEndTime = Date.now();
-      const totalRequestTime = requestEndTime - requestStartTime;
-
-      console.log(`[useScoutRefresh] Request timing breakdown:`);
-      console.log(
-        `  - Request started at: ${new Date(requestStartTime).toISOString()}`
-      );
-      console.log(
-        `  - Request completed at: ${new Date(requestEndTime).toISOString()}`
-      );
-      console.log(`  - Total request time: ${totalRequestTime}ms`);
-      console.log(`  - Parallel execution time: ${parallelDuration}ms`);
-      console.log(
-        `  - Request overhead: ${totalRequestTime - parallelDuration}ms`
-      );
-
-      // Calculate network latency for herd modules
-      let networkLatencyMs = 0;
-      if (
-        herdModulesResponse.status === EnumWebResponse.SUCCESS &&
-        herdModulesResponse.data
-      ) {
-        const serverFinishTime = herdModulesResponse.time_finished;
-        const clientReceiveTime = Date.now();
-        const estimatedNetworkLatency = clientReceiveTime - serverFinishTime;
-        networkLatencyMs = Math.max(0, estimatedNetworkLatency);
-
-        console.log(`[useScoutRefresh] Herd modules performance:`);
-        console.log(
-          `  - Server processing: ${herdModulesResponse.server_processing_time_ms}ms`
-        );
-        console.log(`  - Network latency: ${networkLatencyMs}ms`);
-        console.log(`  - Total client time: ${herdModulesDuration}ms`);
-      }
-
       // Store timing values
       timingRefs.current.herdModulesDuration = herdModulesDuration;
       timingRefs.current.userApiDuration = userApiDuration;
@@ -170,19 +227,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Dispatch timing actions
       dispatch(setHerdModulesApiDuration(herdModulesDuration));
       dispatch(setUserApiDuration(userApiDuration));
-
-      // Calculate network overhead
-      const totalApiTime = herdModulesDuration + userApiDuration;
-      const networkOverhead =
-        parallelDuration - Math.max(herdModulesDuration, userApiDuration);
-
-      console.log(`[useScoutRefresh] API performance:`);
-      console.log(`  - Herd modules: ${herdModulesDuration}ms`);
-      console.log(`  - User API: ${userApiDuration}ms`);
-      console.log(`  - Parallel execution: ${parallelDuration}ms`);
-      console.log(
-        `  - Time saved with parallel: ${totalApiTime - parallelDuration}ms`
-      );
 
       // Validate API responses
       const validationStartTime = Date.now();
@@ -204,7 +248,34 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Use the validated data
       const compatible_new_herd_modules = herdModulesResponse.data;
 
-      // Measure data processing duration
+      // Set data source to DATABASE
+      dispatch(setDataSource(EnumDataSource.DATABASE));
+      dispatch(
+        setDataSourceInfo({
+          source: EnumDataSource.DATABASE,
+          timestamp: Date.now(),
+        })
+      );
+
+      // Step 3: Update cache with fresh data
+      const cacheSaveStartTime = Date.now();
+      try {
+        await scoutCache.setHerdModules(
+          compatible_new_herd_modules,
+          cacheTtlMs
+        );
+        const cacheSaveDuration = Date.now() - cacheSaveStartTime;
+        timingRefs.current.cacheSaveDuration = cacheSaveDuration;
+        console.log(
+          `[useScoutRefresh] Cache updated in ${cacheSaveDuration}ms with TTL: ${Math.round(
+            cacheTtlMs / 1000
+          )}s`
+        );
+      } catch (cacheError) {
+        console.warn("[useScoutRefresh] Cache save failed:", cacheError);
+      }
+
+      // Step 4: Update store with fresh data
       const dataProcessingStartTime = Date.now();
 
       dispatch(setHerdModules(compatible_new_herd_modules));
@@ -219,10 +290,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       timingRefs.current.dataProcessingDuration = dataProcessingDuration;
       dispatch(setDataProcessingDuration(dataProcessingDuration));
 
-      // Measure localStorage operations duration
+      // Step 5: Handle localStorage operations
       const localStorageStartTime = Date.now();
 
-      // Safely handle localStorage operations
       try {
         // Check local storage for a last selected herd
         const lastSelectedHerd = localStorage.getItem("last_selected_herd");
@@ -267,17 +337,27 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Log essential performance metrics
       console.log(`[useScoutRefresh] Refresh completed successfully:`);
       console.log(`  - Total duration: ${loadingDuration}ms`);
-      console.log(`  - Herd modules: ${herdModulesDuration}ms`);
+      console.log(`  - Cache load: ${cacheLoadDuration}ms`);
+      console.log(`  - Herd modules API: ${herdModulesDuration}ms`);
       console.log(`  - User API: ${userApiDuration}ms`);
-      console.log(`  - Parallel execution: ${parallelDuration}ms`);
-      console.log(
-        `  - Time saved with parallel: ${totalApiTime - parallelDuration}ms`
-      );
+      console.log(`  - Cache save: ${timingRefs.current.cacheSaveDuration}ms`);
+      console.log(`  - Data processing: ${dataProcessingDuration}ms`);
+      console.log(`  - LocalStorage: ${localStorageDuration}ms`);
+      console.log(`  - Cache TTL: ${Math.round(cacheTtlMs / 1000)}s`);
 
       onRefreshComplete?.();
     } catch (error) {
       const loadingDuration = Date.now() - startTime;
       console.error("Error refreshing scout data:", error);
+
+      // Set data source to UNKNOWN on error
+      dispatch(setDataSource(EnumDataSource.UNKNOWN));
+      dispatch(
+        setDataSourceInfo({
+          source: EnumDataSource.UNKNOWN,
+          timestamp: Date.now(),
+        })
+      );
 
       // Ensure consistent state updates on error
       dispatch(
@@ -298,7 +378,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     } finally {
       refreshInProgressRef.current = false;
     }
-  }, [dispatch, onRefreshComplete]);
+  }, [dispatch, onRefreshComplete, cacheFirst, cacheTtlMs]);
 
   useEffect(() => {
     if (autoRefresh) {
@@ -307,20 +387,51 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   }, [autoRefresh, handleRefresh]);
 
   // Utility function to get timing statistics
-  const getTimingStats = useCallback(() => {
+  const getTimingStats = useCallback((): TimingStats => {
     const now = Date.now();
     const startTime = timingRefs.current.startTime;
     return {
       totalDuration: startTime > 0 ? now - startTime : 0,
+      cacheLoad: timingRefs.current.cacheLoadDuration,
       herdModulesApi: timingRefs.current.herdModulesDuration,
       userApi: timingRefs.current.userApiDuration,
+      cacheSave: timingRefs.current.cacheSaveDuration,
       dataProcessing: timingRefs.current.dataProcessingDuration,
       localStorage: timingRefs.current.localStorageDuration,
     };
   }, []);
 
+  // Utility function to clear cache
+  const clearCache = useCallback(async () => {
+    try {
+      await scoutCache.clearHerdModules();
+      console.log("[useScoutRefresh] Cache cleared successfully");
+    } catch (error) {
+      console.error("[useScoutRefresh] Failed to clear cache:", error);
+    }
+  }, []);
+
+  // Utility function to get cache statistics
+  const getCacheStats = useCallback(async (): Promise<CacheStats> => {
+    try {
+      return await scoutCache.getCacheStats();
+    } catch (error) {
+      console.error("[useScoutRefresh] Failed to get cache stats:", error);
+      return {
+        size: 0,
+        lastUpdated: 0,
+        isStale: true,
+        hitRate: 0,
+        totalHits: 0,
+        totalMisses: 0,
+      };
+    }
+  }, []);
+
   return {
     handleRefresh,
     getTimingStats,
+    clearCache,
+    getCacheStats,
   };
 }

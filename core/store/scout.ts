@@ -1,6 +1,7 @@
 import { createSlice } from "@reduxjs/toolkit";
 import { IEventWithTags, IUser } from "../types/db";
 import { IHerdModule, EnumHerdModulesLoadingState } from "../types/herd_module";
+import { EnumDataSource, IDataSourceInfo } from "../types/data_source";
 
 export enum EnumScoutStateStatus {
   LOADING = "LOADING",
@@ -21,6 +22,14 @@ export interface ScoutState {
   active_device_id: string | null;
   lastRefreshed: number;
   user: IUser | null;
+  // Data source tracking
+  data_source: EnumDataSource;
+  data_source_info: IDataSourceInfo | null;
+}
+
+// Root state type for the entire application
+export interface RootState {
+  scout: ScoutState;
 }
 
 const initialState: ScoutState = {
@@ -37,6 +46,9 @@ const initialState: ScoutState = {
   active_herd_id: null,
   active_device_id: null,
   user: null,
+  // Initialize data source tracking
+  data_source: EnumDataSource.UNKNOWN,
+  data_source_info: null,
 };
 
 export const scoutSlice = createSlice({
@@ -73,6 +85,12 @@ export const scoutSlice = createSlice({
     },
     setActiveDeviceId: (state, action) => {
       state.active_device_id = action.payload;
+    },
+    setDataSource: (state, action) => {
+      state.data_source = action.payload;
+    },
+    setDataSourceInfo: (state, action) => {
+      state.data_source_info = action.payload;
     },
     replaceEventsForHerdModule: (state, action) => {
       const { herd_id, events } = action.payload;
@@ -320,6 +338,8 @@ export const {
   setLocalStorageDuration,
   setActiveHerdId,
   setActiveDeviceId,
+  setDataSource,
+  setDataSourceInfo,
   appendEventsToHerdModule,
   replaceEventsForHerdModule,
   updateEventValuesForHerdModule,
