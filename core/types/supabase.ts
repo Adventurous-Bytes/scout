@@ -59,18 +59,21 @@ export type Database = {
           file_path: string
           id: number
           session_id: number | null
+          timestamp_observation: string | null
         }
         Insert: {
           created_at?: string
           file_path: string
           id?: number
           session_id?: number | null
+          timestamp_observation?: string | null
         }
         Update: {
           created_at?: string
           file_path?: string
           id?: number
           session_id?: number | null
+          timestamp_observation?: string | null
         }
         Relationships: [
           {
@@ -493,6 +496,7 @@ export type Database = {
           height: number
           id: number
           inserted_at: string
+          location: unknown | null
           observation_type: Database["public"]["Enums"]["tag_observation_type"]
           width: number
           x: number
@@ -505,6 +509,7 @@ export type Database = {
           height?: number
           id?: number
           inserted_at?: string
+          location?: unknown | null
           observation_type: Database["public"]["Enums"]["tag_observation_type"]
           width: number
           x: number
@@ -517,6 +522,7 @@ export type Database = {
           height?: number
           id?: number
           inserted_at?: string
+          location?: unknown | null
           observation_type?: Database["public"]["Enums"]["tag_observation_type"]
           width?: number
           x?: number
@@ -915,7 +921,9 @@ export type Database = {
         device_id: number | null
         timestamp_observation: string | null
         is_public: boolean | null
-        tags: Database["public"]["Tables"]["tags"]["Row"][] | null
+        tags:
+          | Database["public"]["CompositeTypes"]["tags_pretty_location"][]
+          | null
         herd_id: number | null
       }
       event_plus_tags: {
@@ -965,6 +973,23 @@ export type Database = {
         velocity_average: number | null
         distance_total: number | null
         distance_max_from_start: number | null
+      }
+      tags_pretty_location: {
+        id: number | null
+        inserted_at: string | null
+        x: number | null
+        y: number | null
+        width: number | null
+        conf: number | null
+        observation_type:
+          | Database["public"]["Enums"]["tag_observation_type"]
+          | null
+        event_id: number | null
+        class_name: string | null
+        height: number | null
+        location: unknown | null
+        latitude: number | null
+        longitude: number | null
       }
       zones_and_actions_pretty_location: {
         id: number | null
