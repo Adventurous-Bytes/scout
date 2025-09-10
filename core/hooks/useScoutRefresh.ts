@@ -117,7 +117,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               )}s, stale: ${cacheResult.isStale})`
             );
 
-            // Set data source to CACHE
+            // Set data source to CACHE initially
             dispatch(setDataSource(EnumDataSource.CACHE));
             dispatch(
               setDataSourceInfo({
@@ -136,29 +136,89 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               )
             );
 
-            // If cache is fresh, we can return early
+            // Always load user data from API
+            const userStartTime = Date.now();
+            const res_new_user = await server_get_user();
+            const userApiDuration = Date.now() - userStartTime;
+            timingRefs.current.userApiDuration = userApiDuration;
+            dispatch(setUserApiDuration(userApiDuration));
+
+            if (res_new_user && res_new_user.data) {
+              dispatch(setUser(res_new_user.data));
+            }
+
+            // If cache is fresh, we still background fetch but don't wait
             if (!cacheResult.isStale) {
               console.log(
-                "[useScoutRefresh] Cache is fresh, skipping API call"
+                "[useScoutRefresh] Cache is fresh, background fetching fresh data..."
               );
 
-              // Still need to load user data
-              const userStartTime = Date.now();
-              const res_new_user = await server_get_user();
-              const userApiDuration = Date.now() - userStartTime;
-              timingRefs.current.userApiDuration = userApiDuration;
-              dispatch(setUserApiDuration(userApiDuration));
+              // Background fetch fresh data without blocking
+              (async () => {
+                try {
+                  console.log("[useScoutRefresh] Starting background fetch...");
+                  const backgroundStartTime = Date.now();
+                  
+                  const [backgroundHerdModulesResult, backgroundUserResult] = await Promise.all([
+                    server_load_herd_modules(),
+                    server_get_user()
+                  ]);
 
-              if (res_new_user && res_new_user.data) {
-                dispatch(setUser(res_new_user.data));
-              }
+                  const backgroundDuration = Date.now() - backgroundStartTime;
+                  console.log(
+                    `[useScoutRefresh] Background fetch completed in ${backgroundDuration}ms`
+                  );
+
+                  // Validate background responses
+                  if (
+                    backgroundHerdModulesResult.data &&
+                    Array.isArray(backgroundHerdModulesResult.data) &&
+                    backgroundUserResult &&
+                    backgroundUserResult.data
+                  ) {
+                    // Update cache with fresh data
+                    try {
+                      await scoutCache.setHerdModules(
+                        backgroundHerdModulesResult.data,
+                        cacheTtlMs
+                      );
+                      console.log(
+                        `[useScoutRefresh] Background cache updated with TTL: ${Math.round(
+                          cacheTtlMs / 1000
+                        )}s`
+                      );
+                    } catch (cacheError) {
+                      console.warn("[useScoutRefresh] Background cache save failed:", cacheError);
+                    }
+
+                    // Update store with fresh data
+                    dispatch(setHerdModules(backgroundHerdModulesResult.data));
+                    dispatch(setUser(backgroundUserResult.data));
+
+                    // Update data source to DATABASE
+                    dispatch(setDataSource(EnumDataSource.DATABASE));
+                    dispatch(
+                      setDataSourceInfo({
+                        source: EnumDataSource.DATABASE,
+                        timestamp: Date.now(),
+                      })
+                    );
+
+                    console.log("[useScoutRefresh] Background fetch completed and store updated");
+                  } else {
+                    console.warn("[useScoutRefresh] Background fetch returned invalid data");
+                  }
+                } catch (backgroundError) {
+                  console.warn("[useScoutRefresh] Background fetch failed:", backgroundError);
+                }
+              })();
 
               const totalDuration = Date.now() - startTime;
               dispatch(setHerdModulesLoadedInMs(totalDuration));
               dispatch(setStatus(EnumScoutStateStatus.DONE_LOADING));
 
               console.log(
-                `[useScoutRefresh] Cache-first refresh completed in ${totalDuration}ms`
+                `[useScoutRefresh] Cache-first refresh completed in ${totalDuration}ms (background fetch in progress)`
               );
               onRefreshComplete?.();
               return;
