@@ -3,7 +3,12 @@
 // add tag to db
 
 import { newServerClient } from "../supabase/server";
-import { IEventWithTags, IEventAndTagsPrettyLocation, ITag, ITagPrettyLocation } from "../types/db";
+import {
+  IEventWithTags,
+  IEventAndTagsPrettyLocation,
+  ITag,
+  ITagPrettyLocation,
+} from "../types/db";
 import {
   EnumWebResponse,
   IWebResponse,
@@ -186,7 +191,6 @@ export async function server_get_more_events_with_tags_by_herd(
   page_count: number = 10
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const from = offset * page_count;
-  const to = from + page_count - 1;
   const supabase = await newServerClient();
   // make rpc call to get_events_and_tags_for_herd(herd_id, offset, limit)
   const { data, error } = await supabase.rpc("get_events_and_tags_for_herd", {
@@ -204,11 +208,15 @@ export async function server_get_more_events_with_tags_by_herd(
   }
 
   // iterate through data if tags contains null, remove it
-  const filtered_data = (data || []).map((event: IEventAndTagsPrettyLocation) => {
-    if (!event.tags) return event;
-    event.tags = event.tags.filter((tag: ITagPrettyLocation | null) => tag !== null);
-    return event;
-  });
+  const filtered_data = (data || []).map(
+    (event: IEventAndTagsPrettyLocation) => {
+      if (!event.tags) return event;
+      event.tags = event.tags.filter(
+        (tag: ITagPrettyLocation | null) => tag !== null
+      );
+      return event;
+    }
+  );
 
   // Add signed URLs to events using the same client
   const eventsWithSignedUrls = await addSignedUrlsToEvents(
@@ -253,7 +261,9 @@ export async function server_get_events_and_tags_for_device(
 export async function server_get_events_and_tags_for_devices_batch(
   device_ids: number[],
   limit: number = 1
-): Promise<IWebResponseCompatible<{ [device_id: number]: IEventAndTagsPrettyLocation[] }>> {
+): Promise<
+  IWebResponseCompatible<{ [device_id: number]: IEventAndTagsPrettyLocation[] }>
+> {
   const supabase = await newServerClient();
 
   // Use single RPC call for all devices
@@ -347,16 +357,18 @@ export async function get_event_and_tags_by_event_id(
   event_id: number
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation>> {
   const supabase = await newServerClient();
-  
+
   // Get event and tags
   const { data, error } = await supabase
     .from("events")
-    .select(`
+    .select(
+      `
       *,
       tags: tags (*)
-    `)
+    `
+    )
     .eq("id", event_id);
-    
+
   if (error) {
     console.warn("Error fetching event with tags by event id:", error.message);
     return {
@@ -365,7 +377,7 @@ export async function get_event_and_tags_by_event_id(
       data: null,
     };
   }
-  
+
   if (!data || data.length === 0) {
     return {
       status: EnumWebResponse.ERROR,
@@ -380,7 +392,7 @@ export async function get_event_and_tags_by_event_id(
     .select("herd_id")
     .eq("id", data[0].device_id)
     .single();
-    
+
   if (deviceError) {
     console.warn("Error fetching device herd_id:", deviceError.message);
     return {

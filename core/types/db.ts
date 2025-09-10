@@ -1,6 +1,7 @@
-import { User } from "@supabase/supabase-js";
+import { SupabaseClient, User } from "@supabase/supabase-js";
 import { Database } from "./supabase";
 
+export type ScoutDatabaseClient = SupabaseClient<Database, "public">;
 // Re-export all types from Supabase
 export type Role = Database["public"]["Enums"]["role"];
 export type DeviceType = Database["public"]["Enums"]["device_type"];
@@ -17,7 +18,8 @@ export type IDevice =
   };
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
-export type ITagPrettyLocation = Database["public"]["CompositeTypes"]["tags_pretty_location"];
+export type ITagPrettyLocation =
+  Database["public"]["CompositeTypes"]["tags_pretty_location"];
 export type IPlan = Database["public"]["Tables"]["plans"]["Row"];
 export type ILayer = Database["public"]["Tables"]["layers"]["Row"];
 export type IAction = Database["public"]["Tables"]["actions"]["Row"];

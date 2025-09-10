@@ -5,8 +5,6 @@ import {
   IWebResponse,
   IWebResponseCompatible,
 } from "../types/requests";
-import { SupabaseClient } from "@supabase/supabase-js";
-import { IZonesAndActionsPrettyLocation } from "../types/db";
 
 /**
  * Get more zones and actions for a herd

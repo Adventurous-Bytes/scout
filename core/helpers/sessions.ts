@@ -7,6 +7,7 @@ import {
   ISessionWithCoordinates,
   IConnectivityWithCoordinates,
   IEventAndTagsPrettyLocation,
+  ScoutDatabaseClient,
 } from "../types/db";
 
 // Input types for upsert operations
@@ -24,7 +25,7 @@ export type ConnectivityUpsertInput =
 
 // Get sessions by herd id using RPC function with coordinates
 export async function getSessionsByHerdId(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   herdId: number
 ): Promise<ISessionWithCoordinates[]> {
   const { data, error } = await supabase.rpc("get_sessions_with_coordinates", {
@@ -49,7 +50,7 @@ export async function getSessionsByHerdId(
 
 // Get connectivity by session id using RPC function with coordinates
 export async function getConnectivityBySessionId(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionId: number
 ): Promise<IConnectivityWithCoordinates[]> {
   const { data, error } = await supabase.rpc(
@@ -77,7 +78,7 @@ export async function getConnectivityBySessionId(
 
 // Get events by session id
 export async function getEventsBySessionId(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionId: number
 ): Promise<IEvent[]> {
   const { data, error } = await supabase
@@ -95,7 +96,7 @@ export async function getEventsBySessionId(
 
 // Get events with tags by session id using RPC function
 export async function getEventsAndTagsBySessionId(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionId: number,
   limit: number = 50,
   offset: number = 0
@@ -120,7 +121,7 @@ export async function getEventsAndTagsBySessionId(
 
 // Get total count of events for a session
 export async function getTotalEventsForSession(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionId: number
 ): Promise<number> {
   const { data, error } = await supabase.rpc("get_total_events_for_session", {
@@ -136,7 +137,7 @@ export async function getTotalEventsForSession(
 
 // Create or update session
 export async function upsertSession(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionData: SessionUpsertInput
 ): Promise<ISession> {
   const isUpdate = "id" in sessionData;
@@ -174,7 +175,7 @@ export async function upsertSession(
 
 // Batch upsert sessions
 export async function upsertSessions(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   sessionsData: SessionUpsertInput[]
 ): Promise<ISession[]> {
   if (sessionsData.length === 0) {
@@ -218,7 +219,7 @@ export async function upsertSessions(
 
 // Create or update connectivity
 export async function upsertConnectivity(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   connectivityData: ConnectivityUpsertInput
 ): Promise<IConnectivity> {
   const isUpdate = "id" in connectivityData;
@@ -256,7 +257,7 @@ export async function upsertConnectivity(
 
 // Batch upsert connectivity
 export async function upsertConnectivityBatch(
-  supabase: SupabaseClient<Database>,
+  supabase: SupabaseClient<Database, "public">,
   connectivityDataArray: ConnectivityUpsertInput[]
 ): Promise<IConnectivity[]> {
   if (connectivityDataArray.length === 0) {
@@ -308,7 +309,7 @@ export async function upsertConnectivityBatch(
 
 // Get session with connectivity and events using RPC functions
 export async function getSessionWithConnectivityAndEvents(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   sessionId: number,
   herdId?: number
 ): Promise<{
@@ -389,7 +390,7 @@ export async function getSessionWithConnectivityAndEvents(
 
 // Get session with connectivity and events with tags using RPC functions
 export async function getSessionWithConnectivityAndEventsWithTags(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   sessionId: number,
   limit: number = 50,
   offset: number = 0,
@@ -481,7 +482,7 @@ export async function getSessionWithConnectivityAndEventsWithTags(
 
 // Get sessions for a device using RPC function
 export async function getSessionsByDeviceId(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   deviceId: number
 ): Promise<ISessionWithCoordinates[]> {
   const { data, error } = await supabase.rpc(
@@ -500,7 +501,7 @@ export async function getSessionsByDeviceId(
 
 // Delete session and all related data
 export async function deleteSession(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   sessionId: number
 ): Promise<void> {
   const { error } = await supabase
@@ -515,7 +516,7 @@ export async function deleteSession(
 
 // Batch delete sessions
 export async function deleteSessions(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   sessionIds: number[]
 ): Promise<void> {
   if (sessionIds.length === 0) {
@@ -534,7 +535,7 @@ export async function deleteSessions(
 
 // Delete connectivity entry
 export async function deleteConnectivity(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   connectivityId: number
 ): Promise<void> {
   const { error } = await supabase
@@ -549,7 +550,7 @@ export async function deleteConnectivity(
 
 // Batch delete connectivity entries
 export async function deleteConnectivityBatch(
-  supabase: SupabaseClient<Database>,
+  supabase: ScoutDatabaseClient,
   connectivityIds: number[]
 ): Promise<void> {
   if (connectivityIds.length === 0) {
