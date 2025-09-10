@@ -4,6 +4,12 @@
 
 import { newServerClient } from "../supabase/server";
 import { IEventWithTags, IEventAndTagsPrettyLocation, ITag, ITagPrettyLocation } from "../types/db";
+import {
+  EnumWebResponse,
+  IWebResponse,
+  IWebResponseCompatible,
+} from "../types/requests";
+import { addSignedUrlsToEvents, addSignedUrlToEvent } from "./storage";
 
 // Helper functions to extract coordinates from location field
 function extractLatitude(location: any): number | null {
@@ -54,12 +60,40 @@ function extractLongitude(location: any): number | null {
     console.warn("Error extracting longitude:", error);
   }
   return null;
-}import {
-  EnumWebResponse,
-  IWebResponse,
-  IWebResponseCompatible,
-} from "../types/requests";
-import { addSignedUrlsToEvents, addSignedUrlToEvent } from "./storage";
+}
+
+// Test function to verify individual event loading works
+export async function test_event_loading(device_id: number): Promise<boolean> {
+  try {
+    console.log(
+      `[Event Test] Testing individual event loading for device ${device_id}`
+    );
+    const events_response = await server_get_events_and_tags_for_device(
+      device_id,
+      1
+    );
+    if (events_response.status === EnumWebResponse.SUCCESS) {
+      console.log(
+        `[Event Test] Successfully loaded ${
+          events_response.data?.length || 0
+        } events for device ${device_id}`
+      );
+      return true;
+    } else {
+      console.error(
+        `[Event Test] Failed to load events for device ${device_id}:`,
+        events_response.msg
+      );
+      return false;
+    }
+  } catch (error) {
+    console.error(
+      `[Event Test] Failed to load events for device ${device_id}:`,
+      error
+    );
+    return false;
+  }
+}
 
 export async function server_create_tags(
   tags: ITag[]
@@ -154,7 +188,7 @@ export async function server_get_more_events_with_tags_by_herd(
   const from = offset * page_count;
   const to = from + page_count - 1;
   const supabase = await newServerClient();
-  // make rpc call to get_events_with_tags_for_herd(herd_id, offset, limit)
+  // make rpc call to get_events_and_tags_for_herd(herd_id, offset, limit)
   const { data, error } = await supabase.rpc("get_events_and_tags_for_herd", {
     herd_id_caller: herd_id,
     offset_caller: from,
@@ -190,7 +224,7 @@ export async function server_get_events_and_tags_for_device(
   limit: number = 3
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const supabase = await newServerClient();
-  // make rpc call to get_events_with_tags_for_device(device_id, limit)
+  // make rpc call to get_events_and_tags_for_device(device_id, limit)
   const { data, error } = await supabase.rpc("get_events_and_tags_for_device", {
     device_id_caller: device_id,
     limit_caller: limit,
@@ -290,6 +324,7 @@ export async function server_get_events_and_tags_for_devices_batch(
       timestamp_observation: row.timestamp_observation,
       is_public: row.is_public,
       earthranger_url: row.earthranger_url,
+      herd_id: row.herd_id,
       tags: Array.isArray(row.tags) ? row.tags : [],
     };
 
