@@ -1,7 +1,7 @@
 use clap::Parser;
+use scout_rs::client::{Event, Plan, ResponseScoutStatus, ScoutClient, Tag};
 use serde_json;
 use std::env;
-use scout_rs::client::{ ScoutClient, Event, Tag, Plan, ResponseScoutStatus };
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
@@ -11,7 +11,11 @@ struct Args {
     command: String,
 
     /// Scout URL
-    #[arg(long, name = "scout_url", default_value = "http://localhost:3000/api/scout")]
+    #[arg(
+        long,
+        name = "scout_url",
+        default_value = "http://localhost:3000/api/scout"
+    )]
     scout_url: String,
 
     /// API Key (or set SCOUT_DEVICE_API_KEY env var)
@@ -106,7 +110,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         "get_plans_by_herd" => {
-            let herd_id = args.herd_id.expect("herd_id required for get_plans_by_herd");
+            let herd_id = args
+                .herd_id
+                .expect("herd_id required for get_plans_by_herd");
 
             // Identify the client first to establish database connection
             if let Err(e) = client.identify().await {
@@ -229,8 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if plan.herd_id != herd_id {
                         eprintln!(
                             "Failed to delete plan: Plan {} does not belong to herd {}",
-                            plan_id,
-                            herd_id
+                            plan_id, herd_id
                         );
                         std::process::exit(1);
                     }
@@ -254,7 +259,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let event: Event = serde_json::from_str(&event_json)?;
 
             // Parse tags JSON
-            let tags: Vec<Tag> = serde_json::from_str(&tags_json)?;
 
             // Apply location to tags if provided
             let mut tags: Vec<Tag> = serde_json::from_str(&tags_json)?;
@@ -263,7 +267,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     tag.set_location(lat, lon);
                 }
             }
-            let response = client.create_event_with_tags(&event, &tags, Some(&file_path)).await?;
+            let response = client
+                .create_event_with_tags(&event, &tags, Some(&file_path))
+                .await?;
             if response.status == ResponseScoutStatus::Success {
                 println!("Event posted successfully");
             } else {
@@ -273,7 +279,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         "update_event" => {
             let event_id = args.event_id.expect("event_id required for update_event");
-            let event_json = args.event_json.expect("event_json required for update_event");
+            let event_json = args
+                .event_json
+                .expect("event_json required for update_event");
 
             // Parse event JSON
             let event: Event = serde_json::from_str(&event_json)?;

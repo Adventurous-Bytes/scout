@@ -1,7 +1,7 @@
 use clap::Parser;
 use scout_rs::client::ScoutClient;
 use std::env;
-use tracing::{ info, warn };
+use tracing::info;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Upload a directory of images to Scout", long_about = None)]
@@ -64,13 +64,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Initialize tracing
-    tracing_subscriber::fmt().with_env_filter(format!("scout_rs={}", args.log_level)).init();
+    tracing_subscriber::fmt()
+        .with_env_filter(format!("scout_rs={}", args.log_level))
+        .init();
 
     // Get API key from args or environment
     let api_key = args.api_key.unwrap_or_else(|| {
-        env::var("SCOUT_DEVICE_API_KEY").expect(
-            "SCOUT_DEVICE_API_KEY environment variable not set or --api-key not provided"
-        )
+        env::var("SCOUT_DEVICE_API_KEY")
+            .expect("SCOUT_DEVICE_API_KEY environment variable not set or --api-key not provided")
     });
 
     info!("🚀 Starting directory upload to Scout...");

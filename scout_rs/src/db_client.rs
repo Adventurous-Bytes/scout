@@ -1,6 +1,6 @@
-use anyhow::{ Result, anyhow };
+use anyhow::{anyhow, Result};
 use postgrest::Postgrest;
-use serde::{ Deserialize, Serialize };
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseConfig {
@@ -19,8 +19,7 @@ impl DatabaseConfig {
     pub fn from_env_with_api_key(scout_device_api_key: Option<String>) -> Result<Self> {
         dotenv::dotenv().ok();
 
-        let mut rest_url = std::env
-            ::var("SCOUT_DATABASE_REST_URL")
+        let mut rest_url = std::env::var("SCOUT_DATABASE_REST_URL")
             .map_err(|_| anyhow!("SCOUT_DATABASE_REST_URL environment variable is required"))?;
 
         // Ensure the URL has the correct PostgREST path
@@ -42,13 +41,9 @@ impl DatabaseConfig {
             })
         });
 
-        let supabase_api_key = std::env
-            ::var("SUPABASE_PUBLIC_API_KEY")
-            .map_err(|_|
-                anyhow!(
-                    "SUPABASE_PUBLIC_API_KEY environment variable is required for Supabase access"
-                )
-            )?;
+        let supabase_api_key = std::env::var("SUPABASE_PUBLIC_API_KEY").map_err(|_| {
+            anyhow!("SUPABASE_PUBLIC_API_KEY environment variable is required for Supabase access")
+        })?;
 
         Ok(DatabaseConfig {
             rest_url,
@@ -82,7 +77,14 @@ impl std::fmt::Debug for ScoutDbClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ScoutDbClient")
             .field("config", &self.config)
-            .field("client", if self.client.is_some() { &"Connected" } else { &"Disconnected" })
+            .field(
+                "client",
+                if self.client.is_some() {
+                    &"Connected"
+                } else {
+                    &"Disconnected"
+                },
+            )
             .finish()
     }
 }
@@ -114,7 +116,9 @@ impl ScoutDbClient {
             self.connect()?;
         }
 
-        self.client.as_ref().ok_or_else(|| anyhow!("No PostgREST client available"))
+        self.client
+            .as_ref()
+            .ok_or_else(|| anyhow!("No PostgREST client available"))
     }
 
     /// Closes the database connection
@@ -127,10 +131,10 @@ impl ScoutDbClient {
     /// Executes a query and returns the results
     pub async fn query<T>(
         &mut self,
-        table: &str,
-        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder
+        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder,
     ) -> Result<Vec<T>>
-        where T: for<'de> serde::Deserialize<'de>
+    where
+        T: for<'de> serde::Deserialize<'de>,
     {
         let client = self.get_client()?;
 
@@ -153,7 +157,10 @@ impl ScoutDbClient {
                     return Err(anyhow!("Database returned unexpected format: {}", body));
                 }
             } else {
-                return Err(anyhow!("Failed to parse database response as JSON: {}", body));
+                return Err(anyhow!(
+                    "Failed to parse database response as JSON: {}",
+                    body
+                ));
             }
         }
     }
@@ -161,10 +168,10 @@ impl ScoutDbClient {
     /// Executes a query that returns a single row
     pub async fn query_one<T>(
         &mut self,
-        table: &str,
-        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder
+        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder,
     ) -> Result<T>
-        where T: for<'de> serde::Deserialize<'de>
+    where
+        T: for<'de> serde::Deserialize<'de>,
     {
         let client = self.get_client()?;
 
@@ -184,8 +191,7 @@ impl ScoutDbClient {
     /// Executes a query that doesn't return results (INSERT, UPDATE, DELETE)
     pub async fn execute(
         &mut self,
-        table: &str,
-        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder
+        query_builder: impl FnOnce(&Postgrest) -> postgrest::Builder,
     ) -> Result<()> {
         let client = self.get_client()?;
 
@@ -195,7 +201,11 @@ impl ScoutDbClient {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await?;
-            return Err(anyhow!("Operation failed: HTTP {} - {}", status, error_text));
+            return Err(anyhow!(
+                "Operation failed: HTTP {} - {}",
+                status,
+                error_text
+            ));
         }
 
         Ok(())
@@ -203,7 +213,8 @@ impl ScoutDbClient {
 
     /// Inserts data into a table
     pub async fn insert<T>(&mut self, table: &str, data: &T) -> Result<Vec<T>>
-        where T: for<'de> serde::Deserialize<'de> + serde::Serialize
+    where
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
         let client = self.get_client()?;
 
@@ -224,17 +235,24 @@ impl ScoutDbClient {
                 } else if let Some(message) = error_response.get("message") {
                     return Err(anyhow!("Database insert message: {}", message));
                 } else {
-                    return Err(anyhow!("Database insert returned unexpected format: {}", body));
+                    return Err(anyhow!(
+                        "Database insert returned unexpected format: {}",
+                        body
+                    ));
                 }
             } else {
-                return Err(anyhow!("Failed to parse database insert response as JSON: {}", body));
+                return Err(anyhow!(
+                    "Failed to parse database insert response as JSON: {}",
+                    body
+                ));
             }
         }
     }
 
     /// Inserts multiple items in a single bulk operation
     pub async fn insert_bulk<T>(&mut self, table: &str, data: &[T]) -> Result<Vec<T>>
-        where T: for<'de> serde::Deserialize<'de> + serde::Serialize
+    where
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
         let client = self.get_client()?;
 
@@ -255,14 +273,16 @@ impl ScoutDbClient {
                 } else if let Some(message) = error_response.get("message") {
                     return Err(anyhow!("Database bulk insert message: {}", message));
                 } else {
-                    return Err(
-                        anyhow!("Database bulk insert returned unexpected format: {}", body)
-                    );
+                    return Err(anyhow!(
+                        "Database bulk insert returned unexpected format: {}",
+                        body
+                    ));
                 }
             } else {
-                return Err(
-                    anyhow!("Failed to parse database bulk insert response as JSON: {}", body)
-                );
+                return Err(anyhow!(
+                    "Failed to parse database bulk insert response as JSON: {}",
+                    body
+                ));
             }
         }
     }
@@ -270,11 +290,11 @@ impl ScoutDbClient {
     /// Updates data in a table
     pub async fn update<T>(
         &mut self,
-        table: &str,
         data: &T,
-        filter_builder: impl FnOnce(&Postgrest) -> postgrest::Builder
+        filter_builder: impl FnOnce(&Postgrest) -> postgrest::Builder,
     ) -> Result<Vec<T>>
-        where T: for<'de> serde::Deserialize<'de> + serde::Serialize
+    where
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize,
     {
         let client = self.get_client()?;
 
@@ -292,8 +312,7 @@ impl ScoutDbClient {
     /// Deletes data from a table
     pub async fn delete(
         &mut self,
-        table: &str,
-        filter_builder: impl FnOnce(&Postgrest) -> postgrest::Builder
+        filter_builder: impl FnOnce(&Postgrest) -> postgrest::Builder,
     ) -> Result<()> {
         let client = self.get_client()?;
 
@@ -303,7 +322,11 @@ impl ScoutDbClient {
         let status = response.status();
         if !status.is_success() {
             let error_text = response.text().await?;
-            return Err(anyhow!("Delete operation failed: HTTP {} - {}", status, error_text));
+            return Err(anyhow!(
+                "Delete operation failed: HTTP {} - {}",
+                status,
+                error_text
+            ));
         }
 
         Ok(())
