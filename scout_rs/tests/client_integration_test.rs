@@ -877,8 +877,13 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     let device_id = client.device.as_ref().unwrap().id;
 
     // Test 1: Check for non-existent session
-    let non_existent_session_id = 999999;
-    let exists_result = client.does_session_exist(non_existent_session_id).await;
+    let exists_result = client
+        .does_session_exist(
+            device_id,
+            "2023-01-01T00:00:00Z", // Non-existent start time
+            "2023-01-01T01:00:00Z", // Non-existent end time
+        )
+        .await;
     match exists_result {
         Ok(exists) => {
             assert!(!exists, "Non-existent session should not exist");
@@ -889,11 +894,14 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
         }
     }
 
-    // Test 2: Create a session and verify it exists
+    // Test 2: Create a session with unique timestamps
+    let unique_start_timestamp = chrono::Utc::now().timestamp() as u64;
+    let unique_end_timestamp = unique_start_timestamp + 3600;
+
     let session = Session::new(
         device_id,
-        1640995200,
-        1640998800,
+        unique_start_timestamp,
+        unique_end_timestamp,
         "does_session_exist_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -920,7 +928,13 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
             cleanup.track_session(session_id);
 
             // Test 3: Check that the created session exists
-            let exists_result = client.does_session_exist(session_id).await;
+            let exists_result = client
+                .does_session_exist(
+                    device_id,
+                    &created_session.timestamp_start,
+                    &created_session.timestamp_end,
+                )
+                .await;
             match exists_result {
                 Ok(exists) => {
                     assert!(exists, "Created session should exist");
@@ -939,7 +953,17 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
                     println!("✅ Session deleted successfully");
 
                     // Test 5: Check that the deleted session no longer exists
-                    let exists_after_delete = client.does_session_exist(session_id).await;
+                    println!(
+                        "Checking if deleted session still exists with timestamps: {} to {}",
+                        &created_session.timestamp_start, &created_session.timestamp_end
+                    );
+                    let exists_after_delete = client
+                        .does_session_exist(
+                            device_id,
+                            &created_session.timestamp_start,
+                            &created_session.timestamp_end,
+                        )
+                        .await;
                     match exists_after_delete {
                         Ok(exists) => {
                             assert!(!exists, "Deleted session should not exist");
@@ -960,29 +984,42 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
         }
     }
 
-    // Test 6: Edge case - zero session ID
-    let zero_exists_result = client.does_session_exist(0).await;
-    match zero_exists_result {
+    // Test 6: Edge case - different device ID with same timestamps
+    let different_device_exists_result = client
+        .does_session_exist(
+            999999, // Non-existent device ID
+            "1970-01-01T00:00:00Z",
+            "1970-01-01T01:00:00Z",
+        )
+        .await;
+    match different_device_exists_result {
         Ok(exists) => {
-            // Should not exist (session IDs typically start from 1)
-            assert!(!exists, "Session ID 0 should not exist");
-            println!("✅ Zero session ID check passed");
+            assert!(!exists, "Session with different device ID should not exist");
+            println!("✅ Different device ID check passed");
         }
         Err(e) => {
-            panic!("❌ Zero session ID check failed: {}", e);
+            panic!("❌ Different device ID check failed: {}", e);
         }
     }
 
-    // Test 7: Edge case - negative session ID
-    let negative_exists_result = client.does_session_exist(-1).await;
-    match negative_exists_result {
+    // Test 7: Edge case - same device ID with different timestamps
+    let different_timestamps_result = client
+        .does_session_exist(
+            device_id,
+            "1970-01-01T00:00:00Z", // Different timestamps
+            "1970-01-01T01:00:00Z",
+        )
+        .await;
+    match different_timestamps_result {
         Ok(exists) => {
-            // Should not exist (negative IDs are invalid)
-            assert!(!exists, "Negative session ID should not exist");
-            println!("✅ Negative session ID check passed");
+            assert!(
+                !exists,
+                "Session with different timestamps should not exist"
+            );
+            println!("✅ Different timestamps check passed");
         }
         Err(e) => {
-            panic!("❌ Negative session ID check failed: {}", e);
+            panic!("❌ Different timestamps check failed: {}", e);
         }
     }
 
@@ -3813,7 +3850,10 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
                 println!("✅ Session created with ID: {}", session_id);
 
                 // Verify the session actually exists in the database
-                match client.does_session_exist(session_id).await {
+                match client
+                    .does_session_exist_from_session(&created_session)
+                    .await
+                {
                     Ok(exists) => {
                         if exists {
                             println!("✅ Session existence verified in database");

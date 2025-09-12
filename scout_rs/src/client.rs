@@ -700,8 +700,13 @@ impl ScoutClient {
 
     // ===== HELPER METHODS =====
 
-    /// Checks if a session exists in the database by looking up its ID
-    pub async fn does_session_exist(&mut self, session_id: i64) -> Result<bool> {
+    /// Checks if a session exists in the database by device_id, start timestamp, and end timestamp
+    pub async fn does_session_exist(
+        &mut self,
+        device_id: i64,
+        timestamp_start: &str,
+        timestamp_end: &str,
+    ) -> Result<bool> {
         let db_client = self.get_db_client()?;
 
         #[derive(Debug, serde::Deserialize)]
@@ -714,17 +719,24 @@ impl ScoutClient {
                 client
                     .from("sessions")
                     .select("id")
-                    .eq("id", session_id.to_string())
+                    .eq("device_id", device_id.to_string())
+                    .eq("timestamp_start", timestamp_start)
+                    .eq("timestamp_end", timestamp_end)
                     .limit(1)
             })
             .await?;
 
-        // Check if we found any results and verify the ID matches
-        if let Some(result) = results.first() {
-            Ok(result.id == session_id)
-        } else {
-            Ok(false)
-        }
+        Ok(!results.is_empty())
+    }
+
+    /// Convenience method to check if a session exists using a Session object
+    pub async fn does_session_exist_from_session(&mut self, session: &Session) -> Result<bool> {
+        self.does_session_exist(
+            session.device_id,
+            &session.timestamp_start,
+            &session.timestamp_end,
+        )
+        .await
     }
 
     /// Helper to create a success response
