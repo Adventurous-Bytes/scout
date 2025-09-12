@@ -700,6 +700,33 @@ impl ScoutClient {
 
     // ===== HELPER METHODS =====
 
+    /// Checks if a session exists in the database by looking up its ID
+    pub async fn does_session_exist(&mut self, session_id: i64) -> Result<bool> {
+        let db_client = self.get_db_client()?;
+
+        #[derive(Debug, serde::Deserialize)]
+        struct SessionIdOnly {
+            id: i64,
+        }
+
+        let results: Vec<SessionIdOnly> = db_client
+            .query(|client| {
+                client
+                    .from("sessions")
+                    .select("id")
+                    .eq("id", session_id.to_string())
+                    .limit(1)
+            })
+            .await?;
+
+        // Check if we found any results and verify the ID matches
+        if let Some(result) = results.first() {
+            Ok(result.id == session_id)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Helper to create a success response
     fn success_response<T>(data: T) -> ResponseScout<T> {
         ResponseScout::new(ResponseScoutStatus::Success, Some(data))
@@ -1537,19 +1564,6 @@ impl ScoutClient {
     }
 
     // ===== COMPATIBILITY METHODS =====
-
-    /// Compatibility method for upsert_session
-    pub async fn upsert_session(&mut self, session: &Session) -> Result<ResponseScout<Session>> {
-        self.create_session(session).await
-    }
-
-    /// Compatibility method for upsert_connectivity
-    pub async fn upsert_connectivity(
-        &mut self,
-        connectivity: &Connectivity,
-    ) -> Result<ResponseScout<Connectivity>> {
-        self.create_connectivity(connectivity).await
-    }
 
     /// Compatibility method for post_events_batch
     pub async fn post_events_batch(
