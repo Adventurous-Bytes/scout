@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { Database } from "../types/supabase";
+import { SupabaseClient } from "@supabase/supabase-js";
 
-export async function newServerClient() {
+export async function newServerClient(): Promise<SupabaseClient<Database>> {
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
@@ -16,7 +17,7 @@ export async function newServerClient() {
         setAll(cookiesToSet: { name: any; value: any; options: any }[]) {
           try {
             cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
+              cookieStore.set(name, value, options),
             );
           } catch {
             // The `setAll` method was called from a Server Component.
@@ -25,6 +26,6 @@ export async function newServerClient() {
           }
         },
       },
-    }
+    },
   );
 }

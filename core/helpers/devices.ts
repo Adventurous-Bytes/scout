@@ -1,13 +1,14 @@
 "use server";
 
+import { Database } from "@/types";
 import { newServerClient } from "../supabase/server";
-import { IDevice } from "../types/db";
+import { DeviceInsert, IDevice } from "../types/db";
 import { IWebResponse, IWebResponseCompatible } from "../types/requests";
 import { SupabaseClient } from "@supabase/supabase-js";
 
 export async function get_devices_by_herd(
   herd_id: number,
-  client: SupabaseClient
+  client: SupabaseClient<Database>,
 ): Promise<IWebResponseCompatible<IDevice[]>> {
   // call get_devices_for_herd with rpc
   const { data, error } = await client.rpc("get_devices_for_herd", {
@@ -24,7 +25,7 @@ export async function get_devices_by_herd(
 
 export async function get_device_by_id(
   device_id: number,
-  client?: SupabaseClient
+  client?: SupabaseClient<Database>,
 ): Promise<IWebResponseCompatible<IDevice | null>> {
   if (!client) {
     client = await newServerClient();
@@ -35,7 +36,7 @@ export async function get_device_by_id(
 
   if (!data) {
     return IWebResponse.error<IDevice | null>(
-      "No device found"
+      "No device found",
     ).to_compatible();
   } else {
     let response: IWebResponse<IDevice> = IWebResponse.success(data);
@@ -44,7 +45,7 @@ export async function get_device_by_id(
 }
 
 export async function serverUpdateDevice(
-  updatedDevice: IDevice
+  updatedDevice: IDevice,
 ): Promise<IWebResponseCompatible<IDevice | null>> {
   // delete api keys, latitide, and longitude
   const device_formatted: any = { ...updatedDevice };
@@ -73,11 +74,14 @@ export async function serverUpdateDevice(
 }
 
 export async function serverCreateDevice(
-  newDevice: any
+  newDevice: DeviceInsert,
 ): Promise<IWebResponseCompatible<IDevice | null>> {
   const supabase = await newServerClient();
   const user = await supabase.auth.getUser();
   const userId = user?.data?.user?.id;
+  if (!userId) {
+    return IWebResponse.error<IDevice | null>("User not found").to_compatible();
+  }
   newDevice.created_by = userId;
   // strip id field from herd object
   const { data, error } = await supabase
@@ -94,7 +98,7 @@ export async function serverCreateDevice(
 }
 
 export async function serverDeleteDeviceById(
-  device_id: number
+  device_id: number,
 ): Promise<IWebResponseCompatible<IDevice | null>> {
   const supabase = await newServerClient();
   const { data, error } = await supabase

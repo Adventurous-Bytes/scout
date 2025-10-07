@@ -93,3 +93,7 @@ export type Tag = ITag;
 
 // Type for tag class names
 export type TagClassName = string;
+
+// Device-specific types for database operations
+export type DeviceInsert = Database["public"]["Tables"]["devices"]["Insert"];
+export type DeviceUpdate = Database["public"]["Tables"]["devices"]["Update"];

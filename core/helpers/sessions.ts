@@ -30,10 +30,10 @@ export type ConnectivityUpsertInput =
 
 // Get sessions by herd id using RPC function with coordinates
 export async function server_get_sessions_by_herd_id(
-  herdId: number
+  herdId: number,
 ): Promise<IWebResponseCompatible<ISessionWithCoordinates[]>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase.rpc("get_sessions_with_coordinates", {
     herd_id_caller: herdId,
   });
@@ -55,19 +55,18 @@ export async function server_get_sessions_by_herd_id(
       new Date(a.timestamp_start).getTime()
     );
   });
-
   return IWebResponse.success(sortedSessions).to_compatible();
 }
 
 // Get connectivity by session id using RPC function with coordinates
 export async function server_get_connectivity_by_session_id(
-  sessionId: number
+  sessionId: number,
 ): Promise<IWebResponseCompatible<IConnectivityWithCoordinates[]>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase.rpc(
     "get_connectivity_with_coordinates",
-    { session_id_caller: sessionId }
+    { session_id_caller: sessionId },
   );
 
   if (error) {
@@ -93,10 +92,10 @@ export async function server_get_connectivity_by_session_id(
 
 // Get events by session id
 export async function server_get_events_by_session_id(
-  sessionId: number
+  sessionId: number,
 ): Promise<IWebResponseCompatible<IEvent[]>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase
     .from("events")
     .select("*")
@@ -119,21 +118,24 @@ export async function server_get_events_by_session_id(
 export async function server_get_events_and_tags_by_session_id(
   sessionId: number,
   limit: number = 50,
-  offset: number = 0
+  offset: number = 0,
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase.rpc(
     "get_events_and_tags_for_session",
     {
       session_id_caller: sessionId,
       limit_caller: limit,
       offset_caller: offset,
-    }
+    },
   );
 
   if (error) {
-    console.warn("Error fetching events and tags by session id:", error.message);
+    console.warn(
+      "Error fetching events and tags by session id:",
+      error.message,
+    );
     return {
       status: EnumWebResponse.ERROR,
       msg: error.message,
@@ -146,10 +148,10 @@ export async function server_get_events_and_tags_by_session_id(
 
 // Get total count of events for a session
 export async function server_get_total_events_for_session(
-  sessionId: number
+  sessionId: number,
 ): Promise<IWebResponseCompatible<number>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase.rpc("get_total_events_for_session", {
     session_id_caller: sessionId,
   });
@@ -168,7 +170,7 @@ export async function server_get_total_events_for_session(
 
 // Create or update session
 export async function server_upsert_session(
-  sessionData: SessionUpsertInput
+  sessionData: SessionUpsertInput,
 ): Promise<IWebResponseCompatible<ISession>> {
   const supabase = await newServerClient();
   const isUpdate = "id" in sessionData;
@@ -216,10 +218,10 @@ export async function server_upsert_session(
 
 // Batch upsert sessions
 export async function server_upsert_sessions(
-  sessionsData: SessionUpsertInput[]
+  sessionsData: SessionUpsertInput[],
 ): Promise<IWebResponseCompatible<ISession[]>> {
   const supabase = await newServerClient();
-  
+
   if (sessionsData.length === 0) {
     return IWebResponse.success([]).to_compatible();
   }
@@ -234,10 +236,16 @@ export async function server_upsert_sessions(
   if (updates.length > 0) {
     for (const sessionData of updates) {
       const updateResult = await server_upsert_session(sessionData);
-      if (updateResult.status === EnumWebResponse.SUCCESS && updateResult.data) {
+      if (
+        updateResult.status === EnumWebResponse.SUCCESS &&
+        updateResult.data
+      ) {
         results.push(updateResult.data);
       } else {
-        console.warn(`Failed to update session ${sessionData.id}:`, updateResult.msg);
+        console.warn(
+          `Failed to update session ${sessionData.id}:`,
+          updateResult.msg,
+        );
       }
     }
   }
@@ -266,7 +274,7 @@ export async function server_upsert_sessions(
 
 // Create or update connectivity
 export async function server_upsert_connectivity(
-  connectivityData: ConnectivityUpsertInput
+  connectivityData: ConnectivityUpsertInput,
 ): Promise<IWebResponseCompatible<IConnectivity>> {
   const supabase = await newServerClient();
   const isUpdate = "id" in connectivityData;
@@ -314,20 +322,20 @@ export async function server_upsert_connectivity(
 
 // Batch upsert connectivity
 export async function server_upsert_connectivity_batch(
-  connectivityDataArray: ConnectivityUpsertInput[]
+  connectivityDataArray: ConnectivityUpsertInput[],
 ): Promise<IWebResponseCompatible<IConnectivity[]>> {
   const supabase = await newServerClient();
-  
+
   if (connectivityDataArray.length === 0) {
     return IWebResponse.success([]).to_compatible();
   }
 
   // Separate updates and inserts
   const updates = connectivityDataArray.filter(
-    (c) => "id" in c
+    (c) => "id" in c,
   ) as ConnectivityUpdateInput[];
   const inserts = connectivityDataArray.filter(
-    (c) => !("id" in c)
+    (c) => !("id" in c),
   ) as ConnectivityInput[];
 
   const results: IConnectivity[] = [];
@@ -336,10 +344,16 @@ export async function server_upsert_connectivity_batch(
   if (updates.length > 0) {
     for (const connectivityData of updates) {
       const updateResult = await server_upsert_connectivity(connectivityData);
-      if (updateResult.status === EnumWebResponse.SUCCESS && updateResult.data) {
+      if (
+        updateResult.status === EnumWebResponse.SUCCESS &&
+        updateResult.data
+      ) {
         results.push(updateResult.data);
       } else {
-        console.warn(`Failed to update connectivity ${connectivityData.id}:`, updateResult.msg);
+        console.warn(
+          `Failed to update connectivity ${connectivityData.id}:`,
+          updateResult.msg,
+        );
       }
     }
   }
@@ -369,20 +383,26 @@ export async function server_upsert_connectivity_batch(
 // Get session with connectivity and events using RPC functions
 export async function server_get_session_with_connectivity_and_events(
   sessionId: number,
-  herdId?: number
-): Promise<IWebResponseCompatible<{
-  session: ISessionWithCoordinates | null;
-  connectivity: IConnectivityWithCoordinates[];
-  events: IEvent[];
-}>> {
+  herdId?: number,
+): Promise<
+  IWebResponseCompatible<{
+    session: ISessionWithCoordinates | null;
+    connectivity: IConnectivityWithCoordinates[];
+    events: IEvent[];
+  }>
+> {
   const supabase = await newServerClient();
   let sessionWithCoords: ISessionWithCoordinates | null = null;
 
   if (herdId) {
     // Use provided herd ID directly
     const sessionsResult = await server_get_sessions_by_herd_id(herdId);
-    if (sessionsResult.status === EnumWebResponse.SUCCESS && sessionsResult.data) {
-      sessionWithCoords = sessionsResult.data.find((s) => s.id === sessionId) || null;
+    if (
+      sessionsResult.status === EnumWebResponse.SUCCESS &&
+      sessionsResult.data
+    ) {
+      sessionWithCoords =
+        sessionsResult.data.find((s) => s.id === sessionId) || null;
     }
   } else {
     // Get the session from the sessions table first to get the device_id
@@ -426,8 +446,12 @@ export async function server_get_session_with_connectivity_and_events(
     }
 
     const sessionsResult = await server_get_sessions_by_herd_id(device.herd_id);
-    if (sessionsResult.status === EnumWebResponse.SUCCESS && sessionsResult.data) {
-      sessionWithCoords = sessionsResult.data.find((s) => s.id === sessionId) || null;
+    if (
+      sessionsResult.status === EnumWebResponse.SUCCESS &&
+      sessionsResult.data
+    ) {
+      sessionWithCoords =
+        sessionsResult.data.find((s) => s.id === sessionId) || null;
     }
   }
 
@@ -436,8 +460,14 @@ export async function server_get_session_with_connectivity_and_events(
     server_get_events_by_session_id(sessionId),
   ]);
 
-  const connectivity = connectivityResult.status === EnumWebResponse.SUCCESS ? connectivityResult.data || [] : [];
-  const events = eventsResult.status === EnumWebResponse.SUCCESS ? eventsResult.data || [] : [];
+  const connectivity =
+    connectivityResult.status === EnumWebResponse.SUCCESS
+      ? connectivityResult.data || []
+      : [];
+  const events =
+    eventsResult.status === EnumWebResponse.SUCCESS
+      ? eventsResult.data || []
+      : [];
 
   return IWebResponse.success({
     session: sessionWithCoords,
@@ -451,13 +481,15 @@ export async function server_get_session_with_connectivity_and_events_with_tags(
   sessionId: number,
   limit: number = 50,
   offset: number = 0,
-  herdId?: number
-): Promise<IWebResponseCompatible<{
-  session: ISessionWithCoordinates | null;
-  connectivity: IConnectivityWithCoordinates[];
-  eventsWithTags: IEventAndTagsPrettyLocation[];
-  totalEvents: number;
-}>> {
+  herdId?: number,
+): Promise<
+  IWebResponseCompatible<{
+    session: ISessionWithCoordinates | null;
+    connectivity: IConnectivityWithCoordinates[];
+    eventsWithTags: IEventAndTagsPrettyLocation[];
+    totalEvents: number;
+  }>
+> {
   const supabase = await newServerClient();
   let sessionWithCoords: ISessionWithCoordinates | null = null;
   let actualHerdId: number;
@@ -466,8 +498,12 @@ export async function server_get_session_with_connectivity_and_events_with_tags(
     // Use provided herd ID directly
     actualHerdId = herdId;
     const sessionsResult = await server_get_sessions_by_herd_id(herdId);
-    if (sessionsResult.status === EnumWebResponse.SUCCESS && sessionsResult.data) {
-      sessionWithCoords = sessionsResult.data.find((s) => s.id === sessionId) || null;
+    if (
+      sessionsResult.status === EnumWebResponse.SUCCESS &&
+      sessionsResult.data
+    ) {
+      sessionWithCoords =
+        sessionsResult.data.find((s) => s.id === sessionId) || null;
     }
   } else {
     // Get the session from the sessions table first to get the device_id
@@ -514,8 +550,12 @@ export async function server_get_session_with_connectivity_and_events_with_tags(
 
     actualHerdId = device.herd_id;
     const sessionsResult = await server_get_sessions_by_herd_id(device.herd_id);
-    if (sessionsResult.status === EnumWebResponse.SUCCESS && sessionsResult.data) {
-      sessionWithCoords = sessionsResult.data.find((s) => s.id === sessionId) || null;
+    if (
+      sessionsResult.status === EnumWebResponse.SUCCESS &&
+      sessionsResult.data
+    ) {
+      sessionWithCoords =
+        sessionsResult.data.find((s) => s.id === sessionId) || null;
     }
   }
 
@@ -526,9 +566,18 @@ export async function server_get_session_with_connectivity_and_events_with_tags(
       server_get_total_events_for_session(sessionId),
     ]);
 
-  const connectivity = connectivityResult.status === EnumWebResponse.SUCCESS ? connectivityResult.data || [] : [];
-  const eventsWithTags = eventsWithTagsResult.status === EnumWebResponse.SUCCESS ? eventsWithTagsResult.data || [] : [];
-  const totalEvents = totalEventsResult.status === EnumWebResponse.SUCCESS ? totalEventsResult.data || 0 : 0;
+  const connectivity =
+    connectivityResult.status === EnumWebResponse.SUCCESS
+      ? connectivityResult.data || []
+      : [];
+  const eventsWithTags =
+    eventsWithTagsResult.status === EnumWebResponse.SUCCESS
+      ? eventsWithTagsResult.data || []
+      : [];
+  const totalEvents =
+    totalEventsResult.status === EnumWebResponse.SUCCESS
+      ? totalEventsResult.data || 0
+      : 0;
 
   return IWebResponse.success({
     session: sessionWithCoords,
@@ -540,15 +589,15 @@ export async function server_get_session_with_connectivity_and_events_with_tags(
 
 // Get sessions for a device using RPC function
 export async function server_get_sessions_by_device_id(
-  deviceId: number
+  deviceId: number,
 ): Promise<IWebResponseCompatible<ISessionWithCoordinates[]>> {
   const supabase = await newServerClient();
-  
+
   const { data, error } = await supabase.rpc(
     "get_sessions_with_coordinates_by_device",
     {
       device_id_caller: deviceId,
-    }
+    },
   );
 
   if (error) {
@@ -565,10 +614,10 @@ export async function server_get_sessions_by_device_id(
 
 // Delete session and all related data
 export async function server_delete_session(
-  sessionId: number
+  sessionId: number,
 ): Promise<IWebResponseCompatible<boolean>> {
   const supabase = await newServerClient();
-  
+
   const { error } = await supabase
     .from("sessions")
     .delete()
@@ -588,10 +637,10 @@ export async function server_delete_session(
 
 // Batch delete sessions
 export async function server_delete_sessions(
-  sessionIds: number[]
+  sessionIds: number[],
 ): Promise<IWebResponseCompatible<boolean>> {
   const supabase = await newServerClient();
-  
+
   if (sessionIds.length === 0) {
     return IWebResponse.success(true).to_compatible();
   }
@@ -615,10 +664,10 @@ export async function server_delete_sessions(
 
 // Delete connectivity entry
 export async function server_delete_connectivity(
-  connectivityId: number
+  connectivityId: number,
 ): Promise<IWebResponseCompatible<boolean>> {
   const supabase = await newServerClient();
-  
+
   const { error } = await supabase
     .from("connectivity")
     .delete()
@@ -638,10 +687,10 @@ export async function server_delete_connectivity(
 
 // Batch delete connectivity entries
 export async function server_delete_connectivity_batch(
-  connectivityIds: number[]
+  connectivityIds: number[],
 ): Promise<IWebResponseCompatible<boolean>> {
   const supabase = await newServerClient();
-  
+
   if (connectivityIds.length === 0) {
     return IWebResponse.success(true).to_compatible();
   }

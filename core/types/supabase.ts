@@ -4,844 +4,844 @@ export type Json =
   | boolean
   | null
   | { [key: string]: Json | undefined }
-  | Json[]
+  | Json[];
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "12.2.12 (cd3cf9e)"
-  }
+    PostgrestVersion: "13.0.5";
+  };
   public: {
     Tables: {
       actions: {
         Row: {
-          id: number
-          inserted_at: string
-          opcode: number
-          trigger: string[]
-          zone_id: number
-        }
+          id: number;
+          inserted_at: string;
+          opcode: number;
+          trigger: string[];
+          zone_id: number;
+        };
         Insert: {
-          id?: number
-          inserted_at?: string
-          opcode: number
-          trigger: string[]
-          zone_id: number
-        }
+          id?: number;
+          inserted_at?: string;
+          opcode: number;
+          trigger: string[];
+          zone_id: number;
+        };
         Update: {
-          id?: number
-          inserted_at?: string
-          opcode?: number
-          trigger?: string[]
-          zone_id?: number
-        }
+          id?: number;
+          inserted_at?: string;
+          opcode?: number;
+          trigger?: string[];
+          zone_id?: number;
+        };
         Relationships: [
           {
-            foreignKeyName: "actions_zone_id_fkey"
-            columns: ["zone_id"]
-            isOneToOne: false
-            referencedRelation: "zones"
-            referencedColumns: ["id"]
+            foreignKeyName: "actions_zone_id_fkey";
+            columns: ["zone_id"];
+            isOneToOne: false;
+            referencedRelation: "zones";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "actions_zone_id_fkey"
-            columns: ["zone_id"]
-            isOneToOne: false
-            referencedRelation: "zones_and_actions"
-            referencedColumns: ["id"]
+            foreignKeyName: "actions_zone_id_fkey";
+            columns: ["zone_id"];
+            isOneToOne: false;
+            referencedRelation: "zones_and_actions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       artifacts: {
         Row: {
-          created_at: string
-          file_path: string
-          id: number
-          session_id: number | null
-          timestamp_observation: string | null
-        }
+          created_at: string;
+          file_path: string;
+          id: number;
+          session_id: number | null;
+          timestamp_observation: string | null;
+        };
         Insert: {
-          created_at?: string
-          file_path: string
-          id?: number
-          session_id?: number | null
-          timestamp_observation?: string | null
-        }
+          created_at?: string;
+          file_path: string;
+          id?: number;
+          session_id?: number | null;
+          timestamp_observation?: string | null;
+        };
         Update: {
-          created_at?: string
-          file_path?: string
-          id?: number
-          session_id?: number | null
-          timestamp_observation?: string | null
-        }
+          created_at?: string;
+          file_path?: string;
+          id?: number;
+          session_id?: number | null;
+          timestamp_observation?: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "artifacts_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            foreignKeyName: "artifacts_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       chat: {
         Row: {
-          created_at: string
-          herd_id: number
-          id: number
-          message: string
-          sender: string | null
-        }
+          created_at: string;
+          herd_id: number;
+          id: number;
+          message: string;
+          sender: string | null;
+        };
         Insert: {
-          created_at?: string
-          herd_id: number
-          id?: number
-          message: string
-          sender?: string | null
-        }
+          created_at?: string;
+          herd_id: number;
+          id?: number;
+          message: string;
+          sender?: string | null;
+        };
         Update: {
-          created_at?: string
-          herd_id?: number
-          id?: number
-          message?: string
-          sender?: string | null
-        }
+          created_at?: string;
+          herd_id?: number;
+          id?: number;
+          message?: string;
+          sender?: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "chat_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "chat_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "chat_sender_fkey"
-            columns: ["sender"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
+            foreignKeyName: "chat_sender_fkey";
+            columns: ["sender"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       connectivity: {
         Row: {
-          altitude: number
-          h11_index: string
-          h12_index: string
-          h13_index: string
-          h14_index: string
-          heading: number
-          id: number
-          inserted_at: string
-          location: unknown
-          noise: number
-          session_id: number
-          signal: number
-          timestamp_start: string
-        }
+          altitude: number;
+          h11_index: string;
+          h12_index: string;
+          h13_index: string;
+          h14_index: string;
+          heading: number;
+          id: number;
+          inserted_at: string;
+          location: unknown;
+          noise: number;
+          session_id: number;
+          signal: number;
+          timestamp_start: string;
+        };
         Insert: {
-          altitude: number
-          h11_index: string
-          h12_index: string
-          h13_index: string
-          h14_index: string
-          heading: number
-          id?: number
-          inserted_at?: string
-          location: unknown
-          noise: number
-          session_id: number
-          signal: number
-          timestamp_start: string
-        }
+          altitude: number;
+          h11_index: string;
+          h12_index: string;
+          h13_index: string;
+          h14_index: string;
+          heading: number;
+          id?: number;
+          inserted_at?: string;
+          location: unknown;
+          noise: number;
+          session_id: number;
+          signal: number;
+          timestamp_start: string;
+        };
         Update: {
-          altitude?: number
-          h11_index?: string
-          h12_index?: string
-          h13_index?: string
-          h14_index?: string
-          heading?: number
-          id?: number
-          inserted_at?: string
-          location?: unknown
-          noise?: number
-          session_id?: number
-          signal?: number
-          timestamp_start?: string
-        }
+          altitude?: number;
+          h11_index?: string;
+          h12_index?: string;
+          h13_index?: string;
+          h14_index?: string;
+          heading?: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown;
+          noise?: number;
+          session_id?: number;
+          signal?: number;
+          timestamp_start?: string;
+        };
         Relationships: [
           {
-            foreignKeyName: "connectivity_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            foreignKeyName: "connectivity_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       devices: {
         Row: {
-          altitude: number | null
-          created_by: string
-          description: string
-          device_type: Database["public"]["Enums"]["device_type"]
-          domain_name: string | null
-          heading: number | null
-          herd_id: number
-          id: number
-          inserted_at: string
-          location: unknown | null
-          name: string
-          video_publisher_token: string | null
-          video_subscriber_token: string | null
-        }
+          altitude: number | null;
+          created_by: string;
+          description: string;
+          device_type: Database["public"]["Enums"]["device_type"];
+          domain_name: string | null;
+          heading: number | null;
+          herd_id: number;
+          id: number;
+          inserted_at: string;
+          location: unknown | null;
+          name: string;
+          video_publisher_token: string | null;
+          video_subscriber_token: string | null;
+        };
         Insert: {
-          altitude?: number | null
-          created_by: string
-          description: string
-          device_type?: Database["public"]["Enums"]["device_type"]
-          domain_name?: string | null
-          heading?: number | null
-          herd_id: number
-          id?: number
-          inserted_at?: string
-          location?: unknown | null
-          name: string
-          video_publisher_token?: string | null
-          video_subscriber_token?: string | null
-        }
+          altitude?: number | null;
+          created_by: string;
+          description: string;
+          device_type?: Database["public"]["Enums"]["device_type"];
+          domain_name?: string | null;
+          heading?: number | null;
+          herd_id: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown | null;
+          name: string;
+          video_publisher_token?: string | null;
+          video_subscriber_token?: string | null;
+        };
         Update: {
-          altitude?: number | null
-          created_by?: string
-          description?: string
-          device_type?: Database["public"]["Enums"]["device_type"]
-          domain_name?: string | null
-          heading?: number | null
-          herd_id?: number
-          id?: number
-          inserted_at?: string
-          location?: unknown | null
-          name?: string
-          video_publisher_token?: string | null
-          video_subscriber_token?: string | null
-        }
+          altitude?: number | null;
+          created_by?: string;
+          description?: string;
+          device_type?: Database["public"]["Enums"]["device_type"];
+          domain_name?: string | null;
+          heading?: number | null;
+          herd_id?: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown | null;
+          name?: string;
+          video_publisher_token?: string | null;
+          video_subscriber_token?: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "devices_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
+            foreignKeyName: "devices_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "devices_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "devices_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       events: {
         Row: {
-          altitude: number
-          device_id: number
-          earthranger_url: string | null
-          file_path: string | null
-          heading: number
-          id: number
-          inserted_at: string
-          is_public: boolean
-          location: unknown | null
-          media_type: Database["public"]["Enums"]["media_type"]
-          media_url: string | null
-          message: string | null
-          session_id: number | null
-          timestamp_observation: string
-        }
+          altitude: number;
+          device_id: number;
+          earthranger_url: string | null;
+          file_path: string | null;
+          heading: number;
+          id: number;
+          inserted_at: string;
+          is_public: boolean;
+          location: unknown | null;
+          media_type: Database["public"]["Enums"]["media_type"];
+          media_url: string | null;
+          message: string | null;
+          session_id: number | null;
+          timestamp_observation: string;
+        };
         Insert: {
-          altitude?: number
-          device_id: number
-          earthranger_url?: string | null
-          file_path?: string | null
-          heading?: number
-          id?: number
-          inserted_at?: string
-          is_public?: boolean
-          location?: unknown | null
-          media_type?: Database["public"]["Enums"]["media_type"]
-          media_url?: string | null
-          message?: string | null
-          session_id?: number | null
-          timestamp_observation?: string
-        }
+          altitude?: number;
+          device_id: number;
+          earthranger_url?: string | null;
+          file_path?: string | null;
+          heading?: number;
+          id?: number;
+          inserted_at?: string;
+          is_public?: boolean;
+          location?: unknown | null;
+          media_type?: Database["public"]["Enums"]["media_type"];
+          media_url?: string | null;
+          message?: string | null;
+          session_id?: number | null;
+          timestamp_observation?: string;
+        };
         Update: {
-          altitude?: number
-          device_id?: number
-          earthranger_url?: string | null
-          file_path?: string | null
-          heading?: number
-          id?: number
-          inserted_at?: string
-          is_public?: boolean
-          location?: unknown | null
-          media_type?: Database["public"]["Enums"]["media_type"]
-          media_url?: string | null
-          message?: string | null
-          session_id?: number | null
-          timestamp_observation?: string
-        }
+          altitude?: number;
+          device_id?: number;
+          earthranger_url?: string | null;
+          file_path?: string | null;
+          heading?: number;
+          id?: number;
+          inserted_at?: string;
+          is_public?: boolean;
+          location?: unknown | null;
+          media_type?: Database["public"]["Enums"]["media_type"];
+          media_url?: string | null;
+          message?: string | null;
+          session_id?: number | null;
+          timestamp_observation?: string;
+        };
         Relationships: [
           {
-            foreignKeyName: "events_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       herds: {
         Row: {
-          created_by: string
-          description: string
-          earthranger_domain: string | null
-          earthranger_token: string | null
-          id: number
-          inserted_at: string
-          is_public: boolean
-          slug: string
-          video_publisher_token: string | null
-          video_server_url: string | null
-          video_subscriber_token: string | null
-        }
+          created_by: string;
+          description: string;
+          earthranger_domain: string | null;
+          earthranger_token: string | null;
+          id: number;
+          inserted_at: string;
+          is_public: boolean;
+          slug: string;
+          video_publisher_token: string | null;
+          video_server_url: string | null;
+          video_subscriber_token: string | null;
+        };
         Insert: {
-          created_by: string
-          description: string
-          earthranger_domain?: string | null
-          earthranger_token?: string | null
-          id?: number
-          inserted_at?: string
-          is_public?: boolean
-          slug: string
-          video_publisher_token?: string | null
-          video_server_url?: string | null
-          video_subscriber_token?: string | null
-        }
+          created_by: string;
+          description: string;
+          earthranger_domain?: string | null;
+          earthranger_token?: string | null;
+          id?: number;
+          inserted_at?: string;
+          is_public?: boolean;
+          slug: string;
+          video_publisher_token?: string | null;
+          video_server_url?: string | null;
+          video_subscriber_token?: string | null;
+        };
         Update: {
-          created_by?: string
-          description?: string
-          earthranger_domain?: string | null
-          earthranger_token?: string | null
-          id?: number
-          inserted_at?: string
-          is_public?: boolean
-          slug?: string
-          video_publisher_token?: string | null
-          video_server_url?: string | null
-          video_subscriber_token?: string | null
-        }
+          created_by?: string;
+          description?: string;
+          earthranger_domain?: string | null;
+          earthranger_token?: string | null;
+          id?: number;
+          inserted_at?: string;
+          is_public?: boolean;
+          slug?: string;
+          video_publisher_token?: string | null;
+          video_server_url?: string | null;
+          video_subscriber_token?: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "herds_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
+            foreignKeyName: "herds_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       layers: {
         Row: {
-          created_at: string
-          features: Json
-          herd_id: number
-          id: number
-        }
+          created_at: string;
+          features: Json;
+          herd_id: number;
+          id: number;
+        };
         Insert: {
-          created_at?: string
-          features: Json
-          herd_id: number
-          id?: number
-        }
+          created_at?: string;
+          features: Json;
+          herd_id: number;
+          id?: number;
+        };
         Update: {
-          created_at?: string
-          features?: Json
-          herd_id?: number
-          id?: number
-        }
+          created_at?: string;
+          features?: Json;
+          herd_id?: number;
+          id?: number;
+        };
         Relationships: [
           {
-            foreignKeyName: "layers_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "layers_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       plans: {
         Row: {
-          herd_id: number
-          id: number
-          inserted_at: string | null
-          instructions: string
-          name: string
-          plan_type: Database["public"]["Enums"]["plan_type"]
-        }
+          herd_id: number;
+          id: number;
+          inserted_at: string | null;
+          instructions: string;
+          name: string;
+          plan_type: Database["public"]["Enums"]["plan_type"];
+        };
         Insert: {
-          herd_id: number
-          id?: number
-          inserted_at?: string | null
-          instructions: string
-          name: string
-          plan_type?: Database["public"]["Enums"]["plan_type"]
-        }
+          herd_id: number;
+          id?: number;
+          inserted_at?: string | null;
+          instructions: string;
+          name: string;
+          plan_type?: Database["public"]["Enums"]["plan_type"];
+        };
         Update: {
-          herd_id?: number
-          id?: number
-          inserted_at?: string | null
-          instructions?: string
-          name?: string
-          plan_type?: Database["public"]["Enums"]["plan_type"]
-        }
+          herd_id?: number;
+          id?: number;
+          inserted_at?: string | null;
+          instructions?: string;
+          name?: string;
+          plan_type?: Database["public"]["Enums"]["plan_type"];
+        };
         Relationships: [
           {
-            foreignKeyName: "plans_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "plans_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       sessions: {
         Row: {
-          altitude_average: number
-          altitude_max: number
-          altitude_min: number
-          device_id: number
-          distance_max_from_start: number
-          distance_total: number
-          earthranger_url: string | null
-          id: number
-          inserted_at: string
-          locations: unknown
-          software_version: string
-          timestamp_end: string
-          timestamp_start: string
-          velocity_average: number
-          velocity_max: number
-          velocity_min: number
-        }
+          altitude_average: number;
+          altitude_max: number;
+          altitude_min: number;
+          device_id: number;
+          distance_max_from_start: number;
+          distance_total: number;
+          earthranger_url: string | null;
+          id: number;
+          inserted_at: string;
+          locations: unknown | null;
+          software_version: string;
+          timestamp_end: string | null;
+          timestamp_start: string;
+          velocity_average: number;
+          velocity_max: number;
+          velocity_min: number;
+        };
         Insert: {
-          altitude_average: number
-          altitude_max: number
-          altitude_min: number
-          device_id: number
-          distance_max_from_start: number
-          distance_total: number
-          earthranger_url?: string | null
-          id?: number
-          inserted_at?: string
-          locations: unknown
-          software_version: string
-          timestamp_end: string
-          timestamp_start: string
-          velocity_average: number
-          velocity_max: number
-          velocity_min: number
-        }
+          altitude_average: number;
+          altitude_max: number;
+          altitude_min: number;
+          device_id: number;
+          distance_max_from_start: number;
+          distance_total: number;
+          earthranger_url?: string | null;
+          id?: number;
+          inserted_at?: string;
+          locations?: unknown | null;
+          software_version: string;
+          timestamp_end?: string | null;
+          timestamp_start: string;
+          velocity_average: number;
+          velocity_max: number;
+          velocity_min: number;
+        };
         Update: {
-          altitude_average?: number
-          altitude_max?: number
-          altitude_min?: number
-          device_id?: number
-          distance_max_from_start?: number
-          distance_total?: number
-          earthranger_url?: string | null
-          id?: number
-          inserted_at?: string
-          locations?: unknown
-          software_version?: string
-          timestamp_end?: string
-          timestamp_start?: string
-          velocity_average?: number
-          velocity_max?: number
-          velocity_min?: number
-        }
+          altitude_average?: number;
+          altitude_max?: number;
+          altitude_min?: number;
+          device_id?: number;
+          distance_max_from_start?: number;
+          distance_total?: number;
+          earthranger_url?: string | null;
+          id?: number;
+          inserted_at?: string;
+          locations?: unknown | null;
+          software_version?: string;
+          timestamp_end?: string | null;
+          timestamp_start?: string;
+          velocity_average?: number;
+          velocity_max?: number;
+          velocity_min?: number;
+        };
         Relationships: [
           {
-            foreignKeyName: "sessions_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
+            foreignKeyName: "sessions_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       tags: {
         Row: {
-          class_name: string
-          conf: number
-          event_id: number
-          height: number
-          id: number
-          inserted_at: string
-          location: unknown | null
-          observation_type: Database["public"]["Enums"]["tag_observation_type"]
-          width: number
-          x: number
-          y: number
-        }
+          class_name: string;
+          conf: number;
+          event_id: number;
+          height: number;
+          id: number;
+          inserted_at: string;
+          location: unknown | null;
+          observation_type: Database["public"]["Enums"]["tag_observation_type"];
+          width: number;
+          x: number;
+          y: number;
+        };
         Insert: {
-          class_name: string
-          conf: number
-          event_id: number
-          height?: number
-          id?: number
-          inserted_at?: string
-          location?: unknown | null
-          observation_type: Database["public"]["Enums"]["tag_observation_type"]
-          width: number
-          x: number
-          y: number
-        }
+          class_name: string;
+          conf: number;
+          event_id: number;
+          height?: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown | null;
+          observation_type: Database["public"]["Enums"]["tag_observation_type"];
+          width: number;
+          x: number;
+          y: number;
+        };
         Update: {
-          class_name?: string
-          conf?: number
-          event_id?: number
-          height?: number
-          id?: number
-          inserted_at?: string
-          location?: unknown | null
-          observation_type?: Database["public"]["Enums"]["tag_observation_type"]
-          width?: number
-          x?: number
-          y?: number
-        }
+          class_name?: string;
+          conf?: number;
+          event_id?: number;
+          height?: number;
+          id?: number;
+          inserted_at?: string;
+          location?: unknown | null;
+          observation_type?: Database["public"]["Enums"]["tag_observation_type"];
+          width?: number;
+          x?: number;
+          y?: number;
+        };
         Relationships: [
           {
-            foreignKeyName: "tags_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events"
-            referencedColumns: ["id"]
+            foreignKeyName: "tags_event_id_fkey";
+            columns: ["event_id"];
+            isOneToOne: false;
+            referencedRelation: "events";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "tags_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events_with_tags"
-            referencedColumns: ["id"]
+            foreignKeyName: "tags_event_id_fkey";
+            columns: ["event_id"];
+            isOneToOne: false;
+            referencedRelation: "events_with_tags";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "tags_event_id_fkey"
-            columns: ["event_id"]
-            isOneToOne: false
-            referencedRelation: "events_with_tags_by_session"
-            referencedColumns: ["id"]
+            foreignKeyName: "tags_event_id_fkey";
+            columns: ["event_id"];
+            isOneToOne: false;
+            referencedRelation: "events_with_tags_by_session";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       users: {
         Row: {
-          id: string
-          username: string | null
-        }
+          id: string;
+          username: string | null;
+        };
         Insert: {
-          id: string
-          username?: string | null
-        }
+          id: string;
+          username?: string | null;
+        };
         Update: {
-          id?: string
-          username?: string | null
-        }
-        Relationships: []
-      }
+          id?: string;
+          username?: string | null;
+        };
+        Relationships: [];
+      };
       users_roles_per_herd: {
         Row: {
-          herd_id: number
-          id: number
-          inserted_at: string
-          role: Database["public"]["Enums"]["role"]
-          user_id: string
-        }
+          herd_id: number;
+          id: number;
+          inserted_at: string;
+          role: Database["public"]["Enums"]["role"];
+          user_id: string;
+        };
         Insert: {
-          herd_id: number
-          id?: number
-          inserted_at?: string
-          role: Database["public"]["Enums"]["role"]
-          user_id: string
-        }
+          herd_id: number;
+          id?: number;
+          inserted_at?: string;
+          role: Database["public"]["Enums"]["role"];
+          user_id: string;
+        };
         Update: {
-          herd_id?: number
-          id?: number
-          inserted_at?: string
-          role?: Database["public"]["Enums"]["role"]
-          user_id?: string
-        }
+          herd_id?: number;
+          id?: number;
+          inserted_at?: string;
+          role?: Database["public"]["Enums"]["role"];
+          user_id?: string;
+        };
         Relationships: [
           {
-            foreignKeyName: "users_roles_per_herd_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "users_roles_per_herd_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "users_roles_per_herd_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
+            foreignKeyName: "users_roles_per_herd_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       zones: {
         Row: {
-          herd_id: number
-          id: number
-          inserted_at: string
-          region: unknown
-        }
+          herd_id: number;
+          id: number;
+          inserted_at: string;
+          region: unknown;
+        };
         Insert: {
-          herd_id: number
-          id?: number
-          inserted_at?: string
-          region: unknown
-        }
+          herd_id: number;
+          id?: number;
+          inserted_at?: string;
+          region: unknown;
+        };
         Update: {
-          herd_id?: number
-          id?: number
-          inserted_at?: string
-          region?: unknown
-        }
+          herd_id?: number;
+          id?: number;
+          inserted_at?: string;
+          region?: unknown;
+        };
         Relationships: [
           {
-            foreignKeyName: "zones_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "zones_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
-        ]
-      }
-    }
+        ];
+      };
+    };
     Views: {
       events_with_tags: {
         Row: {
-          altitude: number | null
-          device_id: number | null
-          earthranger_url: string | null
-          file_path: string | null
-          heading: number | null
-          herd_id: number | null
-          id: number | null
-          inserted_at: string | null
-          is_public: boolean | null
-          location: unknown | null
-          media_type: Database["public"]["Enums"]["media_type"] | null
-          media_url: string | null
-          message: string | null
-          session_id: number | null
-          tags: Database["public"]["Tables"]["tags"]["Row"][] | null
-          timestamp_observation: string | null
-        }
+          altitude: number | null;
+          device_id: number | null;
+          earthranger_url: string | null;
+          file_path: string | null;
+          heading: number | null;
+          herd_id: number | null;
+          id: number | null;
+          inserted_at: string | null;
+          is_public: boolean | null;
+          location: unknown | null;
+          media_type: Database["public"]["Enums"]["media_type"] | null;
+          media_url: string | null;
+          message: string | null;
+          session_id: number | null;
+          tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+          timestamp_observation: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "devices_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "devices_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "events_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       events_with_tags_by_session: {
         Row: {
-          altitude: number | null
-          device_id: number | null
-          earthranger_url: string | null
-          file_path: string | null
-          heading: number | null
-          herd_id: number | null
-          id: number | null
-          inserted_at: string | null
-          is_public: boolean | null
-          location: unknown | null
-          media_type: Database["public"]["Enums"]["media_type"] | null
-          media_url: string | null
-          message: string | null
-          session_id: number | null
-          tags: Database["public"]["Tables"]["tags"]["Row"][] | null
-          timestamp_observation: string | null
-        }
+          altitude: number | null;
+          device_id: number | null;
+          earthranger_url: string | null;
+          file_path: string | null;
+          heading: number | null;
+          herd_id: number | null;
+          id: number | null;
+          inserted_at: string | null;
+          is_public: boolean | null;
+          location: unknown | null;
+          media_type: Database["public"]["Enums"]["media_type"] | null;
+          media_url: string | null;
+          message: string | null;
+          session_id: number | null;
+          tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+          timestamp_observation: string | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "devices_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "devices_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "events_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_device_id_fkey";
+            columns: ["device_id"];
+            isOneToOne: false;
+            referencedRelation: "devices";
+            referencedColumns: ["id"];
           },
           {
-            foreignKeyName: "events_session_id_fkey"
-            columns: ["session_id"]
-            isOneToOne: false
-            referencedRelation: "sessions"
-            referencedColumns: ["id"]
+            foreignKeyName: "events_session_id_fkey";
+            columns: ["session_id"];
+            isOneToOne: false;
+            referencedRelation: "sessions";
+            referencedColumns: ["id"];
           },
-        ]
-      }
+        ];
+      };
       zones_and_actions: {
         Row: {
-          actions: Database["public"]["Tables"]["actions"]["Row"][] | null
-          herd_id: number | null
-          id: number | null
-          inserted_at: string | null
-          region: unknown | null
-        }
+          actions: Database["public"]["Tables"]["actions"]["Row"][] | null;
+          herd_id: number | null;
+          id: number | null;
+          inserted_at: string | null;
+          region: unknown | null;
+        };
         Relationships: [
           {
-            foreignKeyName: "zones_herd_id_fkey"
-            columns: ["herd_id"]
-            isOneToOne: false
-            referencedRelation: "herds"
-            referencedColumns: ["id"]
+            foreignKeyName: "zones_herd_id_fkey";
+            columns: ["herd_id"];
+            isOneToOne: false;
+            referencedRelation: "herds";
+            referencedColumns: ["id"];
           },
-        ]
-      }
-    }
+        ];
+      };
+    };
     Functions: {
       get_connectivity_with_coordinates: {
-        Args: { session_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
-      }
+        Args: { session_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][];
+      };
       get_device_by_api_key: {
-        Args: { device_api_key: string }
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
-      }
+        Args: { device_api_key: string };
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
+      };
       get_device_by_id: {
-        Args: { device_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
-      }
+        Args: { device_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"];
+      };
       get_device_id_from_key: {
-        Args: { device_api_key: string }
-        Returns: number
-      }
+        Args: { device_api_key: string };
+        Returns: number;
+      };
       get_devices_for_herd: {
-        Args: { herd_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][]
-      }
+        Args: { herd_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][];
+      };
       get_events_and_tags_for_device: {
-        Args: { device_id_caller: number; limit_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
-      }
+        Args: { device_id_caller: number; limit_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
       get_events_and_tags_for_devices_batch: {
-        Args: { device_ids: number[]; limit_per_device?: number }
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
-      }
+        Args: { device_ids: number[]; limit_per_device?: number };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
       get_events_and_tags_for_herd: {
         Args: {
-          herd_id_caller: number
-          limit_caller: number
-          offset_caller: number
-        }
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
-      }
+          herd_id_caller: number;
+          limit_caller: number;
+          offset_caller: number;
+        };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
       get_events_and_tags_for_session: {
         Args: {
-          limit_caller: number
-          offset_caller: number
-          session_id_caller: number
-        }
-        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
-      }
+          limit_caller: number;
+          offset_caller: number;
+          session_id_caller: number;
+        };
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][];
+      };
       get_events_with_tags_for_herd: {
         Args: {
-          herd_id_caller: number
-          limit_caller: number
-          offset_caller: number
-        }
-        Returns: Database["public"]["CompositeTypes"]["event_with_tags"][]
-      }
+          herd_id_caller: number;
+          limit_caller: number;
+          offset_caller: number;
+        };
+        Returns: Database["public"]["CompositeTypes"]["event_with_tags"][];
+      };
       get_sessions_with_coordinates: {
-        Args: { herd_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
-      }
+        Args: { herd_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][];
+      };
       get_sessions_with_coordinates_by_device: {
-        Args: { device_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
-      }
+        Args: { device_id_caller: number };
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][];
+      };
       get_total_events_for_herd_with_session_filter: {
-        Args: { exclude_session_events: boolean; herd_id_caller: number }
-        Returns: number
-      }
+        Args: { exclude_session_events: boolean; herd_id_caller: number };
+        Returns: number;
+      };
       get_total_events_for_session: {
-        Args: { session_id_caller: number }
-        Returns: number
-      }
+        Args: { session_id_caller: number };
+        Returns: number;
+      };
       get_zones_and_actions_for_herd: {
         Args: {
-          herd_id_caller: number
-          limit_caller: number
-          offset_caller: number
-        }
-        Returns: Database["public"]["CompositeTypes"]["zones_and_actions_pretty_location"][]
-      }
+          herd_id_caller: number;
+          limit_caller: number;
+          offset_caller: number;
+        };
+        Returns: Database["public"]["CompositeTypes"]["zones_and_actions_pretty_location"][];
+      };
       load_api_keys: {
-        Args: { id_of_device: number }
-        Returns: string[]
-      }
+        Args: { id_of_device: number };
+        Returns: string[];
+      };
       load_api_keys_batch: {
-        Args: { device_ids: number[] }
+        Args: { device_ids: number[] };
         Returns: {
-          api_key_id: string
-          api_key_key: string
-          device_id: number
-        }[]
-      }
+          api_key_id: string;
+          api_key_key: string;
+          device_id: number;
+        }[];
+      };
       load_api_keys_old: {
-        Args: { id_of_device: string }
-        Returns: string[]
-      }
+        Args: { id_of_device: string };
+        Returns: string[];
+      };
       remove_rls_broadcast_triggers: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
-    }
+        Args: Record<PropertyKey, never>;
+        Returns: undefined;
+      };
+    };
     Enums: {
-      app_permission: "herds.delete" | "events.delete"
+      app_permission: "herds.delete" | "events.delete";
       device_type:
         | "trail_camera"
         | "drone_fixed_wing"
@@ -851,177 +851,180 @@ export type Database = {
         | "smart_buoy"
         | "radio_mesh_base_station"
         | "radio_mesh_repeater"
-        | "unknown"
-      media_type: "image" | "video" | "audio" | "text"
-      plan_type: "mission" | "fence" | "rally" | "markov"
-      role: "admin" | "viewer" | "editor"
-      tag_observation_type: "manual" | "auto"
-      user_status: "ONLINE" | "OFFLINE"
-    }
+        | "unknown";
+      media_type: "image" | "video" | "audio" | "text";
+      plan_type: "mission" | "fence" | "rally" | "markov";
+      role: "admin" | "viewer" | "editor" | "operator";
+      tag_observation_type: "manual" | "auto";
+      user_status: "ONLINE" | "OFFLINE";
+    };
     CompositeTypes: {
       connectivity_with_coordinates: {
-        id: number | null
-        session_id: number | null
-        inserted_at: string | null
-        timestamp_start: string | null
-        signal: number | null
-        noise: number | null
-        altitude: number | null
-        heading: number | null
-        latitude: number | null
-        longitude: number | null
-        h14_index: string | null
-        h13_index: string | null
-        h12_index: string | null
-        h11_index: string | null
-      }
+        id: number | null;
+        session_id: number | null;
+        inserted_at: string | null;
+        timestamp_start: string | null;
+        signal: number | null;
+        noise: number | null;
+        altitude: number | null;
+        heading: number | null;
+        latitude: number | null;
+        longitude: number | null;
+        h14_index: string | null;
+        h13_index: string | null;
+        h12_index: string | null;
+        h11_index: string | null;
+      };
       device_pretty_location: {
-        id: number | null
-        inserted_at: string | null
-        created_by: string | null
-        herd_id: number | null
-        device_type: Database["public"]["Enums"]["device_type"] | null
-        domain_name: string | null
-        location: string | null
-        altitude: number | null
-        heading: number | null
-        name: string | null
-        description: string | null
-        latitude: number | null
-        longitude: number | null
-      }
+        id: number | null;
+        inserted_at: string | null;
+        created_by: string | null;
+        herd_id: number | null;
+        device_type: Database["public"]["Enums"]["device_type"] | null;
+        domain_name: string | null;
+        location: string | null;
+        altitude: number | null;
+        heading: number | null;
+        name: string | null;
+        description: string | null;
+        latitude: number | null;
+        longitude: number | null;
+      };
       event_and_tags: {
-        id: number | null
-        inserted_at: string | null
-        message: string | null
-        media_url: string | null
-        latitude: number | null
-        longitude: number | null
-        altitude: number | null
-        heading: number | null
-        media_type: Database["public"]["Enums"]["media_type"] | null
-        device_id: number | null
-        timestamp_observation: string | null
-        is_public: boolean | null
-        tags: Database["public"]["Tables"]["tags"]["Row"][] | null
-        herd_id: number | null
-      }
+        id: number | null;
+        inserted_at: string | null;
+        message: string | null;
+        media_url: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        altitude: number | null;
+        heading: number | null;
+        media_type: Database["public"]["Enums"]["media_type"] | null;
+        device_id: number | null;
+        timestamp_observation: string | null;
+        is_public: boolean | null;
+        tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+        herd_id: number | null;
+      };
       event_and_tags_pretty_location: {
-        id: number | null
-        inserted_at: string | null
-        message: string | null
-        media_url: string | null
-        file_path: string | null
-        latitude: number | null
-        longitude: number | null
-        earthranger_url: string | null
-        altitude: number | null
-        heading: number | null
-        media_type: Database["public"]["Enums"]["media_type"] | null
-        device_id: number | null
-        timestamp_observation: string | null
-        is_public: boolean | null
+        id: number | null;
+        inserted_at: string | null;
+        message: string | null;
+        media_url: string | null;
+        file_path: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        earthranger_url: string | null;
+        altitude: number | null;
+        heading: number | null;
+        media_type: Database["public"]["Enums"]["media_type"] | null;
+        device_id: number | null;
+        timestamp_observation: string | null;
+        is_public: boolean | null;
         tags:
           | Database["public"]["CompositeTypes"]["tags_pretty_location"][]
-          | null
-        herd_id: number | null
-      }
+          | null;
+        herd_id: number | null;
+      };
       event_plus_tags: {
-        id: number | null
-        inserted_at: string | null
-        message: string | null
-        media_url: string | null
-        location: unknown | null
-        earthranger_url: string | null
-        altitude: number | null
-        heading: number | null
-        media_type: Database["public"]["Enums"]["media_type"] | null
-        device_id: number | null
-        timestamp_observation: string | null
-        is_public: boolean | null
-        tags: Database["public"]["Tables"]["tags"]["Row"][] | null
-        herd_id: number | null
-      }
+        id: number | null;
+        inserted_at: string | null;
+        message: string | null;
+        media_url: string | null;
+        location: unknown | null;
+        earthranger_url: string | null;
+        altitude: number | null;
+        heading: number | null;
+        media_type: Database["public"]["Enums"]["media_type"] | null;
+        device_id: number | null;
+        timestamp_observation: string | null;
+        is_public: boolean | null;
+        tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+        herd_id: number | null;
+      };
       event_with_tags: {
-        id: number | null
-        inserted_at: string | null
-        message: string | null
-        media_url: string | null
-        latitude: number | null
-        longitude: number | null
-        altitude: number | null
-        heading: number | null
-        media_type: Database["public"]["Enums"]["media_type"] | null
-        device_id: number | null
-        timestamp_observation: string | null
-        is_public: boolean | null
-        tags: Database["public"]["Tables"]["tags"]["Row"][] | null
-      }
+        id: number | null;
+        inserted_at: string | null;
+        message: string | null;
+        media_url: string | null;
+        latitude: number | null;
+        longitude: number | null;
+        altitude: number | null;
+        heading: number | null;
+        media_type: Database["public"]["Enums"]["media_type"] | null;
+        device_id: number | null;
+        timestamp_observation: string | null;
+        is_public: boolean | null;
+        tags: Database["public"]["Tables"]["tags"]["Row"][] | null;
+      };
       session_with_coordinates: {
-        id: number | null
-        device_id: number | null
-        timestamp_start: string | null
-        timestamp_end: string | null
-        inserted_at: string | null
-        software_version: string | null
-        locations_geojson: Json | null
-        altitude_max: number | null
-        altitude_min: number | null
-        altitude_average: number | null
-        velocity_max: number | null
-        velocity_min: number | null
-        velocity_average: number | null
-        distance_total: number | null
-        distance_max_from_start: number | null
-      }
+        id: number | null;
+        device_id: number | null;
+        timestamp_start: string | null;
+        timestamp_end: string | null;
+        inserted_at: string | null;
+        software_version: string | null;
+        locations_geojson: Json | null;
+        altitude_max: number | null;
+        altitude_min: number | null;
+        altitude_average: number | null;
+        velocity_max: number | null;
+        velocity_min: number | null;
+        velocity_average: number | null;
+        distance_total: number | null;
+        distance_max_from_start: number | null;
+      };
       tags_pretty_location: {
-        id: number | null
-        inserted_at: string | null
-        x: number | null
-        y: number | null
-        width: number | null
-        conf: number | null
+        id: number | null;
+        inserted_at: string | null;
+        x: number | null;
+        y: number | null;
+        width: number | null;
+        conf: number | null;
         observation_type:
           | Database["public"]["Enums"]["tag_observation_type"]
-          | null
-        event_id: number | null
-        class_name: string | null
-        height: number | null
-        location: unknown | null
-        latitude: number | null
-        longitude: number | null
-      }
+          | null;
+        event_id: number | null;
+        class_name: string | null;
+        height: number | null;
+        location: unknown | null;
+        latitude: number | null;
+        longitude: number | null;
+      };
       zones_and_actions_pretty_location: {
-        id: number | null
-        inserted_at: string | null
-        region: string | null
-        herd_id: number | null
-        actions: Database["public"]["Tables"]["actions"]["Row"][] | null
-      }
-    }
-  }
-}
+        id: number | null;
+        inserted_at: string | null;
+        region: string | null;
+        herd_id: number | null;
+        actions: Database["public"]["Tables"]["actions"]["Row"][] | null;
+      };
+    };
+  };
+};
 
-type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">;
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals[Extract<
+  keyof Database,
+  "public"
+>];
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
       DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
-      Row: infer R
+      Row: infer R;
     }
     ? R
     : never
@@ -1029,95 +1032,95 @@ export type Tables<
         DefaultSchema["Views"])
     ? (DefaultSchema["Tables"] &
         DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
-        Row: infer R
+        Row: infer R;
       }
       ? R
       : never
-    : never
+    : never;
 
 export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Insert: infer I
+      Insert: infer I;
     }
     ? I
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Insert: infer I
+        Insert: infer I;
       }
       ? I
       : never
-    : never
+    : never;
 
 export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
     : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
-      Update: infer U
+      Update: infer U;
     }
     ? U
     : never
   : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
     ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
-        Update: infer U
+        Update: infer U;
       }
       ? U
       : never
-    : never
+    : never;
 
 export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
     : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
+    : never;
 
 export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
   CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
+    schema: keyof DatabaseWithoutInternals;
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
     : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
+  schema: keyof DatabaseWithoutInternals;
 }
   ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
   : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
     ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
-    : never
+    : never;
 
 export const Constants = {
   public: {
@@ -1136,9 +1139,9 @@ export const Constants = {
       ],
       media_type: ["image", "video", "audio", "text"],
       plan_type: ["mission", "fence", "rally", "markov"],
-      role: ["admin", "viewer", "editor"],
+      role: ["admin", "viewer", "editor", "operator"],
       tag_observation_type: ["manual", "auto"],
       user_status: ["ONLINE", "OFFLINE"],
     },
   },
-} as const
+} as const;
