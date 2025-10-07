@@ -1,5 +1,6 @@
 use clap::Parser;
-use scout_rs::client::{Event, Plan, ResponseScoutStatus, ScoutClient, Tag};
+use scout_rs::client::ScoutClient;
+use scout_rs::models::{Event, Plan, ResponseScoutStatus, Tag};
 use serde_json;
 use std::env;
 

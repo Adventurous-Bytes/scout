@@ -1,5 +1,8 @@
 use scout_rs::client::*;
-use scout_rs::client::{MediaType, TagObservationType};
+use scout_rs::models::{
+    Action, Connectivity, Event, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus,
+    Session, Tag, TagObservationType, Zone,
+};
 use std::env;
 
 use once_cell::sync::Lazy;
