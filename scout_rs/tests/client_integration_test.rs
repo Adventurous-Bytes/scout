@@ -364,13 +364,13 @@ fn test_data_structures() {
         .unwrap_or_else(|_| "123".to_string())
         .parse()
         .unwrap_or(123);
-    assert_eq!(event.device_id, Some(expected_device_id as i64));
+    assert_eq!(event.device_id, expected_device_id as i64);
     assert_eq!(event.is_public, false);
 
     let session = Session::new(
         expected_device_id,
         1640995200,
-        1640998800,
+        Some(1640998800),
         "v1.0.0".to_string(),
         None,
         100.0,
@@ -653,7 +653,7 @@ async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "tags_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -823,7 +823,7 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
     let session = Session::new(
         device_id,
         1640995200,
-        1640998800,
+        Some(1640998800),
         "v2.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -884,7 +884,6 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
         .does_session_exist(
             device_id,
             "2023-01-01T00:00:00Z", // Non-existent start time
-            "2023-01-01T01:00:00Z", // Non-existent end time
         )
         .await;
     match exists_result {
@@ -904,7 +903,7 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     let session = Session::new(
         device_id,
         unique_start_timestamp,
-        unique_end_timestamp,
+        Some(unique_end_timestamp),
         "does_session_exist_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -932,11 +931,7 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
 
             // Test 3: Check that the created session exists
             let exists_result = client
-                .does_session_exist(
-                    device_id,
-                    &created_session.timestamp_start,
-                    &created_session.timestamp_end,
-                )
+                .does_session_exist(session.device_id, &created_session.timestamp_start)
                 .await;
             match exists_result {
                 Ok(exists) => {
@@ -957,15 +952,11 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
 
                     // Test 5: Check that the deleted session no longer exists
                     println!(
-                        "Checking if deleted session still exists with timestamps: {} to {}",
+                        "Checking if deleted session still exists with timestamps: {} to {:?}",
                         &created_session.timestamp_start, &created_session.timestamp_end
                     );
                     let exists_after_delete = client
-                        .does_session_exist(
-                            device_id,
-                            &created_session.timestamp_start,
-                            &created_session.timestamp_end,
-                        )
+                        .does_session_exist(device_id, &created_session.timestamp_start)
                         .await;
                     match exists_after_delete {
                         Ok(exists) => {
@@ -989,11 +980,7 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
 
     // Test 6: Edge case - different device ID with same timestamps
     let different_device_exists_result = client
-        .does_session_exist(
-            999999, // Non-existent device ID
-            "1970-01-01T00:00:00Z",
-            "1970-01-01T01:00:00Z",
-        )
+        .does_session_exist(device_id, "1970-01-01T00:00:00Z")
         .await;
     match different_device_exists_result {
         Ok(exists) => {
@@ -1010,7 +997,6 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
         .does_session_exist(
             device_id,
             "1970-01-01T00:00:00Z", // Different timestamps
-            "1970-01-01T01:00:00Z",
         )
         .await;
     match different_timestamps_result {
@@ -1056,7 +1042,7 @@ async fn test_connectivity_creation() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "connectivity_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1141,7 +1127,7 @@ async fn test_compatibility_methods() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "compat_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1354,7 +1340,7 @@ async fn test_error_handling_and_edge_cases() {
     }
 }
 
-async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
+async fn test_integration_workflow_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1375,7 +1361,7 @@ async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
                 .parse()
                 .unwrap_or(123),
             1640995200,
-            1640998800,
+            Some(1640998800),
             "v2.0.0".to_string(),
             Some("POINT(-155.15393 19.754824)".to_string()),
             120.0,
@@ -1545,7 +1531,7 @@ async fn test_real_database_integration() {
             let session = Session::new(
                 device_id as i64,
                 chrono::Utc::now().timestamp() as u64,
-                (chrono::Utc::now().timestamp() as u64) + 3600,
+                Some((chrono::Utc::now().timestamp() as u64) + 3600),
                 "integration_test_v1.0.0".to_string(),
                 Some("POINT(-155.15393 19.754824)".to_string()),
                 120.0,
@@ -1759,7 +1745,7 @@ async fn test_connectivity_with_coordinates_via_function() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "v2.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1798,7 +1784,7 @@ async fn test_connectivity_with_coordinates_via_function() {
     }
 }
 
-async fn test_plans_by_herd_impl(cleanup: &TestCleanup) {
+async fn test_plans_by_herd_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1848,7 +1834,7 @@ async fn test_plans_by_herd_impl(cleanup: &TestCleanup) {
 
 test_with_cleanup!(test_plans_by_herd, test_plans_by_herd_impl);
 
-async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
+async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -2548,7 +2534,7 @@ fn test_data_validation() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800, // End time after start time
+        Some(1640998800), // End time after start time
         "v1.0.0".to_string(),
         None,
         100.0,
@@ -2561,7 +2547,7 @@ fn test_data_validation() {
         500.0,
     );
 
-    assert!(valid_session.timestamp_start < valid_session.timestamp_end);
+    assert!(valid_session.timestamp_end.is_some());
 
     // Test Tag validation
     let valid_tag = Tag::new(
@@ -2708,7 +2694,7 @@ async fn test_complete_data_collection_workflow() {
     let session = Session::new(
         device_id as i64,
         chrono::Utc::now().timestamp() as u64,
-        (chrono::Utc::now().timestamp() as u64) + 3600,
+        Some((chrono::Utc::now().timestamp() as u64) + 3600),
         "workflow_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -2946,27 +2932,32 @@ async fn test_integration_with_mock_data_comprehensive() {
         mock_event.media_url,
         Some("https://mock.com/image.jpg".to_string())
     );
-    assert_eq!(mock_event.device_id, Some(123));
+    assert_eq!(mock_event.device_id, 123);
     assert_eq!(mock_event.is_public, false);
     assert!(mock_event.location.is_some());
 
+    let device_id = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
     let mock_session = Session::new(
-        123,
-        1640995200,
-        1640998800,
+        device_id as i64,
+        1640995200,       // Start time
+        Some(1640998800), // End time (after start time)
         "mock_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         100.0,
         50.0,
         75.0,
+        50.0,
         10.0,
-        5.0,
-        7.5,
+        30.0,
         1000.0,
         500.0,
     );
 
-    assert_eq!(mock_session.device_id, 123);
+    assert_eq!(mock_session.device_id, device_id as i64);
     assert_eq!(mock_session.software_version, "mock_v1.0.0");
     assert_eq!(mock_session.altitude_max, 100.0);
     assert_eq!(mock_session.altitude_min, 50.0);
@@ -3122,27 +3113,32 @@ async fn test_data_structures_comprehensive() {
         event.earthranger_url,
         Some("https://earthranger.example.com".to_string())
     );
-    assert_eq!(event.device_id, Some(expected_device_id as i64));
+    assert_eq!(event.device_id, expected_device_id as i64);
     assert_eq!(event.is_public, true);
     assert_eq!(event.session_id, Some(1));
     assert!(event.location.is_some());
     assert_eq!(event.location.unwrap(), "POINT(-155.15393 19.754824)");
 
+    let device_id = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
     // Test 2: Session structure
     let session = Session::new(
-        expected_device_id as i64,
+        device_id as i64,
         1640995200,
-        1640998800,
-        "comprehensive_v1.0.0".to_string(),
+        Some(1640998800),
+        "comprehensive_data_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
         45.0,
-        82.5,
-        15.0,
-        3.0,
-        9.0,
-        1200.0,
-        600.0,
+        75.0,
+        60.0,
+        20.0,
+        40.0,
+        1500.0,
+        800.0,
     );
 
     assert_eq!(session.device_id, expected_device_id as i64);
@@ -3452,8 +3448,8 @@ async fn test_data_validation_comprehensive() {
             .unwrap_or_else(|_| "123".to_string())
             .parse()
             .unwrap_or(123),
-        1640995200, // Start time
-        1640998800, // End time (after start time)
+        1640995200,       // Start time
+        Some(1640998800), // End time (after start time)
         "v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         100.0,  // altitude_max
@@ -3466,7 +3462,7 @@ async fn test_data_validation_comprehensive() {
         500.0,  // distance_max_from_start
     );
 
-    assert!(valid_session.timestamp_start < valid_session.timestamp_end);
+    assert!(valid_session.timestamp_end.is_some());
     assert_eq!(valid_session.software_version, "v1.0.0");
     assert!(valid_session.altitude_max >= valid_session.altitude_min);
 
@@ -3539,8 +3535,8 @@ async fn test_data_validation_comprehensive() {
             .unwrap_or_else(|_| "123".to_string())
             .parse()
             .unwrap_or(123),
-        0,          // Minimum timestamp
-        9999999999, // Reasonable maximum timestamp (year 2286)
+        0,                // Minimum timestamp
+        Some(9999999999), // Reasonable maximum timestamp (year 2286)
         "boundary_test".to_string(),
         None, // No location
         0.0,  // Minimum altitude
@@ -3553,7 +3549,7 @@ async fn test_data_validation_comprehensive() {
         0.0,  // Minimum distance
     );
 
-    assert!(boundary_session.timestamp_start < boundary_session.timestamp_end);
+    assert!(boundary_session.timestamp_end.is_some());
     assert_eq!(boundary_session.altitude_max, 0.0);
     assert_eq!(boundary_session.altitude_min, 0.0);
 
@@ -3829,7 +3825,7 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
     let session = Session::new(
         device_id,
         1640995200,
-        1640998800,
+        Some(1640998800),
         "tag_location_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,

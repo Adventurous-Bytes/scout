@@ -5,6 +5,19 @@ use serde_json;
 
 use chrono::{DateTime, Utc};
 
+// ===== TRAITS =====
+pub trait Syncable {
+    fn id(&self) -> Option<i64>;
+    fn set_id(&mut self, id: i64);
+    fn id_local(&self) -> Option<String>;
+    fn set_id_local(&mut self, id_local: String);
+}
+
+pub trait AncestorLocal {
+    fn ancestor_id_local(&self) -> Option<String>;
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String);
+}
+
 // ===== ENUMS =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -125,8 +138,11 @@ impl<T> ResponseScout<T> {
 #[native_model(id = 9, version = 1)]
 #[native_db]
 pub struct DevicePrettyLocation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: String,
     pub created_by: String,
     pub herd_id: i64,
@@ -141,12 +157,33 @@ pub struct DevicePrettyLocation {
     pub longitude: Option<f64>,
 }
 
+impl Syncable for DevicePrettyLocation {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 2, version = 1)]
 #[native_db]
 pub struct Device {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: String,
     pub created_by: String,
     pub herd_id: i64,
@@ -161,12 +198,33 @@ pub struct Device {
     pub video_subscriber_token: Option<String>,
 }
 
+impl Syncable for Device {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 1, version = 1)]
 #[native_db]
 pub struct Herd {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: String,
     pub created_by: String,
     pub is_public: bool,
@@ -179,13 +237,33 @@ pub struct Herd {
     pub video_server_url: Option<String>,
 }
 
+impl Syncable for Herd {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 3, version = 1)]
 #[native_db]
 pub struct Session {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     pub device_id: i64,
     pub timestamp_start: String,
     pub timestamp_end: Option<String>,
@@ -203,6 +281,24 @@ pub struct Session {
     pub distance_max_from_start: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub earthranger_url: Option<String>,
+}
+
+impl Syncable for Session {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
 }
 
 impl Session {
@@ -235,6 +331,7 @@ impl Session {
 
         Self {
             id: None,
+            id_local: None,
             device_id,
             timestamp_start: timestamp_start_str,
             timestamp_end: timestamp_end_str,
@@ -272,24 +369,59 @@ impl Session {
 #[native_db]
 pub struct Artifact {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub file_path: String,
     #[secondary_key]
     pub session_id: Option<i64>,
+    #[serde(skip)]
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp_observation: Option<String>,
+}
+
+impl Syncable for Artifact {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
+impl AncestorLocal for Artifact {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
+    }
 }
 
 impl Artifact {
     pub fn new(file_path: String, session_id: Option<i64>) -> Self {
         Self {
             id: None,
+            id_local: None,
             created_at: None,
             file_path,
             session_id,
+            ancestor_id_local: None,
             timestamp_observation: None,
         }
     }
@@ -305,10 +437,15 @@ impl Artifact {
 #[native_db]
 pub struct Connectivity {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     #[secondary_key]
     pub session_id: i64,
+    #[serde(skip)]
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
     pub timestamp_start: String,
@@ -321,6 +458,34 @@ pub struct Connectivity {
     pub h13_index: String,
     pub h12_index: String,
     pub h11_index: String,
+}
+
+impl Syncable for Connectivity {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
+impl AncestorLocal for Connectivity {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
+    }
 }
 
 impl Connectivity {
@@ -343,7 +508,9 @@ impl Connectivity {
 
         Self {
             id: None,
+            id_local: None,
             session_id,
+            ancestor_id_local: None,
             inserted_at: None,
             timestamp_start: timestamp_start_str,
             signal,
@@ -369,8 +536,10 @@ impl Connectivity {
 #[native_db]
 pub struct Event {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     pub message: Option<String>,
     pub media_url: Option<String>,
     pub file_path: Option<String>,
@@ -382,7 +551,39 @@ pub struct Event {
     pub earthranger_url: Option<String>,
     pub timestamp_observation: String,
     pub is_public: bool,
+    #[secondary_key]
     pub session_id: Option<i64>,
+    #[serde(skip)]
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
+}
+
+impl Syncable for Event {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
+impl AncestorLocal for Event {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
+    }
 }
 
 impl Event {
@@ -408,6 +609,7 @@ impl Event {
 
         Self {
             id: None,
+            id_local: None,
             message,
             media_url,
             file_path,
@@ -420,6 +622,7 @@ impl Event {
             timestamp_observation,
             is_public,
             session_id,
+            ancestor_id_local: None,
         }
     }
 
@@ -438,8 +641,10 @@ impl Event {
 #[native_db]
 pub struct Tag {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
     pub x: f64,
@@ -451,8 +656,39 @@ pub struct Tag {
     pub class_name: String,
     #[secondary_key]
     pub event_id: i64,
+    #[serde(skip)]
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<String>,
+}
+
+impl Syncable for Tag {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
+impl AncestorLocal for Tag {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
+    }
 }
 
 impl Tag {
@@ -468,6 +704,7 @@ impl Tag {
     ) -> Self {
         Self {
             id: None,
+            id_local: None,
             inserted_at: None,
             x,
             y,
@@ -477,6 +714,7 @@ impl Tag {
             observation_type,
             class_name,
             event_id: 0,
+            ancestor_id_local: None,
             location: None,
         }
     }
@@ -495,6 +733,7 @@ impl Tag {
     ) -> Self {
         Self {
             id: None,
+            id_local: None,
             inserted_at: None,
             x,
             y,
@@ -504,12 +743,17 @@ impl Tag {
             observation_type,
             class_name,
             event_id: 0,
+            ancestor_id_local: None,
             location: Some(Self::format_location(latitude, longitude)),
         }
     }
 
     pub fn update_event_id(&mut self, event_id: i64) {
         self.event_id = event_id;
+    }
+
+    pub fn update_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
     }
 
     pub fn set_location(&mut self, latitude: f64, longitude: f64) {
@@ -550,13 +794,34 @@ impl Tag {
 #[native_model(id = 8, version = 1)]
 #[native_db]
 pub struct Plan {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: Option<String>,
     pub name: String,
     pub instructions: String,
     pub herd_id: i64,
     pub plan_type: PlanType,
+}
+
+impl Syncable for Plan {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
 }
 
 /// Plan structure for database operations (ID field is optional for insertion)
@@ -565,8 +830,10 @@ pub struct Plan {
 #[native_db]
 pub struct PlanInsert {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
     pub name: String,
@@ -575,22 +842,61 @@ pub struct PlanInsert {
     pub plan_type: PlanType,
 }
 
+impl Syncable for PlanInsert {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 11, version = 1)]
 #[native_db]
 pub struct Layer {
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[primary_key]
     pub id: Option<i64>,
+    #[serde(skip)]
+    #[primary_key]
+    pub id_local: Option<String>,
     pub created_at: Option<String>,
     pub features: serde_json::Value,
     pub herd_id: i64,
+}
+
+impl Syncable for Layer {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
 }
 
 impl Layer {
     pub fn new(features: serde_json::Value, herd_id: i64) -> Self {
         Self {
             id: None,
+            id_local: None,
             created_at: None,
             features,
             herd_id,
@@ -607,22 +913,64 @@ impl Layer {
 #[native_model(id = 12, version = 1)]
 #[native_db]
 pub struct Zone {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: String,
     pub region: String,
     pub herd_id: i64,
     pub actions: Option<Vec<Action>>,
 }
 
+impl Syncable for Zone {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 13, version = 1)]
 #[native_db]
 pub struct Action {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip)]
     #[primary_key]
-    pub id: i64,
+    pub id_local: Option<String>,
     pub inserted_at: String,
     pub zone_id: i64,
     pub trigger: Vec<String>,
     pub opcode: i32,
+}
+
+impl Syncable for Action {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
 }
