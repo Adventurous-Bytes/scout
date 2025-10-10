@@ -817,7 +817,12 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
     }
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client
+        .device
+        .as_ref()
+        .unwrap()
+        .id
+        .expect("Device should have an ID");
 
     // Create test session
     let session = Session::new(
@@ -877,7 +882,7 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     }
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
     // Test 1: Check for non-existent session
     let exists_result = client
@@ -931,7 +936,7 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
 
             // Test 3: Check that the created session exists
             let exists_result = client
-                .does_session_exist(session.device_id, &created_session.timestamp_start)
+                .does_session_exist(device_id, &created_session.timestamp_start)
                 .await;
             match exists_result {
                 Ok(exists) => {
@@ -1482,14 +1487,14 @@ async fn test_integration_workflow_impl(_cleanup: &TestCleanup) {
                 let session_events = client.get_session_events(session_id).await;
                 if let Ok(response) = session_events {
                     if response.status == ResponseScoutStatus::Success {
-                        let events = response.data.unwrap();
+                        let _events = response.data.unwrap();
                     }
                 }
 
                 let session_connectivity = client.get_session_connectivity(session_id).await;
                 if let Ok(response) = session_connectivity {
                     if response.status == ResponseScoutStatus::Success {
-                        let connectivity_entries = response.data.unwrap();
+                        let _connectivity_entries = response.data.unwrap();
                     }
                 }
 
@@ -1522,14 +1527,14 @@ async fn test_real_database_integration() {
         Ok(_) => {
             assert!(client.is_identified());
 
-            let device_id = client.device.as_ref().unwrap().id;
+            let device_id = client.device.as_ref().unwrap().id.unwrap();
             let _device_name = client.device.as_ref().unwrap().name.clone();
-            let herd_id = client.herd.as_ref().unwrap().id;
+            let herd_id = client.herd.as_ref().unwrap().id.unwrap();
             let _herd_slug = client.herd.as_ref().unwrap().slug.clone();
 
             // Step 2: Create a real session
             let session = Session::new(
-                device_id as i64,
+                device_id,
                 chrono::Utc::now().timestamp() as u64,
                 Some((chrono::Utc::now().timestamp() as u64) + 3600),
                 "integration_test_v1.0.0".to_string(),
@@ -1668,7 +1673,7 @@ async fn test_device_events_with_tags_via_function() {
         );
     }
 
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
     // Test getting events with tags via database function
     let events_result = client
@@ -1704,7 +1709,7 @@ async fn test_sessions_with_coordinates_via_function() {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test getting sessions with coordinates via database function
     let sessions_result = client.get_sessions_by_herd(herd_id).await;
@@ -1772,7 +1777,7 @@ async fn test_connectivity_with_coordinates_via_function() {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     // Note: This might return empty results if no connectivity data exists yet
                 }
-                Err(e) => {
+                Err(_e) => {
                     // This is expected if no connectivity data exists yet
                 }
             }
@@ -1801,7 +1806,12 @@ async fn test_plans_by_herd_impl(_cleanup: &TestCleanup) {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client
+        .herd
+        .as_ref()
+        .unwrap()
+        .id
+        .expect("Herd should have an ID");
 
     // Test getting plans by herd
     let plans_result = client.get_plans_by_herd(herd_id).await;
@@ -1822,7 +1832,10 @@ async fn test_plans_by_herd_impl(_cleanup: &TestCleanup) {
                         !plan.instructions.is_empty(),
                         "Plan instructions should not be empty"
                     );
-                    assert!(plan.id >= 0, "Plan should have a non-negative ID");
+                    assert!(
+                        plan.id.unwrap_or(0) >= 0,
+                        "Plan should have a non-negative ID"
+                    );
                 }
             }
         }
@@ -1851,7 +1864,12 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client
+        .herd
+        .as_ref()
+        .unwrap()
+        .id
+        .expect("Herd should have an ID");
 
     // Test 1: Get existing plans
     let plans_result = client.get_plans_by_herd(herd_id).await;
@@ -1885,7 +1903,7 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
 
                     // ID validation - allow ID=0 for existing plans that might not have been properly migrated
                     // Note: ID=0 is valid for existing plans in the database
-                    assert!(plan.id >= 0, "Plan ID should be non-negative");
+                    assert!(plan.id.unwrap_or(0) >= 0, "Plan ID should be non-negative");
 
                     // Validate inserted_at timestamp if present
                     if let Some(inserted_at) = &plan.inserted_at {
@@ -1928,7 +1946,8 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
 
     // Test 3: Test plan data structure validation
     let test_plan = Plan {
-        id: 1,
+        id: Some(1),
+        id_local: None,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Test Plan".to_string(),
         instructions: "Test instructions for the plan".to_string(),
@@ -1937,7 +1956,7 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
     };
 
     // Validate test plan structure
-    assert_eq!(test_plan.id, 1);
+    assert_eq!(test_plan.id, Some(1));
     assert_eq!(test_plan.name, "Test Plan");
     assert_eq!(test_plan.instructions, "Test instructions for the plan");
     assert_eq!(test_plan.herd_id, 1);
@@ -1953,7 +1972,8 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
 
     for plan_type in plan_types {
         let test_plan = Plan {
-            id: 0,             // Placeholder ID for testing
+            id: Some(0), // Placeholder ID for testing
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: format!("Test {} Plan", format!("{:?}", plan_type)),
             instructions: format!("Test instructions for {} plan", format!("{:?}", plan_type)),
@@ -1972,7 +1992,9 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
                 if !plans.is_empty() {
                     let first_plan = &plans[0];
                     let plan_id = first_plan.id;
-                    let individual_plan_result = client.get_plan_by_id(plan_id).await;
+                    let individual_plan_result = client
+                        .get_plan_by_id(plan_id.expect("Plan should have ID"))
+                        .await;
                     match individual_plan_result {
                         Ok(response) => {
                             assert_eq!(response.status, ResponseScoutStatus::Success);
@@ -1987,7 +2009,7 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
 
                             println!(
                                 "Successfully tested individual plan retrieval for plan ID: {}",
-                                plan_id
+                                plan_id.unwrap_or(0)
                             );
                         }
                         Err(e) => {
@@ -2025,11 +2047,12 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test 1: Create a new plan
     let new_plan = Plan {
-        id: 0,             // Placeholder ID for creation
+        id: None,          // Let database assign ID
+        id_local: None,    // Local ID field
         inserted_at: None, // Database will use default value
         name: "Test CRUD Plan".to_string(),
         instructions: "This is a test plan for CRUD operations".to_string(),
@@ -2044,7 +2067,10 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
             assert!(response.data.is_some());
 
             let created_plan = response.data.unwrap();
-            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
+            assert!(
+                created_plan.id.unwrap() >= 0,
+                "Created plan should have a valid ID"
+            );
             assert_eq!(created_plan.name, "Test CRUD Plan");
             assert_eq!(
                 created_plan.instructions,
@@ -2053,7 +2079,7 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
             assert_eq!(created_plan.herd_id, herd_id);
             assert_eq!(created_plan.plan_type, PlanType::Mission);
 
-            let plan_id = created_plan.id;
+            let plan_id = created_plan.id.unwrap();
             println!("Created plan with ID: {}", plan_id);
 
             // Track the created plan for cleanup
@@ -2066,7 +2092,7 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     if let Some(plans) = response.data {
                         // Find our created plan
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
                         assert!(found_plan.is_some(), "Should find the created plan");
 
                         let found_plan = found_plan.unwrap();
@@ -2084,12 +2110,13 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
 
             // Test 3: Update the plan
             let updated_plan = Plan {
-                id: plan_id,
-                inserted_at: created_plan.inserted_at.clone(),
-                name: "Updated CRUD Plan".to_string(),
+                id: Some(plan_id),
+                id_local: None,
+                inserted_at: created_plan.inserted_at,
+                name: "Updated Test CRUD Plan".to_string(),
                 instructions: "This plan has been updated".to_string(),
                 herd_id,
-                plan_type: PlanType::Fence,
+                plan_type: PlanType::Rally,
             };
 
             let update_result = client.update_plan(plan_id, &updated_plan).await;
@@ -2099,7 +2126,8 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
                     assert!(response.data.is_some());
 
                     let updated_plan_result = response.data.unwrap();
-                    assert_eq!(updated_plan_result.name, "Updated CRUD Plan");
+                    assert_eq!(updated_plan_result.id.unwrap_or(0), plan_id);
+                    assert_eq!(updated_plan_result.name, "Updated Test CRUD Plan");
                     assert_eq!(
                         updated_plan_result.instructions,
                         "This plan has been updated"
@@ -2118,13 +2146,13 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
                 Ok(response) => {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
                         assert!(found_plan.is_some(), "Should find the updated plan");
 
                         let found_plan = found_plan.unwrap();
-                        assert_eq!(found_plan.name, "Updated CRUD Plan");
+                        assert_eq!(found_plan.name, "Updated Test CRUD Plan");
                         assert_eq!(found_plan.instructions, "This plan has been updated");
-                        assert_eq!(found_plan.plan_type, PlanType::Fence);
+                        assert_eq!(found_plan.plan_type, PlanType::Rally);
                     }
                 }
                 Err(e) => {
@@ -2150,7 +2178,7 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
                 Ok(response) => {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
                         assert!(found_plan.is_none(), "Should not find the deleted plan");
                     }
                 }
@@ -2184,13 +2212,14 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
     let mut created_plan_ids = Vec::new();
 
     // Test 1: Create multiple plans
     let test_plans = vec![
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 1".to_string(),
             instructions: "First bulk test plan".to_string(),
@@ -2198,7 +2227,8 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             plan_type: PlanType::Mission,
         },
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 2".to_string(),
             instructions: "Second bulk test plan".to_string(),
@@ -2206,7 +2236,8 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             plan_type: PlanType::Fence,
         },
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 3".to_string(),
             instructions: "Third bulk test plan".to_string(),
@@ -2225,22 +2256,18 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
 
                 let created_plan = response.data.unwrap();
                 assert!(
-                    created_plan.id >= 0,
+                    created_plan.id.unwrap() >= 0,
                     "Plan {} should have a valid ID",
                     i + 1
                 );
                 assert_eq!(created_plan.name, format!("Bulk Test Plan {}", i + 1));
                 assert_eq!(created_plan.herd_id, herd_id);
 
-                created_plan_ids.push(created_plan.id);
-                println!(
-                    "Created bulk test plan {} with ID: {}",
-                    i + 1,
-                    created_plan.id
-                );
+                created_plan_ids.push(created_plan.id.unwrap());
+                println!("Created bulk plan {} with ID: {:?}", i + 1, created_plan.id);
 
                 // Track the created plan for cleanup
-                cleanup.track_plan(created_plan.id);
+                cleanup.track_plan(created_plan.id.unwrap());
             }
             Err(e) => {
                 panic!("❌ Failed to create bulk test plan {}: {}", i + 1, e);
@@ -2256,7 +2283,7 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             if let Some(plans) = response.data {
                 // Check that we can find all our created plans
                 for plan_id in &created_plan_ids {
-                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == *plan_id);
                     assert!(
                         found_plan.is_some(),
                         "Should find bulk test plan with ID {}",
@@ -2297,7 +2324,7 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             if let Some(plans) = response.data {
                 // Check that none of our created plans exist
                 for plan_id in &created_plan_ids {
-                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == *plan_id);
                     assert!(
                         found_plan.is_none(),
                         "Should not find deleted bulk test plan with ID {}",
@@ -2333,11 +2360,12 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test 1: Create a test plan first
     let test_plan = Plan {
-        id: 0,             // Placeholder ID for creation
+        id: Some(0), // Placeholder ID for creation
+        id_local: None,
         inserted_at: None, // Database will use default value
         name: "Individual Retrieval Test Plan".to_string(),
         instructions: "This plan is for testing individual retrieval".to_string(),
@@ -2352,8 +2380,8 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
             assert!(response.data.is_some());
 
             let created_plan = response.data.unwrap();
-            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
-            let plan_id = created_plan.id;
+            let plan_id = created_plan.id.unwrap();
+            assert!(plan_id >= 0, "Created plan should have a valid ID");
             println!("Created test plan with ID: {}", plan_id);
 
             // Track the created plan for cleanup
@@ -2367,7 +2395,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                     assert!(response.data.is_some());
 
                     let retrieved_plan = response.data.unwrap();
-                    assert_eq!(retrieved_plan.id, plan_id);
+                    assert_eq!(retrieved_plan.id.unwrap_or(0), plan_id);
                     assert_eq!(retrieved_plan.name, "Individual Retrieval Test Plan");
                     assert_eq!(
                         retrieved_plan.instructions,
@@ -2376,7 +2404,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                     assert_eq!(retrieved_plan.herd_id, herd_id);
                     assert_eq!(retrieved_plan.plan_type, PlanType::Mission);
 
-                    println!("Successfully retrieved plan {} by ID", plan_id);
+                    println!("Successfully retrieved plan {} multiple times", plan_id);
                 }
                 Err(e) => {
                     panic!("❌ Failed to get plan by ID: {}", e);
@@ -2411,7 +2439,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                 Ok(response) => {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
                         assert!(
                             found_plan.is_some(),
                             "Should find the test plan in herd plans"
@@ -2486,7 +2514,7 @@ async fn test_zones_and_actions_by_herd() {
         );
     }
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test getting zones and actions by herd
     let zones_result = client.get_zones_and_actions_by_herd(herd_id, 10, 0).await;
@@ -2687,12 +2715,12 @@ async fn test_complete_data_collection_workflow() {
         );
     }
 
-    let device_id = client.device.as_ref().unwrap().id;
-    let _herd_id = client.herd.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
+    let _herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Step 2: Create a session
     let session = Session::new(
-        device_id as i64,
+        device_id,
         chrono::Utc::now().timestamp() as u64,
         Some((chrono::Utc::now().timestamp() as u64) + 3600),
         "workflow_test_v1.0.0".to_string(),
@@ -2711,7 +2739,7 @@ async fn test_complete_data_collection_workflow() {
     if let Ok(response) = session_result {
         if response.status == ResponseScoutStatus::Success {
             let created_session = response.data.unwrap();
-            let session_id = created_session.id.unwrap();
+            let session_id = created_session.id.unwrap_or(0);
 
             // Step 3: Create events for the session
             let events = vec![
@@ -2798,14 +2826,14 @@ async fn test_complete_data_collection_workflow() {
                 let session_events = client.get_session_events(session_id).await;
                 if let Ok(response) = session_events {
                     if response.status == ResponseScoutStatus::Success {
-                        let events = response.data.unwrap();
+                        let _events = response.data.unwrap();
                     }
                 }
 
                 let session_connectivity = client.get_session_connectivity(session_id).await;
                 if let Ok(response) = session_connectivity {
                     if response.status == ResponseScoutStatus::Success {
-                        let connectivity_entries = response.data.unwrap();
+                        let _connectivity_entries = response.data.unwrap();
                     }
                 }
 
@@ -2838,10 +2866,10 @@ async fn test_real_database_integration_comprehensive() {
         Ok(_) => {
             assert!(client.is_identified());
 
-            let device_id = client.device.as_ref().unwrap().id;
-            let device_name = client.device.as_ref().unwrap().name.clone();
-            let herd_id = client.herd.as_ref().unwrap().id;
-            let herd_slug = client.herd.as_ref().unwrap().slug.clone();
+            let device_id = client.device.as_ref().unwrap().id.unwrap();
+            let _device_name = client.device.as_ref().unwrap().name.clone();
+            let herd_id = client.herd.as_ref().unwrap().id.unwrap();
+            let _herd_slug = client.herd.as_ref().unwrap().slug.clone();
 
             // Step 2: Test device retrieval methods
             let device_response = client.get_device().await;
@@ -2860,32 +2888,32 @@ async fn test_real_database_integration_comprehensive() {
                 .await;
             if let Ok(response) = events_with_tags {
                 if response.status == ResponseScoutStatus::Success {
-                    let events = response.data.unwrap();
+                    let _events = response.data.unwrap();
                 }
             }
 
             let sessions_with_coords = client.get_sessions_by_herd(herd_id).await;
             if let Ok(response) = sessions_with_coords {
                 if response.status == ResponseScoutStatus::Success {
-                    let sessions = response.data.unwrap();
+                    let _sessions = response.data.unwrap();
                 }
             }
 
             let plans = client.get_plans_by_herd(herd_id).await;
             if let Ok(response) = plans {
                 if response.status == ResponseScoutStatus::Success {
-                    let plans = response.data.unwrap();
+                    let _plans = response.data.unwrap();
                 }
             }
 
             let zones = client.get_zones_and_actions_by_herd(herd_id, 5, 0).await;
             if let Ok(response) = zones {
                 if response.status == ResponseScoutStatus::Success {
-                    let zones = response.data.unwrap();
+                    let _zones = response.data.unwrap();
                 }
             }
         }
-        Err(e) => {
+        Err(_e) => {
             // This might happen if the API key is invalid or database is not accessible
             // We don't panic here as this is expected in some test environments
         }
@@ -3024,7 +3052,8 @@ async fn test_integration_with_mock_data_comprehensive() {
 
     // Test 6: Mock data with different values
     let mock_plan = Plan {
-        id: 42,
+        id: Some(42),
+        id_local: None,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Mock Plan".to_string(),
         instructions: "Mock instructions".to_string(),
@@ -3032,7 +3061,7 @@ async fn test_integration_with_mock_data_comprehensive() {
         plan_type: PlanType::Mission,
     };
 
-    assert_eq!(mock_plan.id, 42);
+    assert_eq!(mock_plan.id, Some(42));
     assert_eq!(mock_plan.name, "Mock Plan");
     assert_eq!(mock_plan.herd_id, 123);
 
@@ -3202,7 +3231,8 @@ async fn test_data_structures_comprehensive() {
 
     // Test 5: Plan structure
     let plan = Plan {
-        id: 1,
+        id: Some(1),
+        id_local: None,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Comprehensive test plan".to_string(),
         instructions: "Test instructions".to_string(),
@@ -3210,7 +3240,7 @@ async fn test_data_structures_comprehensive() {
         plan_type: PlanType::Mission,
     };
 
-    assert_eq!(plan.id, 1);
+    assert_eq!(plan.id, Some(1));
     assert_eq!(plan.name, "Comprehensive test plan");
     assert_eq!(plan.instructions, "Test instructions");
     assert_eq!(plan.herd_id, 1);
@@ -3218,14 +3248,15 @@ async fn test_data_structures_comprehensive() {
 
     // Test 6: Zone and Action structures
     let action = Action {
-        id: 1,
+        id: Some(1),
+        id_local: None,
         inserted_at: "2023-01-01T00:00:00Z".to_string(),
         zone_id: 1,
         trigger: vec!["motion".to_string(), "sound".to_string()],
         opcode: 42,
     };
 
-    assert_eq!(action.id, 1);
+    assert_eq!(action.id, Some(1));
     assert_eq!(action.zone_id, 1);
     assert_eq!(
         action.trigger,
@@ -3234,14 +3265,15 @@ async fn test_data_structures_comprehensive() {
     assert_eq!(action.opcode, 42);
 
     let zone = Zone {
-        id: 1,
+        id: Some(1),
+        id_local: None,
         inserted_at: "2023-01-01T00:00:00Z".to_string(),
         region: "POLYGON((-155.154 19.754, -155.153 19.754, -155.153 19.755, -155.154 19.755, -155.154 19.754))".to_string(),
         herd_id: 1,
         actions: Some(vec![action]),
     };
 
-    assert_eq!(zone.id, 1);
+    assert_eq!(zone.id, Some(1));
     assert_eq!(zone.herd_id, 1);
     assert!(zone.actions.is_some());
     assert_eq!(zone.actions.as_ref().unwrap().len(), 1);
@@ -3819,7 +3851,7 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
     println!("🧪 Testing Tag upload with location to database...");
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
     // First create a real session for the event
     let session = Session::new(
@@ -3844,7 +3876,7 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
         Ok(session_response) => {
             if session_response.status == ResponseScoutStatus::Success {
                 let created_session = session_response.data.unwrap();
-                let session_id = created_session.id.unwrap();
+                let session_id = created_session.id.unwrap_or(0);
                 cleanup.track_session(session_id);
                 println!("✅ Session created with ID: {}", session_id);
 
