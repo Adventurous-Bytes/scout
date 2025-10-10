@@ -3223,7 +3223,10 @@ async fn test_data_structures_comprehensive() {
     assert_eq!(connectivity.noise, -60.0);
     assert_eq!(connectivity.altitude, 100.0);
     assert_eq!(connectivity.heading, 180.0);
-    assert_eq!(connectivity.location, "POINT(-155.15393 19.754824)");
+    assert_eq!(
+        connectivity.location,
+        Some("POINT(-155.15393 19.754824)".to_string())
+    );
     assert_eq!(connectivity.h14_index, "H14_INDEX");
     assert_eq!(connectivity.h13_index, "H13_INDEX");
     assert_eq!(connectivity.h12_index, "H12_INDEX");
@@ -3250,7 +3253,7 @@ async fn test_data_structures_comprehensive() {
     let action = Action {
         id: Some(1),
         id_local: None,
-        inserted_at: "2023-01-01T00:00:00Z".to_string(),
+        inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         zone_id: 1,
         trigger: vec!["motion".to_string(), "sound".to_string()],
         opcode: 42,
@@ -3267,16 +3270,14 @@ async fn test_data_structures_comprehensive() {
     let zone = Zone {
         id: Some(1),
         id_local: None,
-        inserted_at: "2023-01-01T00:00:00Z".to_string(),
+        inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         region: "POLYGON((-155.154 19.754, -155.153 19.754, -155.153 19.755, -155.154 19.755, -155.154 19.754))".to_string(),
         herd_id: 1,
-        actions: Some(vec![action]),
     };
 
     assert_eq!(zone.id, Some(1));
     assert_eq!(zone.herd_id, 1);
-    assert!(zone.actions.is_some());
-    assert_eq!(zone.actions.as_ref().unwrap().len(), 1);
+    assert_eq!(zone.region, "POLYGON((-155.154 19.754, -155.153 19.754, -155.153 19.755, -155.154 19.755, -155.154 19.754))");
 }
 
 #[tokio::test]
