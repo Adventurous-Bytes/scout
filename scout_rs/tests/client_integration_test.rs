@@ -2364,3 +2364,450 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
         }
     }
 }
+
+test_with_cleanup!(test_sessions_batch_upsert, test_sessions_batch_upsert_impl);
+
+async fn test_sessions_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create initial sessions
+    let sessions = vec![
+        Session::new(
+            device_id,
+            1704103200,       // 2024-01-01T10:00:00Z
+            Some(1704106800), // 2024-01-01T11:00:00Z
+            "1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            25.0,
+            10.0,
+            15.0,
+            1000.0,
+            500.0,
+        ),
+        Session::new(
+            device_id,
+            1704110400,       // 2024-01-01T12:00:00Z
+            Some(1704114000), // 2024-01-01T13:00:00Z
+            "1.0.0".to_string(),
+            None,
+            120.0,
+            60.0,
+            90.0,
+            30.0,
+            15.0,
+            20.0,
+            1200.0,
+            600.0,
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_sessions_batch(&sessions)
+        .await
+        .expect("Session batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_sessions = insert_result.data.unwrap();
+    assert_eq!(created_sessions.len(), 2);
+
+    // Track for cleanup
+    for session in &created_sessions {
+        if let Some(session_id) = session.id {
+            cleanup.track_session(session_id);
+        }
+    }
+
+    // Modify sessions for upsert
+    let mut updated_sessions = created_sessions.clone();
+    updated_sessions[0].software_version = "2.0.0".to_string();
+    updated_sessions[1].altitude_max = 150.0;
+
+    // Upsert the modified sessions
+    let upsert_result = client
+        .upsert_sessions_batch(&updated_sessions)
+        .await
+        .expect("Session batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_sessions = upsert_result.data.unwrap();
+    assert_eq!(upserted_sessions.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_sessions[0].software_version, "2.0.0");
+    assert_eq!(upserted_sessions[1].altitude_max, 150.0);
+}
+
+test_with_cleanup!(
+    test_connectivity_batch_upsert,
+    test_connectivity_batch_upsert_impl
+);
+
+async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create a session first
+    let session = Session::new(
+        device_id,
+        1704117600,       // 2024-01-01T14:00:00Z
+        Some(1704121200), // 2024-01-01T15:00:00Z
+        "1.0.0".to_string(),
+        None,
+        100.0,
+        50.0,
+        75.0,
+        25.0,
+        10.0,
+        15.0,
+        1000.0,
+        500.0,
+    );
+
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    let created_session = session_result.data.unwrap();
+    let session_id = created_session.id.unwrap();
+    cleanup.track_session(session_id);
+
+    // Create connectivity entries
+    let connectivity_entries = vec![
+        Connectivity::new(
+            session_id,
+            1704118200, // 2024-01-01T14:10:00Z
+            -70.0,
+            -90.0,
+            100.0,
+            0.0,
+            "POINT(-155.15393 19.754824)".to_string(),
+            "h14index1".to_string(),
+            "h13index1".to_string(),
+            "h12index1".to_string(),
+            "h11index1".to_string(),
+        ),
+        Connectivity::new(
+            session_id,
+            1704118800, // 2024-01-01T14:20:00Z
+            -75.0,
+            -95.0,
+            105.0,
+            90.0,
+            "POINT(-155.15400 19.754830)".to_string(),
+            "h14index2".to_string(),
+            "h13index2".to_string(),
+            "h12index2".to_string(),
+            "h11index2".to_string(),
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_connectivity_batch(&connectivity_entries)
+        .await
+        .expect("Connectivity batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_connectivity = insert_result.data.unwrap();
+    assert_eq!(created_connectivity.len(), 2);
+
+    // Track for cleanup
+    for connectivity in &created_connectivity {
+        if let Some(connectivity_id) = connectivity.id {
+            cleanup.track_connectivity(connectivity_id);
+        }
+    }
+
+    // Modify connectivity entries for upsert
+    let mut updated_connectivity = created_connectivity.clone();
+    updated_connectivity[0].signal = -65.0;
+    updated_connectivity[1].noise = -85.0;
+
+    // Upsert the modified connectivity
+    let upsert_result = client
+        .upsert_connectivity_batch(&updated_connectivity)
+        .await
+        .expect("Connectivity batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_connectivity = upsert_result.data.unwrap();
+    assert_eq!(upserted_connectivity.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_connectivity[0].signal, -65.0);
+    assert_eq!(upserted_connectivity[1].noise, -85.0);
+}
+
+test_with_cleanup!(test_events_batch_upsert, test_events_batch_upsert_impl);
+
+async fn test_events_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create events
+    let events = vec![
+        Event::new(
+            Some("Upsert event 1".to_string()),
+            Some("https://test.com/upsert1.jpg".to_string()),
+            None,
+            None,
+            19.754824,
+            -155.15393,
+            10.0,
+            0.0,
+            MediaType::Image,
+            device_id,
+            1640995400,
+            false,
+            None,
+        ),
+        Event::new(
+            Some("Upsert event 2".to_string()),
+            Some("https://test.com/upsert2.jpg".to_string()),
+            None,
+            None,
+            19.755,
+            -155.154,
+            12.0,
+            90.0,
+            MediaType::Image,
+            device_id,
+            1640995460,
+            false,
+            None,
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_events_batch(&events)
+        .await
+        .expect("Event batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_events = insert_result.data.unwrap();
+    assert_eq!(created_events.len(), 2);
+
+    // Track for cleanup
+    for event in &created_events {
+        if let Some(event_id) = event.id {
+            cleanup.track_event(event_id);
+        }
+    }
+
+    // Modify events for upsert
+    let mut updated_events = created_events.clone();
+    updated_events[0].message = Some("Updated upsert event 1".to_string());
+    updated_events[1].altitude = 15.0;
+
+    // Upsert the modified events
+    let upsert_result = client
+        .upsert_events_batch(&updated_events)
+        .await
+        .expect("Event batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_events = upsert_result.data.unwrap();
+    assert_eq!(upserted_events.len(), 2);
+
+    // Verify the updates
+    assert_eq!(
+        upserted_events[0].message,
+        Some("Updated upsert event 1".to_string())
+    );
+    assert_eq!(upserted_events[1].altitude, 15.0);
+}
+
+test_with_cleanup!(test_tags_batch_upsert, test_tags_batch_upsert_impl);
+
+async fn test_tags_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create an event first
+    let event = Event::new(
+        Some("Upsert tag event".to_string()),
+        Some("https://test.com/upsert_tags.jpg".to_string()),
+        None,
+        None,
+        19.754824,
+        -155.15393,
+        10.0,
+        0.0,
+        MediaType::Image,
+        device_id,
+        1640995500,
+        false,
+        None,
+    );
+
+    let event_result = client
+        .create_event(&event)
+        .await
+        .expect("Event creation failed");
+    let created_event = event_result.data.unwrap();
+    let event_id = created_event.id.unwrap();
+    cleanup.track_event(event_id);
+
+    // Create tags
+    let tags = vec![
+        Tag::new(
+            1,
+            100.0,
+            150.0,
+            50.0,
+            75.0,
+            0.95,
+            TagObservationType::Auto,
+            "elephant".to_string(),
+        ),
+        Tag::new(
+            2,
+            200.0,
+            250.0,
+            40.0,
+            60.0,
+            0.87,
+            TagObservationType::Auto,
+            "zebra".to_string(),
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_tags(event_id, &tags)
+        .await
+        .expect("Tag batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_tags = insert_result.data.unwrap();
+    assert_eq!(created_tags.len(), 2);
+
+    // Track for cleanup
+    for tag in &created_tags {
+        if let Some(tag_id) = tag.id {
+            cleanup.track_tag(tag_id);
+        }
+    }
+
+    // Modify tags for upsert
+    let mut updated_tags = created_tags.clone();
+    updated_tags[0].conf = 0.98;
+    updated_tags[1].class_name = "giraffe".to_string();
+
+    // Upsert the modified tags
+    let upsert_result = client
+        .upsert_tags_batch(&updated_tags)
+        .await
+        .expect("Tag batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_tags = upsert_result.data.unwrap();
+    assert_eq!(upserted_tags.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_tags[0].conf, 0.98);
+    assert_eq!(upserted_tags[1].class_name, "giraffe");
+}
+
+test_with_cleanup!(test_empty_batch_upserts, test_empty_batch_upserts_impl);
+
+async fn test_empty_batch_upserts_impl(_cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    // Test empty upserts return success with empty data
+    let empty_sessions: Vec<Session> = Vec::new();
+    let session_result = client
+        .upsert_sessions_batch(&empty_sessions)
+        .await
+        .expect("Empty session upsert failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    assert_eq!(session_result.data.unwrap().len(), 0);
+
+    let empty_connectivity: Vec<Connectivity> = Vec::new();
+    let connectivity_result = client
+        .upsert_connectivity_batch(&empty_connectivity)
+        .await
+        .expect("Empty connectivity upsert failed");
+    assert_eq!(connectivity_result.status, ResponseScoutStatus::Success);
+    assert_eq!(connectivity_result.data.unwrap().len(), 0);
+
+    let empty_events: Vec<Event> = Vec::new();
+    let event_result = client
+        .upsert_events_batch(&empty_events)
+        .await
+        .expect("Empty event upsert failed");
+    assert_eq!(event_result.status, ResponseScoutStatus::Success);
+    assert_eq!(event_result.data.unwrap().len(), 0);
+
+    let empty_tags: Vec<Tag> = Vec::new();
+    let tag_result = client
+        .upsert_tags_batch(&empty_tags)
+        .await
+        .expect("Empty tag upsert failed");
+    assert_eq!(tag_result.status, ResponseScoutStatus::Success);
+    assert_eq!(tag_result.data.unwrap().len(), 0);
+}

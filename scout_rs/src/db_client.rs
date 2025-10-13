@@ -287,6 +287,49 @@ impl ScoutDbClient {
         }
     }
 
+    /// Upserts multiple items in a single bulk operation (insert or update on conflict)
+    pub async fn upsert_bulk<T>(&mut self, table: &str, data: &[T]) -> Result<Vec<T>>
+    where
+        T: for<'de> serde::Deserialize<'de> + serde::Serialize,
+    {
+        let client = self.get_client()?;
+
+        let json_data = serde_json::to_string(data)?;
+
+        let response = client
+            .from(table)
+            .upsert(&json_data)
+            .on_conflict("id")
+            .execute()
+            .await?;
+
+        let body = response.text().await?;
+
+        // Try to parse as the expected type first
+        if let Ok(results) = serde_json::from_str::<Vec<T>>(&body) {
+            Ok(results)
+        } else {
+            // If that fails, try to parse as an error response
+            if let Ok(error_response) = serde_json::from_str::<serde_json::Value>(&body) {
+                if let Some(error_msg) = error_response.get("error") {
+                    return Err(anyhow!("Database bulk upsert error: {}", error_msg));
+                } else if let Some(message) = error_response.get("message") {
+                    return Err(anyhow!("Database bulk upsert message: {}", message));
+                } else {
+                    return Err(anyhow!(
+                        "Database bulk upsert returned unexpected format: {}",
+                        body
+                    ));
+                }
+            } else {
+                return Err(anyhow!(
+                    "Failed to parse database bulk upsert response as JSON: {}",
+                    body
+                ));
+            }
+        }
+    }
+
     /// Updates data in a table
     pub async fn update<T>(
         &mut self,

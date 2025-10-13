@@ -864,6 +864,89 @@ impl ScoutClient {
         ))
     }
 
+    /// Upserts multiple sessions in a batch (insert or update on conflict)
+    pub async fn upsert_sessions_batch(
+        &mut self,
+        sessions: &[Session],
+    ) -> Result<ResponseScout<Vec<Session>>> {
+        let db_client = self.get_db_client()?;
+
+        if sessions.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client.upsert_bulk("sessions", sessions).await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
+    /// Upserts multiple connectivity entries in a batch (insert or update on conflict)
+    pub async fn upsert_connectivity_batch(
+        &mut self,
+        connectivity_entries: &[Connectivity],
+    ) -> Result<ResponseScout<Vec<Connectivity>>> {
+        let db_client = self.get_db_client()?;
+
+        if connectivity_entries.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client
+            .upsert_bulk("connectivity", connectivity_entries)
+            .await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
+    /// Upserts multiple events in a batch (insert or update on conflict)
+    pub async fn upsert_events_batch(
+        &mut self,
+        events: &[Event],
+    ) -> Result<ResponseScout<Vec<Event>>> {
+        let db_client = self.get_db_client()?;
+
+        if events.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client.upsert_bulk("events", events).await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
+    /// Upserts multiple tags in a batch (insert or update on conflict)
+    pub async fn upsert_tags_batch(&mut self, tags: &[Tag]) -> Result<ResponseScout<Vec<Tag>>> {
+        let db_client = self.get_db_client()?;
+
+        if tags.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client.upsert_bulk("tags", tags).await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
     /// Updates an event directly in the database
     pub async fn update_event(
         &mut self,
