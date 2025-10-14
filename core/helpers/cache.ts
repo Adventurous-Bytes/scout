@@ -4,6 +4,7 @@ const DB_NAME = "ScoutCache";
 const DB_VERSION = 1;
 const HERD_MODULES_STORE = "herd_modules";
 const CACHE_METADATA_STORE = "cache_metadata";
+const PROVIDERS_STORE = "providers";
 
 // Default TTL: 24 hours (1 day)
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -89,6 +90,16 @@ export class ScoutCache {
           });
         }
 
+        // Create providers store
+        if (!db.objectStoreNames.contains(PROVIDERS_STORE)) {
+          const providersStore = db.createObjectStore(PROVIDERS_STORE, {
+            keyPath: "herdId",
+          });
+          providersStore.createIndex("timestamp", "timestamp", {
+            unique: false,
+          });
+        }
+
         console.log("[ScoutCache] Database schema upgraded");
       };
     });
@@ -99,14 +110,14 @@ export class ScoutCache {
   async setHerdModules(
     herdModules: IHerdModule[],
     ttlMs: number = DEFAULT_TTL_MS,
-    etag?: string
+    etag?: string,
   ): Promise<void> {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
     const transaction = this.db.transaction(
-      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
-      "readwrite"
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE, PROVIDERS_STORE],
+      "readwrite",
     );
 
     return new Promise((resolve, reject) => {
@@ -115,11 +126,12 @@ export class ScoutCache {
 
       const herdModulesStore = transaction.objectStore(HERD_MODULES_STORE);
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
+      const providersStore = transaction.objectStore(PROVIDERS_STORE);
 
       const timestamp = Date.now();
       const version = "1.0.0";
 
-      // Store each herd module
+      // Store each herd module and its providers
       herdModules.forEach((herdModule) => {
         const cacheEntry = {
           herdId: herdModule.herd.id.toString(),
@@ -127,6 +139,16 @@ export class ScoutCache {
           timestamp,
         };
         herdModulesStore.put(cacheEntry);
+
+        // Store providers separately for easier querying
+        if (herdModule.providers && herdModule.providers.length > 0) {
+          const providersCacheEntry = {
+            herdId: herdModule.herd.id.toString(),
+            data: herdModule.providers,
+            timestamp,
+          };
+          providersStore.put(providersCacheEntry);
+        }
       });
 
       // Store cache metadata
@@ -139,6 +161,17 @@ export class ScoutCache {
         lastModified: timestamp,
       };
       metadataStore.put(metadata);
+
+      // Store providers metadata
+      const providersMetadata: CacheMetadata = {
+        key: "providers",
+        timestamp,
+        ttl: ttlMs,
+        version,
+        etag,
+        lastModified: timestamp,
+      };
+      metadataStore.put(providersMetadata);
     });
   }
 
@@ -148,7 +181,7 @@ export class ScoutCache {
 
     const transaction = this.db.transaction(
       [HERD_MODULES_STORE, CACHE_METADATA_STORE],
-      "readonly"
+      "readonly",
     );
 
     return new Promise((resolve, reject) => {
@@ -177,9 +210,13 @@ export class ScoutCache {
         getAllRequest.onsuccess = () => {
           const cacheEntries = getAllRequest.result;
           const herdModules = cacheEntries
-            .filter((entry) => entry.data && entry.data.herd && entry.data.herd.slug)
+            .filter(
+              (entry) => entry.data && entry.data.herd && entry.data.herd.slug,
+            )
             .map((entry) => entry.data)
-            .sort((a, b) => (a.herd?.slug || "").localeCompare(b.herd?.slug || ""));
+            .sort((a, b) =>
+              (a.herd?.slug || "").localeCompare(b.herd?.slug || ""),
+            );
 
           // Update stats
           if (herdModules.length > 0) {
@@ -204,8 +241,8 @@ export class ScoutCache {
     if (!this.db) throw new Error("Database not initialized");
 
     const transaction = this.db.transaction(
-      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
-      "readwrite"
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE, PROVIDERS_STORE],
+      "readwrite",
     );
 
     return new Promise((resolve, reject) => {
@@ -214,9 +251,12 @@ export class ScoutCache {
 
       const herdModulesStore = transaction.objectStore(HERD_MODULES_STORE);
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
+      const providersStore = transaction.objectStore(PROVIDERS_STORE);
 
       herdModulesStore.clear();
+      providersStore.clear();
       metadataStore.delete("herd_modules");
+      metadataStore.delete("providers");
     });
   }
 
@@ -226,7 +266,7 @@ export class ScoutCache {
 
     const transaction = this.db.transaction(
       [CACHE_METADATA_STORE],
-      "readwrite"
+      "readwrite",
     );
 
     return new Promise((resolve, reject) => {
@@ -235,6 +275,7 @@ export class ScoutCache {
 
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
       metadataStore.delete("herd_modules");
+      metadataStore.delete("providers");
     });
   }
 
@@ -269,7 +310,7 @@ export class ScoutCache {
   // Method to check if we should refresh based on various conditions
   async shouldRefresh(
     maxAgeMs?: number,
-    forceRefresh?: boolean
+    forceRefresh?: boolean,
   ): Promise<{ shouldRefresh: boolean; reason: string }> {
     if (forceRefresh) {
       return { shouldRefresh: true, reason: "Force refresh requested" };
@@ -289,7 +330,7 @@ export class ScoutCache {
       return {
         shouldRefresh: true,
         reason: `Cache age (${Math.round(
-          result.age / 1000
+          result.age / 1000,
         )}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
       };
     }
@@ -300,7 +341,7 @@ export class ScoutCache {
   // Method to preload cache with background refresh
   async preloadCache(
     loadFunction: () => Promise<IHerdModule[]>,
-    ttlMs: number = DEFAULT_TTL_MS
+    ttlMs: number = DEFAULT_TTL_MS,
   ): Promise<void> {
     try {
       console.log("[ScoutCache] Starting background cache preload...");
@@ -314,6 +355,105 @@ export class ScoutCache {
     } catch (error) {
       console.warn("[ScoutCache] Background preload failed:", error);
     }
+  }
+
+  // Method to get providers for a specific herd from cache
+  async getProvidersForHerd(herdId: string): Promise<CacheResult<any[]>> {
+    await this.init();
+    if (!this.db) throw new Error("Database not initialized");
+
+    const transaction = this.db.transaction(
+      [PROVIDERS_STORE, CACHE_METADATA_STORE],
+      "readonly",
+    );
+
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => reject(transaction.error);
+
+      const providersStore = transaction.objectStore(PROVIDERS_STORE);
+      const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
+
+      // Get metadata first
+      const metadataRequest = metadataStore.get("providers");
+      metadataRequest.onsuccess = () => {
+        const metadata: CacheMetadata | undefined = metadataRequest.result;
+        const now = Date.now();
+
+        if (!metadata) {
+          this.stats.misses++;
+          resolve({ data: null, isStale: true, age: 0, metadata: null });
+          return;
+        }
+
+        const age = now - metadata.timestamp;
+        const isStale = age > metadata.ttl;
+
+        // Get providers for specific herd
+        const getRequest = providersStore.get(herdId);
+        getRequest.onsuccess = () => {
+          const cacheEntry = getRequest.result;
+          const providers = cacheEntry?.data || [];
+
+          // Update stats
+          if (providers.length > 0) {
+            this.stats.hits++;
+          } else {
+            this.stats.misses++;
+          }
+
+          resolve({
+            data: providers,
+            isStale,
+            age,
+            metadata,
+          });
+        };
+      };
+    });
+  }
+
+  // Method to set providers for a specific herd
+  async setProvidersForHerd(
+    herdId: string,
+    providers: any[],
+    ttlMs: number = DEFAULT_TTL_MS,
+  ): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error("Database not initialized");
+
+    const transaction = this.db.transaction(
+      [PROVIDERS_STORE, CACHE_METADATA_STORE],
+      "readwrite",
+    );
+
+    return new Promise((resolve, reject) => {
+      transaction.onerror = () => reject(transaction.error);
+      transaction.oncomplete = () => resolve();
+
+      const providersStore = transaction.objectStore(PROVIDERS_STORE);
+      const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
+
+      const timestamp = Date.now();
+      const version = "1.0.0";
+
+      // Store providers
+      const providersCacheEntry = {
+        herdId,
+        data: providers,
+        timestamp,
+      };
+      providersStore.put(providersCacheEntry);
+
+      // Update providers metadata
+      const metadata: CacheMetadata = {
+        key: "providers",
+        timestamp,
+        ttl: ttlMs,
+        version,
+        lastModified: timestamp,
+      };
+      metadataStore.put(metadata);
+    });
   }
 
   // Get the default TTL value
