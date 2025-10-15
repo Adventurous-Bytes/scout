@@ -7,7 +7,26 @@ use crate::{
 };
 use anyhow::{Error, Result};
 use native_db::{Builder, Database, Models, ToInput};
+use once_cell::sync::Lazy;
 use tracing::error;
+
+// Static models instance shared across all SyncEngine instances
+static MODELS: Lazy<Models> = Lazy::new(|| {
+    let mut models = Models::new();
+    models
+        .define::<SessionLocal>()
+        .expect("Failed to define SessionLocal model");
+    models
+        .define::<EventLocal>()
+        .expect("Failed to define EventLocal model");
+    models
+        .define::<TagLocal>()
+        .expect("Failed to define TagLocal model");
+    models
+        .define::<ConnectivityLocal>()
+        .expect("Failed to define ConnectivityLocal model");
+    models
+});
 
 /// SyncEngine handles synchronization between local database and remote Scout server.
 ///
@@ -79,17 +98,8 @@ impl SyncEngine {
         max_num_items_per_sync: Option<u64>,
         auto_clean: bool,
     ) -> Result<Self> {
-        let mut models = Models::new();
-
-        // Define all models for local database
-        models.define::<SessionLocal>()?;
-        models.define::<EventLocal>()?;
-        models.define::<TagLocal>()?;
-        models.define::<ConnectivityLocal>()?;
-
-        // Create database - use Box::leak to get 'static lifetime
-        let models_static = Box::leak(Box::new(models));
-        let database = Builder::new().create(models_static, &db_local_path)?;
+        // Create database using static models reference
+        let database = Builder::new().create(&*MODELS, &db_local_path)?;
         // initialize tracing
         Ok(Self {
             scout_client,
