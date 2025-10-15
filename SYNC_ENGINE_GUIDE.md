@@ -7,7 +7,7 @@ The Scout Sync Engine is a robust synchronization system that manages bidirectio
 The sync engine maintains a strict hierarchical sync order to preserve data integrity:
 
 1. **Sessions** (parent entities)
-2. **Connectivity** entries (children of sessions)  
+2. **Connectivity** entries (children of sessions)
 3. **Events** (children of sessions)
 4. **Tags** (children of events)
 
@@ -366,78 +366,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 ```
-
-## Testing and Verification
-
-The Scout Sync Engine includes comprehensive unit tests that **require actual remote database connectivity**. These tests are designed to fail if the sync is not actually working with a real remote database.
-
-### Test Requirements
-
-```bash
-# Required environment variables for tests
-export SCOUT_DEVICE_API_KEY="your-actual-api-key"
-export SCOUT_DATABASE_REST_URL="https://your-database-url.supabase.co"
-```
-
-### Test Verification Strategy
-
-The sync tests are **strict by design**:
-
-- ✅ **Real Database Connection Required**: Tests fail if they can't connect to the actual remote database
-- ✅ **Valid API Key Required**: Tests fail with invalid or missing API keys
-- ✅ **Actual Data Sync Verification**: Tests verify that data actually reaches the remote database
-- ✅ **Remote ID Assignment**: Tests confirm that synced items receive remote IDs from the server
-- ✅ **Relationship Updates**: Tests verify that parent-child relationships are properly updated with remote IDs
-
-### Running Sync Tests
-
-```bash
-# Run all sync tests - these WILL FAIL without proper credentials
-cargo test sync::tests --lib
-
-# Run specific comprehensive test
-cargo test sync::tests::test_flush_database_to_remote --lib -- --nocapture
-
-# Test credential validation
-cargo test sync::tests::test_sync_requires_valid_credentials --lib -- --nocapture
-```
-
-### Expected Test Behavior
-
-**With Valid Credentials and Permissions**:
-```
-✅ Full database flush to remote completed successfully!
-✅ Session synced with remote ID: 12345
-✅ Event synced with remote ID: 67890
-✅ All relationships updated correctly!
-```
-
-**With Invalid Credentials or Permissions**:
-```
-❌ Flush failed with error: Database bulk upsert message: "new row violates row-level security policy"
-💡 This indicates the test is correctly trying to sync to remote database
-🔧 Check: 1) Valid SCOUT_DEVICE_API_KEY 2) Database permissions 3) RLS policies
-```
-
-### Test Coverage
-
-The test suite includes:
-
-1. **`test_flush_sessions_without_remote`** - Verifies session sync and remote ID assignment
-2. **`test_flush_with_descendant_updates`** - Tests hierarchical relationship updates  
-3. **`test_flush_database_to_remote`** - Comprehensive end-to-end sync verification
-4. **`test_sync_requires_valid_credentials`** - Confirms proper credential validation
-5. **Basic functionality tests** - Local operations and batch processing
-
-### Why Tests Are Designed to Fail
-
-These tests are intentionally strict to ensure:
-- **No false positives**: Tests only pass when sync actually works
-- **Real-world validation**: Confirms the sync engine works with actual Scout infrastructure
-- **Credential verification**: Ensures proper API key and permission setup
-- **Data integrity**: Verifies that synced data maintains referential integrity
-
-This testing approach guarantees that when tests pass, the sync engine is genuinely working with the Scout remote database.
 
 ## Troubleshooting
 
