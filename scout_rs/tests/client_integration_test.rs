@@ -1,7 +1,7 @@
 use scout_rs::client::*;
 use scout_rs::models::{
-    Connectivity, Event, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus, Session,
-    Tag, TagObservationType,
+    Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus,
+    Session, Tag, TagObservationType,
 };
 use std::env;
 
@@ -38,6 +38,7 @@ struct TestDataTracker {
     tags: Vec<i64>,
     artifacts: Vec<i64>,
     plans: Vec<i64>,
+    heartbeats: Vec<i64>,
 }
 
 impl TestDataTracker {
@@ -49,6 +50,7 @@ impl TestDataTracker {
             tags: Vec::new(),
             artifacts: Vec::new(),
             plans: Vec::new(),
+            heartbeats: Vec::new(),
         }
     }
 
@@ -59,6 +61,7 @@ impl TestDataTracker {
         self.tags.clear();
         self.artifacts.clear();
         self.plans.clear();
+        self.heartbeats.clear();
     }
 }
 
@@ -116,6 +119,13 @@ impl TestCleanup {
         }
     }
 
+    /// Track heartbeat ID for cleanup
+    fn track_heartbeat(&self, heartbeat_id: i64) {
+        if let Ok(mut tracker) = self.tracker.lock() {
+            tracker.heartbeats.push(heartbeat_id);
+        }
+    }
+
     /// Clean up all tracked test data
     async fn cleanup(&self, client: &mut ScoutClient) {
         if let Ok(tracker) = self.tracker.lock() {
@@ -149,6 +159,11 @@ impl TestCleanup {
             // Clean up plans (they reference herds)
             for &plan_id in &tracker.plans {
                 let _ = client.delete_plan(plan_id).await;
+            }
+
+            // Clean up heartbeats (they reference devices)
+            for &heartbeat_id in &tracker.heartbeats {
+                let _ = client.delete_heartbeat(heartbeat_id).await;
             }
         }
 
@@ -2810,4 +2825,87 @@ async fn test_empty_batch_upserts_impl(_cleanup: &TestCleanup) {
         .expect("Empty tag upsert failed");
     assert_eq!(tag_result.status, ResponseScoutStatus::Success);
     assert_eq!(tag_result.data.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_heartbeat_operations() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
+    setup_test_env();
+
+    let cleanup = TestCleanup::new();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    assert!(client.is_identified(), "Client should be identified");
+
+    // Get device info
+    let device = client.get_device().await.expect("Failed to get device");
+    assert_eq!(device.status, ResponseScoutStatus::Success);
+    let device = device.data.unwrap();
+
+    // Create first heartbeat
+    let timestamp1 = chrono::Utc::now().to_rfc3339();
+    let heartbeat1 = Heartbeat::new(timestamp1.clone(), device.id.unwrap());
+
+    let create_result1 = client
+        .create_heartbeat(&heartbeat1)
+        .await
+        .expect("Failed to create first heartbeat");
+
+    assert_eq!(create_result1.status, ResponseScoutStatus::Success);
+    let created_heartbeat1 = create_result1.data.unwrap();
+    assert!(created_heartbeat1.id.is_some());
+    assert_eq!(created_heartbeat1.device_id, device.id.unwrap());
+    assert_eq!(created_heartbeat1.timestamp, timestamp1);
+
+    // Track for cleanup
+    cleanup.track_heartbeat(created_heartbeat1.id.unwrap());
+
+    // Wait and create second heartbeat to test ordering
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    let timestamp2 = chrono::Utc::now().to_rfc3339();
+    let heartbeat2 = Heartbeat::new(timestamp2.clone(), device.id.unwrap());
+
+    let create_result2 = client
+        .create_heartbeat(&heartbeat2)
+        .await
+        .expect("Failed to create second heartbeat");
+
+    assert_eq!(create_result2.status, ResponseScoutStatus::Success);
+    let created_heartbeat2 = create_result2.data.unwrap();
+    assert!(created_heartbeat2.id.is_some());
+    assert_eq!(created_heartbeat2.timestamp, timestamp2);
+
+    // Track for cleanup
+    cleanup.track_heartbeat(created_heartbeat2.id.unwrap());
+
+    // Get heartbeats for device
+    let get_result = client
+        .get_heartbeats_by_device(device.id.unwrap())
+        .await
+        .expect("Failed to get heartbeats");
+
+    assert_eq!(get_result.status, ResponseScoutStatus::Success);
+    let heartbeats = get_result.data.unwrap();
+    assert!(heartbeats.len() >= 2);
+
+    // Verify ordering (newest first)
+    assert_eq!(heartbeats[0].timestamp, timestamp2);
+
+    // Find both created heartbeats
+    let found_hb1 = heartbeats.iter().find(|h| h.id == created_heartbeat1.id);
+    let found_hb2 = heartbeats.iter().find(|h| h.id == created_heartbeat2.id);
+    assert!(found_hb1.is_some() && found_hb2.is_some());
+
+    // Clean up test data
+    cleanup.cleanup(&mut client).await;
 }

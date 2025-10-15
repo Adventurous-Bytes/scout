@@ -1742,3 +1742,55 @@ impl Syncable for Action {
         self.id_local = Some(id_local);
     }
 }
+
+// ===== HEARTBEAT =====
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Heartbeat {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    pub timestamp: String,
+    pub device_id: i64,
+}
+
+impl Default for Heartbeat {
+    fn default() -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            timestamp: String::new(),
+            device_id: 0,
+        }
+    }
+}
+
+impl Syncable for Heartbeat {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        None // API struct doesn't have id_local
+    }
+
+    fn set_id_local(&mut self, _id_local: String) {
+        // API struct doesn't have id_local, so this is a no-op
+    }
+}
+
+impl Heartbeat {
+    pub fn new(timestamp: String, device_id: i64) -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            timestamp,
+            device_id,
+        }
+    }
+}

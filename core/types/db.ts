@@ -29,6 +29,7 @@ export type IUserRolePerHerd =
 export type IHerd = Database["public"]["Tables"]["herds"]["Row"];
 export type ISession = Database["public"]["Tables"]["sessions"]["Row"];
 export type IConnectivity = Database["public"]["Tables"]["connectivity"]["Row"];
+export type IHeartbeat = Database["public"]["Tables"]["heartbeats"]["Row"];
 
 // Re-export composite types
 export type IEventWithTags =

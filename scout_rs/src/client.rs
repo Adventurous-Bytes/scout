@@ -1248,4 +1248,51 @@ impl ScoutClient {
             Some(result),
         ))
     }
+
+    /// Creates a heartbeat record for a device
+    pub async fn create_heartbeat(
+        &mut self,
+        heartbeat: &Heartbeat,
+    ) -> Result<ResponseScout<Heartbeat>> {
+        let db_client = self.get_db_client()?;
+        let result = db_client.insert("heartbeats", heartbeat).await?;
+        Self::handle_insert_result(result)
+    }
+
+    /// Gets all heartbeats for a specific device
+    pub async fn get_heartbeats_by_device(
+        &mut self,
+        device_id: i64,
+    ) -> Result<ResponseScout<Vec<Heartbeat>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client
+            .query(|client| {
+                client
+                    .from("heartbeats")
+                    .select("*")
+                    .eq("device_id", device_id.to_string())
+                    .order("timestamp.desc")
+            })
+            .await?;
+
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(results),
+        ))
+    }
+
+    /// Deletes a heartbeat record by ID
+    ///
+    /// **Note:** This method is primarily intended for testing and cleanup purposes.
+    /// In production, heartbeats are typically append-only for audit trail purposes.
+    pub async fn delete_heartbeat(&mut self, heartbeat_id: i64) -> Result<ResponseScout<()>> {
+        let db_client = self.get_db_client()?;
+
+        let _heartbeat_deleted = db_client
+            .delete(|client| client.from("heartbeats").eq("id", heartbeat_id.to_string()))
+            .await?;
+
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+    }
 }

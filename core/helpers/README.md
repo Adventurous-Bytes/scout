@@ -92,6 +92,63 @@ function EventMedia({ event }) {
 }
 ```
 
+## Heartbeats
+
+This module provides functionality for managing device heartbeats and checking device online status.
+
+### Key Features
+
+- **Last Heartbeat Retrieval**: Get the most recent heartbeat for a device
+- **Device Status Checking**: Determine if a device is online based on heartbeat recency
+- **Batch Heartbeat Retrieval**: Get multiple heartbeats for a device with optional limits
+- **Flexible Thresholds**: Configurable offline detection thresholds
+
+### Files
+
+- **`heartbeats.ts`**: Server-side functions for heartbeat management (requires "use server")
+
+### Heartbeat Functions (Server-side)
+
+#### `server_get_last_heartbeat_by_device(device_id)`
+
+Gets the most recent heartbeat for a specific device.
+
+```typescript
+const response = await server_get_last_heartbeat_by_device(123);
+if (response.status === EnumWebResponse.SUCCESS && response.data) {
+  console.log(`Last heartbeat: ${response.data.timestamp}`);
+} else {
+  console.log("No heartbeats found for device");
+}
+```
+
+#### `server_get_heartbeats_by_device(device_id, limit?)`
+
+Gets all heartbeats for a device, optionally limited to a specific count.
+
+```typescript
+// Get all heartbeats
+const response = await server_get_heartbeats_by_device(123);
+
+// Get last 10 heartbeats
+const response = await server_get_heartbeats_by_device(123, 10);
+```
+
+#### `server_check_device_online_status(device_id, offline_threshold_minutes?)`
+
+Checks if a device is considered online based on heartbeat recency (default threshold: 5 minutes).
+
+```typescript
+const response = await server_check_device_online_status(123, 10);
+if (response.status === EnumWebResponse.SUCCESS && response.data) {
+  const { is_online, last_heartbeat, minutes_since_last_heartbeat } = response.data;
+  console.log(`Device is ${is_online ? 'online' : 'offline'}`);
+  if (minutes_since_last_heartbeat !== null) {
+    console.log(`Last seen ${minutes_since_last_heartbeat} minutes ago`);
+  }
+}
+```
+
 ### Database Schema
 
 Events now have two URL-related fields:
