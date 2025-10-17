@@ -37,6 +37,7 @@ export * from "./helpers/storage";
 export * from "./helpers/eventUtils";
 export * from "./helpers/cache";
 export * from "./helpers/heartbeats";
+export * from "./helpers/providers";
 
 // Hooks
 export * from "./hooks/useScoutDbListener";
@@ -69,5 +70,10 @@ export type {
   IApiKeyScout,
   ILayer,
   IHeartbeat,
+  IProvider,
+  IConnectivity,
+  ISession,
+  ISessionWithCoordinates,
+  IConnectivityWithCoordinates,
 } from "./types/db";
 export { EnumSessionsVisibility } from "./types/events";
