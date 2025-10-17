@@ -6,6 +6,7 @@ import { server_get_total_events_by_herd } from "../helpers/events";
 import { EnumSessionsVisibility } from "./events";
 import { server_get_plans_by_herd } from "../helpers/plans";
 import { server_get_layers_by_herd } from "../helpers/layers";
+import { server_get_providers_by_herd } from "../helpers/providers";
 import { server_get_events_and_tags_for_devices_batch } from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
 import {
@@ -15,6 +16,7 @@ import {
   IHerd,
   IPlan,
   ILayer,
+  IProvider,
   IUserAndRole,
   IZoneWithActions,
   ISessionWithCoordinates,
@@ -45,6 +47,7 @@ export class HerdModule {
   labels: string[] = [];
   plans: IPlan[] = [];
   layers: ILayer[] = [];
+  providers: IProvider[] = [];
   constructor(
     herd: IHerd,
     devices: IDevice[],
@@ -58,7 +61,8 @@ export class HerdModule {
     plans: IPlan[] = [],
     zones: IZoneWithActions[] = [],
     sessions: ISessionWithCoordinates[] = [],
-    layers: ILayer[] = []
+    layers: ILayer[] = [],
+    providers: IProvider[] = [],
   ) {
     this.herd = herd;
     this.devices = devices;
@@ -73,6 +77,7 @@ export class HerdModule {
     this.zones = zones;
     this.sessions = sessions;
     this.layers = layers;
+    this.providers = providers;
   }
   to_serializable(): IHerdModule {
     return {
@@ -89,11 +94,12 @@ export class HerdModule {
       zones: this.zones,
       sessions: this.sessions,
       layers: this.layers,
+      providers: this.providers,
     };
   }
   static async from_herd(
     herd: IHerd,
-    client: SupabaseClient
+    client: SupabaseClient,
   ): Promise<HerdModule> {
     const startTime = Date.now();
 
@@ -110,7 +116,9 @@ export class HerdModule {
       const new_devices = response_new_devices.data;
 
       // get api keys and events for all devices in batch
-      let recent_events_batch: { [device_id: number]: IEventAndTagsPrettyLocation[] } = {};
+      let recent_events_batch: {
+        [device_id: number]: IEventAndTagsPrettyLocation[];
+      } = {};
       if (new_devices.length > 0) {
         try {
           const device_ids = new_devices.map((device) => device.id ?? 0);
@@ -148,15 +156,16 @@ export class HerdModule {
         res_plans,
         res_sessions,
         res_layers,
+        res_providers,
       ] = await Promise.allSettled([
         server_get_more_zones_and_actions_for_herd(herd.id, 0, 10).catch(
           (error) => {
             console.warn(
               `[HerdModule] Failed to get zones and actions:`,
-              error
+              error,
             );
             return { status: EnumWebResponse.ERROR, data: null };
-          }
+          },
         ),
         server_get_users_with_herd_access(herd.id, client).catch((error) => {
           console.warn(`[HerdModule] Failed to get user roles:`, error);
@@ -164,7 +173,7 @@ export class HerdModule {
         }),
         server_get_total_events_by_herd(
           herd.id,
-          EnumSessionsVisibility.Exclude
+          EnumSessionsVisibility.Exclude,
         ).catch((error) => {
           console.warn(`[HerdModule] Failed to get total events count:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
@@ -175,10 +184,18 @@ export class HerdModule {
         }),
         server_get_sessions_by_herd_id(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get sessions:`, error);
-          return { status: EnumWebResponse.ERROR, data: [], msg: error.message };
+          return {
+            status: EnumWebResponse.ERROR,
+            data: [],
+            msg: error.message,
+          };
         }),
         server_get_layers_by_herd(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get layers:`, error);
+          return { status: EnumWebResponse.ERROR, data: null };
+        }),
+        server_get_providers_by_herd(herd.id).catch((error) => {
+          console.warn(`[HerdModule] Failed to get providers:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
       ]);
@@ -194,7 +211,7 @@ export class HerdModule {
         } catch (error) {
           console.warn(
             `Failed to process events for device ${new_devices[i].id}:`,
-            error
+            error,
           );
         }
       }
@@ -218,10 +235,16 @@ export class HerdModule {
           ? res_plans.value.data
           : [];
       const sessions =
-        res_sessions.status === "fulfilled" && res_sessions.value?.data ? res_sessions.value.data : [];
+        res_sessions.status === "fulfilled" && res_sessions.value?.data
+          ? res_sessions.value.data
+          : [];
       const layers =
         res_layers.status === "fulfilled" && res_layers.value?.data
           ? res_layers.value.data
+          : [];
+      const providers =
+        res_providers.status === "fulfilled" && res_providers.value?.data
+          ? res_providers.value.data
           : [];
 
       // TODO: store in DB and retrieve on load?
@@ -230,7 +253,7 @@ export class HerdModule {
       const endTime = Date.now();
       const loadTime = endTime - startTime;
       console.log(
-        `[HerdModule] Loaded herd ${herd.slug} in ${loadTime}ms (${new_devices.length} devices)`
+        `[HerdModule] Loaded herd ${herd.slug} in ${loadTime}ms (${new_devices.length} devices)`,
       );
 
       return new HerdModule(
@@ -246,14 +269,15 @@ export class HerdModule {
         plans,
         zones,
         sessions,
-        layers
+        layers,
+        providers,
       );
     } catch (error) {
       const endTime = Date.now();
       const loadTime = endTime - startTime;
       console.error(
         `[HerdModule] Critical error in HerdModule.from_herd (${loadTime}ms):`,
-        error
+        error,
       );
       // Return a minimal but valid HerdModule instance to prevent complete failure
       return new HerdModule(
@@ -269,7 +293,8 @@ export class HerdModule {
         [],
         [],
         [],
-        []
+        [],
+        [],
       );
     }
   }
@@ -289,6 +314,7 @@ export interface IHerdModule {
   zones: IZoneWithActions[];
   sessions: ISessionWithCoordinates[];
   layers: ILayer[];
+  providers: IProvider[];
 }
 
 export interface IHerdModulesResponse {

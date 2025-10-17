@@ -31,6 +31,8 @@ export type ISession = Database["public"]["Tables"]["sessions"]["Row"];
 export type IConnectivity = Database["public"]["Tables"]["connectivity"]["Row"];
 export type IHeartbeat = Database["public"]["Tables"]["heartbeats"]["Row"];
 
+export type IProvider = Database["public"]["Tables"]["providers"]["Row"];
+
 // Re-export composite types
 export type IEventWithTags =
   Database["public"]["CompositeTypes"]["event_with_tags"] & {
