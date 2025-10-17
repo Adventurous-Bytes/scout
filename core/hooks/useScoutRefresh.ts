@@ -609,6 +609,24 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     }
   }, []);
 
+  // Utility function to check cache version compatibility
+  const isCacheVersionCompatible = useCallback(async () => {
+    try {
+      return await scoutCache.isCacheVersionCompatible();
+    } catch (error) {
+      console.error(
+        "[useScoutRefresh] Failed to check cache version compatibility:",
+        error,
+      );
+      return false;
+    }
+  }, []);
+
+  // Utility function to get current DB version
+  const getCurrentDbVersion = useCallback(() => {
+    return scoutCache.getCurrentDbVersion();
+  }, []);
+
   return {
     handleRefresh,
     getTimingStats,
@@ -616,5 +634,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     getCacheStats,
     checkDatabaseHealth,
     resetDatabase,
+    isCacheVersionCompatible,
+    getCurrentDbVersion,
   };
 }

@@ -1,7 +1,7 @@
 import { IHerdModule } from "../types/herd_module";
 
 const DB_NAME = "ScoutCache";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Increment to invalidate old cache versions
 const HERD_MODULES_STORE = "herd_modules";
 const CACHE_METADATA_STORE = "cache_metadata";
 
@@ -13,6 +13,7 @@ export interface CacheMetadata {
   timestamp: number;
   ttl: number; // Time to live in milliseconds
   version: string;
+  dbVersion: number; // Track DB schema version for cache invalidation
   etag?: string; // For conditional requests
   lastModified?: number; // For conditional requests
 }
@@ -72,18 +73,13 @@ export class ScoutCache {
 
       request.onsuccess = () => {
         this.db = request.result;
-
-        // Validate that required object stores exist
-        if (!this.validateDatabaseSchema()) {
-          console.error("[ScoutCache] Database schema validation failed");
-          this.db.close();
-          this.db = null;
-          this.initPromise = null;
-          reject(new Error("Database schema validation failed"));
-          return;
-        }
-
         console.log("[ScoutCache] IndexedDB initialized successfully");
+
+        // Add error handler for runtime database errors
+        this.db.onerror = (event) => {
+          console.error("[ScoutCache] Database error:", event);
+        };
+
         resolve();
       };
 
@@ -91,30 +87,50 @@ export class ScoutCache {
         const db = (event.target as IDBOpenDBRequest).result;
 
         try {
-          // Create herd modules store
-          if (!db.objectStoreNames.contains(HERD_MODULES_STORE)) {
-            const herdModulesStore = db.createObjectStore(HERD_MODULES_STORE, {
-              keyPath: "herdId",
-            });
-            herdModulesStore.createIndex("timestamp", "timestamp", {
-              unique: false,
-            });
-            console.log("[ScoutCache] Created herd_modules object store");
+          console.log(
+            `[ScoutCache] Upgrading database to version ${DB_VERSION}`,
+          );
+
+          // Remove all existing object stores to ensure clean slate
+          const existingStores = Array.from(db.objectStoreNames);
+          for (const storeName of existingStores) {
+            console.log(
+              `[ScoutCache] Removing existing object store: ${storeName}`,
+            );
+            db.deleteObjectStore(storeName);
           }
+
+          // Create herd modules store (unified storage for all herd data)
+          const herdModulesStore = db.createObjectStore(HERD_MODULES_STORE, {
+            keyPath: "herdId",
+          });
+          herdModulesStore.createIndex("timestamp", "timestamp", {
+            unique: false,
+          });
+          herdModulesStore.createIndex("dbVersion", "dbVersion", {
+            unique: false,
+          });
+          console.log("[ScoutCache] Created herd_modules object store");
 
           // Create cache metadata store
-          if (!db.objectStoreNames.contains(CACHE_METADATA_STORE)) {
-            const metadataStore = db.createObjectStore(CACHE_METADATA_STORE, {
-              keyPath: "key",
-            });
-            console.log("[ScoutCache] Created cache_metadata object store");
-          }
+          const metadataStore = db.createObjectStore(CACHE_METADATA_STORE, {
+            keyPath: "key",
+          });
+          console.log("[ScoutCache] Created cache_metadata object store");
 
-          console.log("[ScoutCache] Database schema upgraded");
+          console.log(
+            `[ScoutCache] Database schema upgrade to version ${DB_VERSION} completed`,
+          );
         } catch (error) {
           console.error("[ScoutCache] Error during database upgrade:", error);
           reject(error);
         }
+      };
+
+      request.onblocked = () => {
+        console.warn(
+          "[ScoutCache] Database upgrade blocked - other connections may need to be closed",
+        );
       };
     });
 
@@ -147,7 +163,6 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    // Validate schema before creating transaction
     if (!this.validateDatabaseSchema()) {
       throw new Error(
         "Database schema validation failed - required object stores not found",
@@ -167,14 +182,15 @@ export class ScoutCache {
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
 
       const timestamp = Date.now();
-      const version = "1.0.0";
+      const version = "2.0.0";
 
-      // Store each herd module
+      // Store each herd module (contains all nested data - devices, events, zones, etc.)
       herdModules.forEach((herdModule) => {
         const cacheEntry = {
           herdId: herdModule.herd.id.toString(),
           data: herdModule,
           timestamp,
+          dbVersion: DB_VERSION,
         };
         herdModulesStore.put(cacheEntry);
       });
@@ -185,6 +201,7 @@ export class ScoutCache {
         timestamp,
         ttl: ttlMs,
         version,
+        dbVersion: DB_VERSION,
         etag,
         lastModified: timestamp,
       };
@@ -196,7 +213,6 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    // Validate schema before creating transaction
     if (!this.validateDatabaseSchema()) {
       throw new Error(
         "Database schema validation failed - required object stores not found",
@@ -226,6 +242,20 @@ export class ScoutCache {
           return;
         }
 
+        // Check if cache is from an incompatible DB version
+        if (!metadata.dbVersion || metadata.dbVersion !== DB_VERSION) {
+          console.log(
+            `[ScoutCache] Cache from incompatible DB version (${metadata.dbVersion || "unknown"} !== ${DB_VERSION}), invalidating`,
+          );
+          this.stats.misses++;
+          // Clear old cache asynchronously
+          this.clearHerdModules().catch((error) => {
+            console.warn("[ScoutCache] Failed to clear old cache:", error);
+          });
+          resolve({ data: null, isStale: true, age: 0, metadata: null });
+          return;
+        }
+
         const age = now - metadata.timestamp;
         const isStale = age > metadata.ttl;
 
@@ -235,7 +265,11 @@ export class ScoutCache {
           const cacheEntries = getAllRequest.result;
           const herdModules = cacheEntries
             .filter(
-              (entry) => entry.data && entry.data.herd && entry.data.herd.slug,
+              (entry) =>
+                entry.data &&
+                entry.data.herd &&
+                entry.data.herd.slug &&
+                entry.dbVersion === DB_VERSION, // Only return entries from current DB version
             )
             .map((entry) => entry.data)
             .sort((a, b) =>
@@ -264,7 +298,6 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    // Validate schema before creating transaction
     if (!this.validateDatabaseSchema()) {
       throw new Error(
         "Database schema validation failed - required object stores not found",
@@ -292,7 +325,6 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
-    // Validate schema before creating transaction
     if (!this.validateDatabaseSchema()) {
       throw new Error(
         "Database schema validation failed - required object stores not found",
@@ -341,7 +373,6 @@ export class ScoutCache {
     return result.age;
   }
 
-  // Method to check if we should refresh based on various conditions
   async shouldRefresh(
     maxAgeMs?: number,
     forceRefresh?: boolean,
@@ -356,6 +387,18 @@ export class ScoutCache {
       return { shouldRefresh: true, reason: "No cached data" };
     }
 
+    // Check for DB version mismatch
+    if (
+      !result.metadata ||
+      !result.metadata.dbVersion ||
+      result.metadata.dbVersion !== DB_VERSION
+    ) {
+      return {
+        shouldRefresh: true,
+        reason: `Cache from incompatible DB version (${result.metadata?.dbVersion || "unknown"} !== ${DB_VERSION})`,
+      };
+    }
+
     if (result.isStale) {
       return { shouldRefresh: true, reason: "Cache is stale" };
     }
@@ -363,16 +406,13 @@ export class ScoutCache {
     if (maxAgeMs && result.age > maxAgeMs) {
       return {
         shouldRefresh: true,
-        reason: `Cache age (${Math.round(
-          result.age / 1000,
-        )}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
+        reason: `Cache age (${Math.round(result.age / 1000)}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
       };
     }
 
     return { shouldRefresh: false, reason: "Cache is valid and fresh" };
   }
 
-  // Method to preload cache with background refresh
   async preloadCache(
     loadFunction: () => Promise<IHerdModule[]>,
     ttlMs: number = DEFAULT_TTL_MS,
@@ -391,12 +431,29 @@ export class ScoutCache {
     }
   }
 
-  // Get the default TTL value
   getDefaultTtl(): number {
     return DEFAULT_TTL_MS;
   }
 
-  // Method to reset the database in case of corruption
+  getCurrentDbVersion(): number {
+    return DB_VERSION;
+  }
+
+  async isCacheVersionCompatible(): Promise<boolean> {
+    try {
+      const result = await this.getHerdModules();
+      if (!result.metadata) return false;
+
+      return (
+        result.metadata.dbVersion !== undefined &&
+        result.metadata.dbVersion === DB_VERSION
+      );
+    } catch (error) {
+      console.warn("[ScoutCache] Version compatibility check failed:", error);
+      return false;
+    }
+  }
+
   async resetDatabase(): Promise<void> {
     console.log("[ScoutCache] Resetting database...");
 
@@ -433,7 +490,6 @@ export class ScoutCache {
     });
   }
 
-  // Method to check database health
   async checkDatabaseHealth(): Promise<DatabaseHealth> {
     const issues: string[] = [];
 
@@ -449,9 +505,18 @@ export class ScoutCache {
         issues.push("Database schema validation failed");
       }
 
+      // Check version compatibility
+      const isVersionCompatible = await this.isCacheVersionCompatible();
+      if (!isVersionCompatible) {
+        issues.push(`Cache version incompatible (current: ${DB_VERSION})`);
+      }
+
       // Try a simple read operation
       try {
-        await this.getHerdModules();
+        const result = await this.getHerdModules();
+        if (result.data === null && result.age === 0) {
+          // This is expected for empty cache, not an error
+        }
       } catch (error) {
         issues.push(`Read operation failed: ${error}`);
       }

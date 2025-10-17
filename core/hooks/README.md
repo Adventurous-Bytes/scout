@@ -4,11 +4,13 @@ This directory contains React hooks for the Scout application.
 
 ## useScoutRefresh
 
-A hook for refreshing scout data with detailed timing measurements, caching capabilities, and database health monitoring for performance optimization and debugging.
+A hook for refreshing scout data with detailed timing measurements, intelligent caching with version-based invalidation, and database health monitoring for performance optimization and debugging.
 
 ### Features
 
 - **Cache-first loading**: Loads data from IndexedDB cache first, then updates with fresh data
+- **Version-based invalidation**: Automatically invalidates incompatible cache versions
+- **Unified data storage**: Stores complete herd modules (no redundant separate stores)
 - **Automatic refresh**: Automatically refreshes data on component mount
 - **Manual refresh**: Provides a function to manually trigger refreshes
 - **Detailed timing**: Measures the duration of each portion of the loading process
@@ -94,23 +96,27 @@ function MyComponent() {
 }
 ```
 
-### Cache-First Loading
+### Cache-First Loading & Version Management
 
-The hook supports cache-first loading for improved perceived performance:
+The hook supports intelligent cache-first loading with automatic version management:
 
-- Data is loaded from IndexedDB cache immediately
-- Fresh data is fetched from API in the background
-- Cache is updated with fresh data for future requests
-- Configurable cache TTL (Time To Live)
+- **Immediate Load**: Data is loaded from IndexedDB cache immediately
+- **Background Refresh**: Fresh data is fetched from API in the background
+- **Version Validation**: Automatically detects and invalidates incompatible cache versions
+- **Unified Storage**: Complete herd modules stored as single entities (includes devices, events, zones, sessions, layers, plans, user roles)
+- **Smart Invalidation**: Uses DB schema version to invalidate old cache automatically
+- **Configurable TTL**: Cache Time To Live is fully customizable
 
 ### Database Health & Recovery
 
 The hook includes robust database health monitoring and auto-recovery:
 
 - **Automatic Detection**: Detects IndexedDB corruption and schema issues
+- **Version Compatibility**: Automatically handles schema version mismatches
 - **Auto-Recovery**: Automatically resets corrupted databases
-- **Health Checks**: Manual database health validation
+- **Health Checks**: Manual database health validation with version compatibility checks
 - **Graceful Fallback**: Falls back to API-only mode if cache fails
+- **Clean Migration**: Removes obsolete object stores from previous versions
 
 ### Redux State
 
@@ -152,5 +158,33 @@ Available cache management functions:
 
 - `getCacheStats()`: Get cache size, hit rate, and staleness info
 - `clearCache()`: Clear all cached data
-- `checkDatabaseHealth()`: Validate database schema and connectivity
+- `checkDatabaseHealth()`: Validate database schema, connectivity, and version compatibility
 - `resetDatabase()`: Reset corrupted database (auto-triggered when needed)
+- `isCacheVersionCompatible()`: Check if current cache matches expected schema version
+- `getCurrentDbVersion()`: Get current database schema version number
+
+### Version-Based Cache Invalidation
+
+The cache system automatically handles version compatibility:
+
+```jsx
+// Cache automatically detects version mismatches
+const health = await checkDatabaseHealth();
+if (!health.healthy) {
+  // Issues might include: "Cache version incompatible (current: 2)"
+  console.log("Health issues:", health.issues);
+}
+
+// Manual version check
+const isCompatible = await scoutCache.isCacheVersionCompatible();
+if (!isCompatible) {
+  // Cache will be automatically cleared and refreshed
+  console.log("Cache version mismatch detected");
+}
+```
+
+**Benefits:**
+- **No Manual Migration**: Old cache data is automatically invalidated
+- **Data Integrity**: Prevents loading incompatible cached data structures
+- **Clean Upgrades**: Seamless transitions between application versions
+- **Reduced Errors**: Eliminates "object store not found" errors from schema changes
