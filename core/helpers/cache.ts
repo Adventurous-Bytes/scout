@@ -4,7 +4,6 @@ const DB_NAME = "ScoutCache";
 const DB_VERSION = 2; // Increment to invalidate old cache versions
 const HERD_MODULES_STORE = "herd_modules";
 const CACHE_METADATA_STORE = "cache_metadata";
-const PROVIDERS_STORE = "providers";
 
 // Default TTL: 24 hours (1 day)
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
@@ -181,7 +180,6 @@ export class ScoutCache {
 
       const herdModulesStore = transaction.objectStore(HERD_MODULES_STORE);
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
-      const providersStore = transaction.objectStore(PROVIDERS_STORE);
 
       const timestamp = Date.now();
       const version = "2.0.0";
@@ -195,16 +193,6 @@ export class ScoutCache {
           dbVersion: DB_VERSION,
         };
         herdModulesStore.put(cacheEntry);
-
-        // Store providers separately for easier querying
-        if (herdModule.providers && herdModule.providers.length > 0) {
-          const providersCacheEntry = {
-            herdId: herdModule.herd.id.toString(),
-            data: herdModule.providers,
-            timestamp,
-          };
-          providersStore.put(providersCacheEntry);
-        }
       });
 
       // Store cache metadata
@@ -218,17 +206,6 @@ export class ScoutCache {
         lastModified: timestamp,
       };
       metadataStore.put(metadata);
-
-      // Store providers metadata
-      const providersMetadata: CacheMetadata = {
-        key: "providers",
-        timestamp,
-        ttl: ttlMs,
-        version,
-        etag,
-        lastModified: timestamp,
-      };
-      metadataStore.put(providersMetadata);
     });
   }
 
@@ -338,12 +315,9 @@ export class ScoutCache {
 
       const herdModulesStore = transaction.objectStore(HERD_MODULES_STORE);
       const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
-      const providersStore = transaction.objectStore(PROVIDERS_STORE);
 
       herdModulesStore.clear();
-      providersStore.clear();
       metadataStore.delete("herd_modules");
-      metadataStore.delete("providers");
     });
   }
 
