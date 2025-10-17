@@ -68,5 +68,6 @@ export type {
   IUserAndRole,
   IApiKeyScout,
   ILayer,
+  IHeartbeat,
 } from "./types/db";
 export { EnumSessionsVisibility } from "./types/events";
