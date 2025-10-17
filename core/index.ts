@@ -35,6 +35,7 @@ export * from "./helpers/web";
 export * from "./helpers/zones";
 export * from "./helpers/storage";
 export * from "./helpers/eventUtils";
+export * from "./helpers/cache";
 
 // Hooks
 export * from "./hooks/useScoutDbListener";

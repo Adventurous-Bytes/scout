@@ -309,6 +309,35 @@ export type Database = {
           },
         ]
       }
+      heartbeats: {
+        Row: {
+          created_at: string
+          device_id: number
+          id: number
+          timestamp: string
+        }
+        Insert: {
+          created_at?: string
+          device_id: number
+          id?: number
+          timestamp: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: number
+          id?: number
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "heartbeats_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       herds: {
         Row: {
           created_by: string

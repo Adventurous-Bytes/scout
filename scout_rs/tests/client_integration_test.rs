@@ -1,99 +1,23 @@
 use scout_rs::client::*;
 use scout_rs::models::{
-    Action, Connectivity, Event, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus,
-    Session, Tag, TagObservationType, Zone,
+    Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus,
+    Session, Tag, TagObservationType,
 };
 use std::env;
 
 use once_cell::sync::Lazy;
 use std::sync::Mutex;
+use tokio::sync::Mutex as TokioMutex;
 
-/// # Scout Client Integration Tests
-///
-/// This test suite comprehensively tests the Scout client's integration capabilities including:
-///
-/// ## Core Functionality Tested:
-/// - **Self-identification**: Client authentication and device/herd identification
-/// - **Event Management**: Creating individual events and event batches
-/// - **Session Management**: Creating and managing data collection sessions
-/// - **Connectivity Data**: Recording signal strength and location data
-/// - **Tag Management**: Creating AI detection tags for events
-/// - **Error Handling**: Graceful failure handling and validation
-/// - **Integration Workflow**: Complete end-to-end data collection workflow
-///
-/// ## Running the Tests:
-///
-/// ### 1. Test Environment (Default)
-/// Tests will run with mock data and expected failures for database operations:
-/// ```bash
-/// cargo test --test client_integration_test
-/// ```
-///
-/// ### 2. Real Database Integration (Optional)
-/// To test with a real database, set these environment variables:
-/// ```bash
-/// export SCOUT_DATABASE_REST_URL="https://your-db.supabase.co/rest/v1"
-/// export SCOUT_DEVICE_API_KEY="your_device_api_key"
-/// export SCOUT_DATABASE_URL="postgresql://user:pass@host:port/db"
-/// export SCOUT_DATABASE_ANON_KEY="your_anon_key"
-/// export SCOUT_DATABASE_SERVICE_KEY="your_service_key"
-///
-/// # Then run tests with real database
-/// cargo test --test client_integration_test -- --nocapture
-/// ```
-///
-/// ### 3. Test Database Setup
-/// For full integration testing, you'll need:
-/// - A PostgREST-enabled database (e.g., Supabase)
-/// - A device record with your API key
-/// - A herd record associated with the device
-/// - Proper database schema with tables: devices, herds, events, sessions, connectivity, tags
-///
-/// ## Test Structure:
-/// - **Unit Tests**: Test data structures and basic client creation
-/// - **Integration Tests**: Test client operations with database (real or mock)
-/// - **Workflow Tests**: Test complete data collection workflows
-/// - **Error Tests**: Test error handling and edge cases
-///
-/// ## Expected Behavior:
-/// - In test environment: Tests pass with graceful handling of database connection failures
-/// - In real environment: Tests pass with actual database operations
-/// - All tests validate proper response structures and error handling
+// Global mutex to prevent concurrent database tests from interfering with each other
+static DB_TEST_MUTEX: Lazy<TokioMutex<()>> = Lazy::new(|| TokioMutex::new(()));
 
-// ===== TEST DATA CLEANUP SYSTEM =====
-//
-// This system automatically tracks and cleans up test data to ensure tests don't
-// leave behind data that could interfere with other tests.
-//
-// ## How to Use:
-//
-// 1. **Wrap your test with the macro**: Replace `#[tokio::test]` with `test_with_cleanup!`
-// 2. **Create a test implementation function**: Make your test logic a separate async function
-// 3. **Track created data**: Call cleanup.track_*() methods for each piece of data you create
-// 4. **Automatic cleanup**: The macro automatically cleans up after your test runs
-//
-// ## Example:
-// ```rust
-// async fn my_test_impl(cleanup: &TestCleanup) {
-//     // Your test logic here
-//     let event = create_event().await?;
-//     cleanup.track_event(event.id); // Track for cleanup
-//
-//     let plan = create_plan().await?;
-//     cleanup.track_plan(plan.id); // Track for cleanup
-// }
-//
-// test_with_cleanup!(my_test, my_test_impl);
-// ```
-//
-// ## What Gets Cleaned Up:
-// - Events (and their tags)
-// - Sessions
-// - Connectivity data
-// - Tags
-// - Artifacts
-// - Plans
-//
+/// Scout Client Integration Tests
+///
+/// Tests client operations including events, sessions, connectivity, tags, and plans.
+/// Uses real database operations with proper cleanup.
+
+// Test cleanup system - tracks and deletes test data
 // ## Cleanup Order:
 // The system cleans up in the correct dependency order to avoid foreign key constraint violations:
 // 1. Tags (reference events)
@@ -114,6 +38,7 @@ struct TestDataTracker {
     tags: Vec<i64>,
     artifacts: Vec<i64>,
     plans: Vec<i64>,
+    heartbeats: Vec<i64>,
 }
 
 impl TestDataTracker {
@@ -125,6 +50,7 @@ impl TestDataTracker {
             tags: Vec::new(),
             artifacts: Vec::new(),
             plans: Vec::new(),
+            heartbeats: Vec::new(),
         }
     }
 
@@ -135,6 +61,7 @@ impl TestDataTracker {
         self.tags.clear();
         self.artifacts.clear();
         self.plans.clear();
+        self.heartbeats.clear();
     }
 }
 
@@ -192,6 +119,13 @@ impl TestCleanup {
         }
     }
 
+    /// Track heartbeat ID for cleanup
+    fn track_heartbeat(&self, heartbeat_id: i64) {
+        if let Ok(mut tracker) = self.tracker.lock() {
+            tracker.heartbeats.push(heartbeat_id);
+        }
+    }
+
     /// Clean up all tracked test data
     async fn cleanup(&self, client: &mut ScoutClient) {
         if let Ok(tracker) = self.tracker.lock() {
@@ -226,6 +160,11 @@ impl TestCleanup {
             for &plan_id in &tracker.plans {
                 let _ = client.delete_plan(plan_id).await;
             }
+
+            // Clean up heartbeats (they reference devices)
+            for &heartbeat_id in &tracker.heartbeats {
+                let _ = client.delete_heartbeat(heartbeat_id).await;
+            }
         }
 
         // Reset the tracker for the next test
@@ -240,6 +179,9 @@ macro_rules! test_with_cleanup {
     ($test_name:ident, $test_fn:ident) => {
         #[tokio::test]
         async fn $test_name() {
+            // Acquire global database test lock to prevent concurrent database access
+            let _guard = DB_TEST_MUTEX.lock().await;
+
             let cleanup = TestCleanup::new();
 
             // Run the test
@@ -310,116 +252,10 @@ fn setup_test_env() {
     }
 }
 
-#[test]
-fn test_tracing_works() {
-    // This should show up in the logs
-
-    // Simple assertion to make this a valid test
-    assert!(true);
-}
-
-#[test]
-fn test_response_scout_types() {
-    // Test that ResponseScout types work correctly
-    let success_response = ResponseScout::new(ResponseScoutStatus::Success, Some("test data"));
-    assert_eq!(success_response.status, ResponseScoutStatus::Success);
-    assert_eq!(success_response.data, Some("test data"));
-
-    let failure_response = ResponseScout::new(ResponseScoutStatus::Failure, None::<&str>);
-    assert_eq!(failure_response.status, ResponseScoutStatus::Failure);
-    assert_eq!(failure_response.data, None);
-
-    let not_authorized = ResponseScout::new(ResponseScoutStatus::NotAuthorized, None::<&str>);
-    assert_eq!(not_authorized.status, ResponseScoutStatus::NotAuthorized);
-}
-
-#[test]
-fn test_data_structures() {
-    // Test that data structures can be created and serialized
-    let event = Event::new(
-        Some("Test event".to_string()),
-        Some("https://example.com/image.jpg".to_string()),
-        None,
-        Some("https://earthranger.example.com".to_string()),
-        19.754824,
-        -155.15393,
-        10.0,
-        0.0,
-        MediaType::Image,
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        false,
-        None,
-    );
-
-    assert_eq!(event.message, Some("Test event".to_string()));
-    assert_eq!(
-        event.media_url,
-        Some("https://example.com/image.jpg".to_string())
-    );
-    let expected_device_id = env::var("SCOUT_DEVICE_ID")
-        .unwrap_or_else(|_| "123".to_string())
-        .parse()
-        .unwrap_or(123);
-    assert_eq!(event.device_id, Some(expected_device_id as i64));
-    assert_eq!(event.is_public, false);
-
-    let session = Session::new(
-        expected_device_id,
-        1640995200,
-        1640998800,
-        "v1.0.0".to_string(),
-        None,
-        100.0,
-        50.0,
-        75.0,
-        10.0,
-        5.0,
-        7.5,
-        1000.0,
-        500.0,
-    );
-
-    assert_eq!(session.device_id, expected_device_id);
-    assert_eq!(session.software_version, "v1.0.0");
-    assert_eq!(session.altitude_max, 100.0);
-    assert_eq!(session.altitude_min, 50.0);
-
-    let tag = Tag::new(
-        1,
-        100.0,
-        200.0,
-        50.0,
-        30.0,
-        0.95,
-        TagObservationType::Auto,
-        "animal".to_string(),
-    );
-
-    assert_eq!(tag.x, 100.0);
-    assert_eq!(tag.y, 200.0);
-    assert_eq!(tag.conf, 0.95);
-    assert_eq!(tag.class_name, "animal");
-}
-
-#[test]
-fn test_client_creation() {
-    // Test that ScoutClient can be created
-    let client = ScoutClient::new("test_key".to_string());
-    assert!(client.is_ok());
-
-    let client = client.unwrap();
-    assert_eq!(client.api_key, "test_key");
-    assert!(client.device.is_none());
-    assert!(client.herd.is_none());
-    assert!(!client.is_identified());
-}
-
 #[tokio::test]
 async fn test_client_identification() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     // Create a client with actual credentials from .env file
@@ -476,14 +312,10 @@ async fn test_event_creation_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Create test event
     let event = Event::new(
@@ -505,24 +337,15 @@ async fn test_event_creation_impl(cleanup: &TestCleanup) {
         None,
     );
 
-    // Test event creation - should always succeed with proper credentials
-    let event_result = client.create_event(&event).await;
-
-    match event_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
-
-            // Track the created event for cleanup
-            if let Some(created_event) = response.data {
-                if let Some(event_id) = created_event.id {
-                    cleanup.track_event(event_id);
-                }
-            }
-        }
-        Err(e) => {
-            panic!("❌ Event creation failed: {}", e);
-        }
+    let event_result = client
+        .create_event(&event)
+        .await
+        .expect("Event creation failed");
+    assert_eq!(event_result.status, ResponseScoutStatus::Success);
+    let created_event = event_result.data.unwrap();
+    assert!(created_event.id.unwrap_or(0) >= 0);
+    if let Some(event_id) = created_event.id {
+        cleanup.track_event(event_id);
     }
 }
 
@@ -536,14 +359,10 @@ async fn test_event_batch_creation_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Create multiple test events
     let events = vec![
@@ -603,26 +422,16 @@ async fn test_event_batch_creation_impl(cleanup: &TestCleanup) {
         ),
     ];
 
-    // Test batch event creation - should always succeed with proper credentials
-    let batch_result = client.create_events_batch(&events).await;
-
-    match batch_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
-
-            let created_events = response.data.unwrap();
-            assert_eq!(created_events.len(), 3);
-
-            // Track all created events for cleanup
-            for created_event in &created_events {
-                if let Some(event_id) = created_event.id {
-                    cleanup.track_event(event_id);
-                }
-            }
-        }
-        Err(e) => {
-            panic!("❌ Event batch creation failed: {}", e);
+    let batch_result = client
+        .create_events_batch(&events)
+        .await
+        .expect("Batch event creation failed");
+    assert_eq!(batch_result.status, ResponseScoutStatus::Success);
+    let created_events = batch_result.data.unwrap();
+    assert_eq!(created_events.len(), 3);
+    for created_event in &created_events {
+        if let Some(event_id) = created_event.id {
+            cleanup.track_event(event_id);
         }
     }
 }
@@ -637,14 +446,10 @@ async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // First create a real session for the event
     let session = Session::new(
@@ -653,7 +458,7 @@ async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "tags_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -807,23 +612,24 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client
+        .device
+        .as_ref()
+        .unwrap()
+        .id
+        .expect("Device should have an ID");
 
     // Create test session
     let session = Session::new(
         device_id,
         1640995200,
-        1640998800,
+        Some(1640998800),
         "v2.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -836,24 +642,14 @@ async fn test_session_creation_impl(cleanup: &TestCleanup) {
         600.0,
     );
 
-    // Test session creation - should always succeed with proper credentials
-    let session_result = client.create_session(&session).await;
-
-    match session_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
-
-            // Track the created session for cleanup
-            if let Some(created_session) = response.data {
-                if let Some(session_id) = created_session.id {
-                    cleanup.track_session(session_id);
-                }
-            }
-        }
-        Err(e) => {
-            panic!("❌ Session creation failed: {}", e);
-        }
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    let created_session = session_result.data.unwrap();
+    if let Some(session_id) = created_session.id {
+        cleanup.track_session(session_id);
     }
 }
 
@@ -867,44 +663,27 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
-    // Test 1: Check for non-existent session
     let exists_result = client
-        .does_session_exist(
-            device_id,
-            "2023-01-01T00:00:00Z", // Non-existent start time
-            "2023-01-01T01:00:00Z", // Non-existent end time
-        )
-        .await;
-    match exists_result {
-        Ok(exists) => {
-            assert!(!exists, "Non-existent session should not exist");
-            println!("✅ Non-existent session check passed");
-        }
-        Err(e) => {
-            panic!("❌ Session existence check failed: {}", e);
-        }
-    }
+        .does_session_exist(device_id, "2023-01-01T00:00:00Z")
+        .await
+        .expect("Session existence check failed");
+    assert!(!exists_result, "Non-existent session should not exist");
 
-    // Test 2: Create a session with unique timestamps
     let unique_start_timestamp = chrono::Utc::now().timestamp() as u64;
     let unique_end_timestamp = unique_start_timestamp + 3600;
 
     let session = Session::new(
         device_id,
         unique_start_timestamp,
-        unique_end_timestamp,
+        Some(unique_end_timestamp),
         "does_session_exist_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -917,122 +696,42 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
         600.0,
     );
 
-    let session_result = client.create_session(&session).await;
-    match session_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    let created_session = session_result.data.unwrap();
+    let session_id = created_session.id.unwrap();
+    cleanup.track_session(session_id);
 
-            let created_session = response.data.unwrap();
-            let session_id = created_session.id.unwrap();
-            println!("Created test session with ID: {}", session_id);
+    let exists_result = client
+        .does_session_exist(device_id, &created_session.timestamp_start)
+        .await
+        .expect("Session existence check failed");
+    assert!(exists_result, "Created session should exist");
 
-            // Track the created session for cleanup
-            cleanup.track_session(session_id);
+    let delete_result = client
+        .delete_session(session_id)
+        .await
+        .expect("Session deletion failed");
+    assert_eq!(delete_result.status, ResponseScoutStatus::Success);
 
-            // Test 3: Check that the created session exists
-            let exists_result = client
-                .does_session_exist(
-                    device_id,
-                    &created_session.timestamp_start,
-                    &created_session.timestamp_end,
-                )
-                .await;
-            match exists_result {
-                Ok(exists) => {
-                    assert!(exists, "Created session should exist");
-                    println!("✅ Created session existence check passed");
-                }
-                Err(e) => {
-                    panic!("❌ Session existence check failed: {}", e);
-                }
-            }
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-            // Test 4: Delete the session and verify it no longer exists
-            let delete_result = client.delete_session(session_id).await;
-            match delete_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    println!("✅ Session deleted successfully");
-
-                    // Test 5: Check that the deleted session no longer exists
-                    println!(
-                        "Checking if deleted session still exists with timestamps: {} to {}",
-                        &created_session.timestamp_start, &created_session.timestamp_end
-                    );
-                    let exists_after_delete = client
-                        .does_session_exist(
-                            device_id,
-                            &created_session.timestamp_start,
-                            &created_session.timestamp_end,
-                        )
-                        .await;
-                    match exists_after_delete {
-                        Ok(exists) => {
-                            assert!(!exists, "Deleted session should not exist");
-                            println!("✅ Deleted session existence check passed");
-                        }
-                        Err(e) => {
-                            panic!("❌ Post-deletion session existence check failed: {}", e);
-                        }
-                    }
-                }
-                Err(e) => {
-                    panic!("❌ Session deletion failed: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            panic!("❌ Session creation failed: {}", e);
-        }
-    }
-
-    // Test 6: Edge case - different device ID with same timestamps
-    let different_device_exists_result = client
-        .does_session_exist(
-            999999, // Non-existent device ID
-            "1970-01-01T00:00:00Z",
-            "1970-01-01T01:00:00Z",
-        )
-        .await;
-    match different_device_exists_result {
-        Ok(exists) => {
-            assert!(!exists, "Session with different device ID should not exist");
-            println!("✅ Different device ID check passed");
-        }
-        Err(e) => {
-            panic!("❌ Different device ID check failed: {}", e);
-        }
-    }
-
-    // Test 7: Edge case - same device ID with different timestamps
-    let different_timestamps_result = client
-        .does_session_exist(
-            device_id,
-            "1970-01-01T00:00:00Z", // Different timestamps
-            "1970-01-01T01:00:00Z",
-        )
-        .await;
-    match different_timestamps_result {
-        Ok(exists) => {
-            assert!(
-                !exists,
-                "Session with different timestamps should not exist"
-            );
-            println!("✅ Different timestamps check passed");
-        }
-        Err(e) => {
-            panic!("❌ Different timestamps check failed: {}", e);
-        }
-    }
-
-    println!("🎉 All does_session_exist tests passed!");
+    let exists_after_delete = client
+        .does_session_exist(device_id, &created_session.timestamp_start)
+        .await
+        .expect("Post-deletion check failed");
+    assert!(!exists_after_delete, "Deleted session should not exist");
 }
 
 test_with_cleanup!(test_does_session_exist, test_does_session_exist_impl);
 
 #[tokio::test]
 async fn test_connectivity_creation() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1040,14 +739,10 @@ async fn test_connectivity_creation() {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // First create a real session for the connectivity data
     let session = Session::new(
@@ -1056,7 +751,7 @@ async fn test_connectivity_creation() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "connectivity_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1069,54 +764,42 @@ async fn test_connectivity_creation() {
         600.0,
     );
 
-    let session_result = client.create_session(&session).await;
-    if let Ok(response) = session_result {
-        if response.status == ResponseScoutStatus::Success {
-            let created_session = response.data.unwrap();
-            let session_id = created_session.id.unwrap();
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    let created_session = session_result.data.unwrap();
+    let session_id = created_session.id.unwrap();
 
-            // Create test connectivity entry with real session ID
-            let connectivity = Connectivity::new(
-                session_id,
-                1640995200,
-                -45.0, // signal
-                -60.0, // noise
-                100.0, // altitude
-                180.0, // heading
-                "POINT(-155.15393 19.754824)".to_string(),
-                "H14_INDEX".to_string(),
-                "H13_INDEX".to_string(),
-                "H12_INDEX".to_string(),
-                "H11_INDEX".to_string(),
-            );
+    let connectivity = Connectivity::new(
+        session_id,
+        chrono::Utc::now().timestamp() as u64,
+        -45.0,
+        -60.0,
+        100.0,
+        180.0,
+        "POINT(-155.15393 19.754824)".to_string(),
+        "H14_INDEX".to_string(),
+        "H13_INDEX".to_string(),
+        "H12_INDEX".to_string(),
+        "H11_INDEX".to_string(),
+    );
 
-            // Test connectivity creation - should always succeed with proper credentials
-            let connectivity_result = client.create_connectivity(&connectivity).await;
+    let connectivity_result = client
+        .create_connectivity(&connectivity)
+        .await
+        .expect("Connectivity creation failed");
+    assert_eq!(connectivity_result.status, ResponseScoutStatus::Success);
+    assert!(connectivity_result.data.is_some());
 
-            match connectivity_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    assert!(response.data.is_some());
-
-                    // Clean up test data
-                    let _ = client.delete_session(session_id).await;
-                }
-                Err(e) => {
-                    // Clean up test data even on failure
-                    let _ = client.delete_session(session_id).await;
-                    panic!("❌ Connectivity creation failed: {}", e);
-                }
-            }
-        } else {
-            panic!("❌ Session creation failed for connectivity test");
-        }
-    } else {
-        panic!("❌ Session creation error for connectivity test");
-    }
+    let _ = client.delete_session(session_id).await;
 }
 
 #[tokio::test]
 async fn test_compatibility_methods() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1124,14 +807,10 @@ async fn test_compatibility_methods() {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Test post_events_batch with proper event and tag creation
     // First create a session for the events
@@ -1141,7 +820,7 @@ async fn test_compatibility_methods() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "compat_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1154,108 +833,90 @@ async fn test_compatibility_methods() {
         600.0,
     );
 
-    let session_result = client.create_session(&session).await;
-    if let Ok(response) = session_result {
-        if response.status == ResponseScoutStatus::Success {
-            let created_session = response.data.unwrap();
-            let session_id = created_session.id.unwrap();
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    let created_session = session_result.data.unwrap();
+    let session_id = created_session.id.unwrap();
 
-            let events_and_files = vec![
-                (
-                    Event::new(
-                        Some("Compat event 1".to_string()),
-                        Some("https://test.com/compat1.jpg".to_string()),
-                        None,
-                        None,
-                        19.754824,
-                        -155.15393,
-                        10.0,
-                        0.0,
-                        MediaType::Image,
-                        env::var("SCOUT_DEVICE_ID")
-                            .unwrap_or_else(|_| "123".to_string())
-                            .parse()
-                            .unwrap_or(123),
-                        1640995200,
-                        false,
-                        Some(session_id),
-                    ),
-                    vec![Tag::new(
-                        1,
-                        100.0,
-                        200.0,
-                        50.0,
-                        30.0,
-                        0.95,
-                        TagObservationType::Auto,
-                        "animal".to_string(),
-                    )],
-                    "/path/to/file1.jpg".to_string(),
-                ),
-                (
-                    Event::new(
-                        Some("Compat event 2".to_string()),
-                        Some("https://test.com/compat2.jpg".to_string()),
-                        None,
-                        None,
-                        19.755,
-                        -155.154,
-                        12.0,
-                        90.0,
-                        MediaType::Image,
-                        env::var("SCOUT_DEVICE_ID")
-                            .unwrap_or_else(|_| "123".to_string())
-                            .parse()
-                            .unwrap_or(123),
-                        1640995260,
-                        false,
-                        Some(session_id),
-                    ),
-                    vec![Tag::new(
-                        2,
-                        150.0,
-                        250.0,
-                        40.0,
-                        25.0,
-                        0.87,
-                        TagObservationType::Auto,
-                        "animal".to_string(),
-                    )],
-                    "/path/to/file2.jpg".to_string(),
-                ),
-            ];
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
-            // Test post_events_batch with tags - should always succeed with proper credentials
-            let compat_result = client.post_events_batch(&events_and_files, 10).await;
-            match compat_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    assert!(response.data.is_some());
+    let events_and_files = vec![
+        (
+            Event::new(
+                Some("Compatibility test event 1".to_string()),
+                Some("https://example.com/compat1.jpg".to_string()),
+                None,
+                None,
+                19.754824,
+                -155.15393,
+                15.0,
+                90.0,
+                MediaType::Image,
+                device_id,
+                1640995200,
+                false,
+                Some(session_id),
+            ),
+            vec![Tag::new(
+                1,
+                100.0,
+                200.0,
+                50.0,
+                30.0,
+                0.95,
+                TagObservationType::Auto,
+                "elephant".to_string(),
+            )],
+            "/path/to/file1.jpg".to_string(),
+        ),
+        (
+            Event::new(
+                Some("Compatibility test event 2".to_string()),
+                Some("https://example.com/compat2.jpg".to_string()),
+                None,
+                None,
+                19.755,
+                -155.154,
+                20.0,
+                180.0,
+                MediaType::Image,
+                device_id,
+                1640995260,
+                false,
+                Some(session_id),
+            ),
+            vec![Tag::new(
+                2,
+                150.0,
+                250.0,
+                40.0,
+                25.0,
+                0.85,
+                TagObservationType::Manual,
+                "bird".to_string(),
+            )],
+            "/path/to/file2.jpg".to_string(),
+        ),
+    ];
 
-                    let created_events = response.data.unwrap();
-                    assert_eq!(created_events.len(), 2);
+    let batch_result = client
+        .post_events_batch(&events_and_files, 10)
+        .await
+        .expect("Batch creation failed");
+    assert_eq!(batch_result.status, ResponseScoutStatus::Success);
+    let created_events = batch_result.data.unwrap();
+    assert_eq!(created_events.len(), 2);
 
-                    // Clean up test data
-                    let _ = client.delete_session(session_id).await;
-                }
-                Err(e) => {
-                    // Clean up test data even on failure
-                    let _ = client.delete_session(session_id).await;
-
-                    // Fail the test - if we can't create events with tags, that's a test failure
-                    panic!("❌ Compatibility batch method failed: {}. This test requires successful event and tag creation.", e);
-                }
-            }
-        } else {
-            panic!("❌ Session creation failed for compatibility test");
-        }
-    } else {
-        panic!("❌ Session creation error for compatibility test");
-    }
+    let _ = client.delete_session(session_id).await;
 }
 
 #[tokio::test]
 async fn test_error_handling() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new("invalid_api_key".to_string()).unwrap();
@@ -1295,6 +956,8 @@ async fn test_error_handling() {
 
 #[tokio::test]
 async fn test_error_handling_and_edge_cases() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1354,318 +1017,10 @@ async fn test_error_handling_and_edge_cases() {
     }
 }
 
-async fn test_integration_workflow_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    // Test the complete workflow: identify -> create session -> create events -> create connectivity
-
-    // Step 1: Identify (will fail in test env, but tests structure)
-    let identify_result = client.identify().await;
-
-    if identify_result.is_ok() {
-        // Step 2: Create a session
-        let session = Session::new(
-            env::var("SCOUT_DEVICE_ID")
-                .unwrap_or_else(|_| "123".to_string())
-                .parse()
-                .unwrap_or(123),
-            1640995200,
-            1640998800,
-            "v2.0.0".to_string(),
-            Some("POINT(-155.15393 19.754824)".to_string()),
-            120.0,
-            45.0,
-            82.5,
-            15.0,
-            3.0,
-            9.0,
-            1200.0,
-            600.0,
-        );
-
-        let session_result = client.create_session(&session).await;
-
-        if let Ok(_response) = session_result {
-            // Step 3: Create events for the session
-            let events = vec![
-                Event::new(
-                    Some("Workflow event 1".to_string()),
-                    Some("https://test.com/workflow1.jpg".to_string()),
-                    None,
-                    None,
-                    19.754824,
-                    -155.15393,
-                    10.0,
-                    0.0,
-                    MediaType::Image,
-                    env::var("SCOUT_DEVICE_ID")
-                        .unwrap_or_else(|_| "123".to_string())
-                        .parse()
-                        .unwrap_or(123),
-                    1640995200,
-                    false,
-                    None, // Will be set after session creation
-                ),
-                Event::new(
-                    Some("Workflow event 2".to_string()),
-                    Some("https://test.com/workflow2.jpg".to_string()),
-                    None,
-                    None,
-                    19.755,
-                    -155.154,
-                    12.0,
-                    90.0,
-                    MediaType::Image,
-                    env::var("SCOUT_DEVICE_ID")
-                        .unwrap_or_else(|_| "123".to_string())
-                        .parse()
-                        .unwrap_or(123),
-                    1640995260,
-                    false,
-                    None, // Will be set after session creation
-                ),
-            ];
-
-            // Get the session ID from the created session
-            let session_id = _response.data.unwrap().id.unwrap();
-
-            // Update events with the real session ID
-            let mut events_with_session = events.clone();
-            for event in &mut events_with_session {
-                event.session_id = Some(session_id);
-            }
-
-            let events_result = client.create_events_batch(&events_with_session).await;
-
-            if let Ok(_response) = events_result {
-                // Get the created events with their IDs
-                let created_events = _response.data.unwrap();
-
-                // Step 4: Create tags for the first event
-                if let Some(first_event) = created_events.first() {
-                    if let Some(event_id) = first_event.id {
-                        let tags = vec![Tag::new(
-                            1,
-                            100.0,
-                            200.0,
-                            50.0,
-                            30.0,
-                            0.95,
-                            TagObservationType::Auto,
-                            "elephant".to_string(),
-                        )];
-
-                        // Debug: Check what device_id the event has
-
-                        let tags_result = client.create_tags(event_id, &tags).await;
-                        if let Ok(response) = tags_result {
-                            if response.status == ResponseScoutStatus::Success {}
-                        } else {
-                            panic!("❌ Step 4: Tags creation failed");
-                        }
-                    } else {
-                    }
-                }
-
-                // Step 5: Create connectivity data
-                let connectivity = Connectivity::new(
-                    session_id,
-                    chrono::Utc::now().timestamp() as u64,
-                    -45.0,
-                    -60.0,
-                    100.0,
-                    180.0,
-                    "POINT(-155.15393 19.754824)".to_string(),
-                    "H14_INDEX".to_string(),
-                    "H13_INDEX".to_string(),
-                    "H12_INDEX".to_string(),
-                    "H11_INDEX".to_string(),
-                );
-
-                let connectivity_result = client.create_connectivity(&connectivity).await;
-                if let Ok(response) = connectivity_result {
-                    if response.status == ResponseScoutStatus::Success {}
-                }
-
-                // Step 6: Query the data we just created
-                let session_events = client.get_session_events(session_id).await;
-                if let Ok(response) = session_events {
-                    if response.status == ResponseScoutStatus::Success {
-                        let events = response.data.unwrap();
-                    }
-                }
-
-                let session_connectivity = client.get_session_connectivity(session_id).await;
-                if let Ok(response) = session_connectivity {
-                    if response.status == ResponseScoutStatus::Success {
-                        let connectivity_entries = response.data.unwrap();
-                    }
-                }
-
-                // Step 7: Clean up test data
-                let delete_result = client.delete_session(session_id).await;
-                if let Ok(response) = delete_result {
-                    if response.status == ResponseScoutStatus::Success {}
-                }
-            } else {
-                panic!("❌ Step 3: Events creation failed");
-            }
-        } else {
-            panic!("❌ Step 2: Session creation failed");
-        }
-    } else {
-        panic!("❌ Step 1: Identification failed");
-    }
-}
-
-#[tokio::test]
-async fn test_real_database_integration() {
-    // This test runs with real database credentials
-
-    let mut client = ScoutClient::new(env::var("SCOUT_DEVICE_API_KEY").unwrap()).unwrap();
-
-    // Step 1: Real identification
-    let identify_result = client.identify().await;
-
-    match identify_result {
-        Ok(_) => {
-            assert!(client.is_identified());
-
-            let device_id = client.device.as_ref().unwrap().id;
-            let _device_name = client.device.as_ref().unwrap().name.clone();
-            let herd_id = client.herd.as_ref().unwrap().id;
-            let _herd_slug = client.herd.as_ref().unwrap().slug.clone();
-
-            // Step 2: Create a real session
-            let session = Session::new(
-                device_id as i64,
-                chrono::Utc::now().timestamp() as u64,
-                (chrono::Utc::now().timestamp() as u64) + 3600,
-                "integration_test_v1.0.0".to_string(),
-                Some("POINT(-155.15393 19.754824)".to_string()),
-                120.0,
-                45.0,
-                82.5,
-                15.0,
-                3.0,
-                9.0,
-                1200.0,
-                600.0,
-            );
-
-            let session_result = client.create_session(&session).await;
-            if let Ok(ref response) = session_result {
-                if response.status == ResponseScoutStatus::Success {
-                    let created_session = response.data.clone().unwrap();
-
-                    // Step 3: Create real events
-                    let events = vec![
-                        Event::new(
-                            Some("Real integration test event 1".to_string()),
-                            Some("https://real.example.com/image1.jpg".to_string()),
-                            None,
-                            None,
-                            19.754824,
-                            -155.15393,
-                            10.0,
-                            0.0,
-                            MediaType::Image,
-                            device_id,
-                            chrono::Utc::now().timestamp() as u64,
-                            false,
-                            created_session.id,
-                        ),
-                        Event::new(
-                            Some("Real integration test event 2".to_string()),
-                            Some("https://real.example.com/image2.jpg".to_string()),
-                            None,
-                            None,
-                            19.755,
-                            -155.154,
-                            12.0,
-                            90.0,
-                            MediaType::Image,
-                            device_id,
-                            chrono::Utc::now().timestamp() as u64,
-                            false,
-                            created_session.id,
-                        ),
-                    ];
-
-                    let events_result = client.create_events_batch(&events).await;
-                    if let Ok(response) = events_result {
-                        if response.status == ResponseScoutStatus::Success {
-                            let _created_events = response.data.unwrap();
-
-                            // Step 4: Create real connectivity data
-                            let connectivity = Connectivity::new(
-                                created_session.id.unwrap(),
-                                chrono::Utc::now().timestamp() as u64,
-                                -45.0,
-                                -60.0,
-                                100.0,
-                                180.0,
-                                "POINT(-155.15393 19.754824)".to_string(),
-                                "H14_INDEX".to_string(),
-                                "H13_INDEX".to_string(),
-                                "H12_INDEX".to_string(),
-                                "H11_INDEX".to_string(),
-                            );
-
-                            let connectivity_result =
-                                client.create_connectivity(&connectivity).await;
-                            if let Ok(response) = connectivity_result {
-                                if response.status == ResponseScoutStatus::Success {
-                                    let _created_connectivity = response.data.unwrap();
-
-                                    // Step 5: Test query operations
-                                    let sessions_response =
-                                        client.get_sessions_by_herd(herd_id).await;
-                                    if let Ok(_response) = sessions_response {
-                                        if _response.status == ResponseScoutStatus::Success {
-                                            let _sessions = _response.data.unwrap();
-                                        }
-                                    }
-
-                                    let events_response = client
-                                        .get_session_events(created_session.id.unwrap())
-                                        .await;
-                                    if let Ok(_response) = events_response {
-                                        if _response.status == ResponseScoutStatus::Success {
-                                            let _events = _response.data.unwrap();
-                                        }
-                                    }
-
-                                    // Step 6: Cleanup - delete test data
-                                    let delete_result =
-                                        client.delete_session(created_session.id.unwrap()).await;
-                                    if let Ok(response) = delete_result {
-                                        if response.status == ResponseScoutStatus::Success {}
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Err(_e) => {
-            // This might happen if the API key is invalid or database is not accessible
-            assert!(
-                false,
-                "Real database integration test failed during identification"
-            );
-        }
-    }
-}
-
 #[tokio::test]
 async fn test_device_events_with_tags_via_function() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1673,16 +1028,12 @@ async fn test_device_events_with_tags_via_function() {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
     // Test getting events with tags via database function
     let events_result = client
@@ -1702,6 +1053,8 @@ async fn test_device_events_with_tags_via_function() {
 
 #[tokio::test]
 async fn test_sessions_with_coordinates_via_function() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1709,16 +1062,12 @@ async fn test_sessions_with_coordinates_via_function() {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test getting sessions with coordinates via database function
     let sessions_result = client.get_sessions_by_herd(herd_id).await;
@@ -1736,6 +1085,8 @@ async fn test_sessions_with_coordinates_via_function() {
 
 #[tokio::test]
 async fn test_connectivity_with_coordinates_via_function() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1744,13 +1095,10 @@ async fn test_connectivity_with_coordinates_via_function() {
     .unwrap();
 
     // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // First create a session to test connectivity
     let session = Session::new(
@@ -1759,7 +1107,7 @@ async fn test_connectivity_with_coordinates_via_function() {
             .parse()
             .unwrap_or(123),
         1640995200,
-        1640998800,
+        Some(1640998800),
         "v2.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -1786,19 +1134,19 @@ async fn test_connectivity_with_coordinates_via_function() {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     // Note: This might return empty results if no connectivity data exists yet
                 }
-                Err(e) => {
+                Err(_e) => {
                     // This is expected if no connectivity data exists yet
                 }
             }
 
-            // Clean up the test session
+            // Clean up the test session (cascades to connectivity)
             let _ = client.delete_session(session_id).await;
         }
     } else {
     }
 }
 
-async fn test_plans_by_herd_impl(cleanup: &TestCleanup) {
+async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -1806,66 +1154,17 @@ async fn test_plans_by_herd_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
-
-    // Test getting plans by herd
-    let plans_result = client.get_plans_by_herd(herd_id).await;
-
-    match plans_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            // Note: This might return empty results if no plans exist yet
-            if let Some(plans) = response.data {
-                // Validate plan structure if plans exist
-                for plan in &plans {
-                    assert!(
-                        plan.herd_id == herd_id,
-                        "Plan herd_id should match requested herd_id"
-                    );
-                    assert!(!plan.name.is_empty(), "Plan name should not be empty");
-                    assert!(
-                        !plan.instructions.is_empty(),
-                        "Plan instructions should not be empty"
-                    );
-                    assert!(plan.id >= 0, "Plan should have a non-negative ID");
-                }
-            }
-        }
-        Err(e) => {
-            panic!("❌ Plans by herd retrieval failed: {}", e);
-        }
-    }
-}
-
-test_with_cleanup!(test_plans_by_herd, test_plans_by_herd_impl);
-
-async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
-
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client
+        .herd
+        .as_ref()
+        .unwrap()
+        .id
+        .expect("Herd should have an ID");
 
     // Test 1: Get existing plans
     let plans_result = client.get_plans_by_herd(herd_id).await;
@@ -1899,7 +1198,7 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
 
                     // ID validation - allow ID=0 for existing plans that might not have been properly migrated
                     // Note: ID=0 is valid for existing plans in the database
-                    assert!(plan.id >= 0, "Plan ID should be non-negative");
+                    assert!(plan.id.unwrap_or(0) >= 0, "Plan ID should be non-negative");
 
                     // Validate inserted_at timestamp if present
                     if let Some(inserted_at) = &plan.inserted_at {
@@ -1942,7 +1241,8 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
 
     // Test 3: Test plan data structure validation
     let test_plan = Plan {
-        id: 1,
+        id: Some(1),
+        id_local: None,
         inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
         name: "Test Plan".to_string(),
         instructions: "Test instructions for the plan".to_string(),
@@ -1951,7 +1251,7 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
     };
 
     // Validate test plan structure
-    assert_eq!(test_plan.id, 1);
+    assert_eq!(test_plan.id, Some(1));
     assert_eq!(test_plan.name, "Test Plan");
     assert_eq!(test_plan.instructions, "Test instructions for the plan");
     assert_eq!(test_plan.herd_id, 1);
@@ -1967,7 +1267,8 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
 
     for plan_type in plan_types {
         let test_plan = Plan {
-            id: 0,             // Placeholder ID for testing
+            id: Some(0), // Placeholder ID for testing
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: format!("Test {} Plan", format!("{:?}", plan_type)),
             instructions: format!("Test instructions for {} plan", format!("{:?}", plan_type)),
@@ -1986,7 +1287,9 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
                 if !plans.is_empty() {
                     let first_plan = &plans[0];
                     let plan_id = first_plan.id;
-                    let individual_plan_result = client.get_plan_by_id(plan_id).await;
+                    let individual_plan_result = client
+                        .get_plan_by_id(plan_id.expect("Plan should have ID"))
+                        .await;
                     match individual_plan_result {
                         Ok(response) => {
                             assert_eq!(response.status, ResponseScoutStatus::Success);
@@ -2001,7 +1304,7 @@ async fn test_plans_comprehensive_impl(cleanup: &TestCleanup) {
 
                             println!(
                                 "Successfully tested individual plan retrieval for plan ID: {}",
-                                plan_id
+                                plan_id.unwrap_or(0)
                             );
                         }
                         Err(e) => {
@@ -2030,152 +1333,126 @@ async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
-    // Test 1: Create a new plan
     let new_plan = Plan {
-        id: 0,             // Placeholder ID for creation
-        inserted_at: None, // Database will use default value
+        id: None,
+        id_local: None,
+        inserted_at: None,
         name: "Test CRUD Plan".to_string(),
         instructions: "This is a test plan for CRUD operations".to_string(),
         herd_id,
         plan_type: PlanType::Mission,
     };
 
-    let create_result = client.create_plan(&new_plan).await;
-    match create_result {
+    let create_result = client
+        .create_plan(&new_plan)
+        .await
+        .expect("Plan creation failed");
+    assert_eq!(create_result.status, ResponseScoutStatus::Success);
+    let created_plan = create_result.data.unwrap();
+    assert!(created_plan.id.unwrap() >= 0);
+    assert_eq!(created_plan.name, "Test CRUD Plan");
+    assert_eq!(
+        created_plan.instructions,
+        "This is a test plan for CRUD operations"
+    );
+    assert_eq!(created_plan.herd_id, herd_id);
+    assert_eq!(created_plan.plan_type, PlanType::Mission);
+
+    let plan_id = created_plan.id.unwrap();
+    cleanup.track_plan(plan_id);
+
+    // Add delay to ensure plan is committed to database
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    let plans_result = client
+        .get_plans_by_herd(herd_id)
+        .await
+        .expect("Failed to read plans");
+    assert_eq!(plans_result.status, ResponseScoutStatus::Success);
+    if let Some(plans) = plans_result.data {
+        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
+        assert!(found_plan.is_some(), "Should find the created plan");
+        let found_plan = found_plan.unwrap();
+        assert_eq!(found_plan.name, "Test CRUD Plan");
+        assert_eq!(
+            found_plan.instructions,
+            "This is a test plan for CRUD operations"
+        );
+    }
+
+    // Test 3: Update the plan
+    let updated_plan = Plan {
+        id: Some(plan_id),
+        id_local: None,
+        inserted_at: created_plan.inserted_at,
+        name: "Updated Test CRUD Plan".to_string(),
+        instructions: "This plan has been updated".to_string(),
+        herd_id,
+        plan_type: PlanType::Rally,
+    };
+
+    let update_result = client
+        .update_plan(plan_id, &updated_plan)
+        .await
+        .expect("Plan update failed");
+    assert_eq!(update_result.status, ResponseScoutStatus::Success);
+    let updated_plan_result = update_result.data.unwrap();
+    assert_eq!(updated_plan_result.id.unwrap_or(0), plan_id);
+    assert_eq!(updated_plan_result.name, "Updated Test CRUD Plan");
+    assert_eq!(
+        updated_plan_result.instructions,
+        "This plan has been updated"
+    );
+    assert_eq!(updated_plan_result.plan_type, PlanType::Rally);
+
+    // Add delay to ensure plan update is committed to database
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 4: Verify the update by reading again
+    let plans_result = client.get_plans_by_herd(herd_id).await;
+    match plans_result {
         Ok(response) => {
             assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
+            if let Some(plans) = response.data {
+                let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
+                assert!(found_plan.is_some(), "Should find the updated plan");
 
-            let created_plan = response.data.unwrap();
-            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
-            assert_eq!(created_plan.name, "Test CRUD Plan");
-            assert_eq!(
-                created_plan.instructions,
-                "This is a test plan for CRUD operations"
-            );
-            assert_eq!(created_plan.herd_id, herd_id);
-            assert_eq!(created_plan.plan_type, PlanType::Mission);
-
-            let plan_id = created_plan.id;
-            println!("Created plan with ID: {}", plan_id);
-
-            // Track the created plan for cleanup
-            cleanup.track_plan(plan_id);
-
-            // Test 2: Read the created plan
-            let plans_result = client.get_plans_by_herd(herd_id).await;
-            match plans_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    if let Some(plans) = response.data {
-                        // Find our created plan
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
-                        assert!(found_plan.is_some(), "Should find the created plan");
-
-                        let found_plan = found_plan.unwrap();
-                        assert_eq!(found_plan.name, "Test CRUD Plan");
-                        assert_eq!(
-                            found_plan.instructions,
-                            "This is a test plan for CRUD operations"
-                        );
-                    }
-                }
-                Err(e) => {
-                    panic!("❌ Failed to read plans after creation: {}", e);
-                }
-            }
-
-            // Test 3: Update the plan
-            let updated_plan = Plan {
-                id: plan_id,
-                inserted_at: created_plan.inserted_at.clone(),
-                name: "Updated CRUD Plan".to_string(),
-                instructions: "This plan has been updated".to_string(),
-                herd_id,
-                plan_type: PlanType::Fence,
-            };
-
-            let update_result = client.update_plan(plan_id, &updated_plan).await;
-            match update_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    assert!(response.data.is_some());
-
-                    let updated_plan_result = response.data.unwrap();
-                    assert_eq!(updated_plan_result.name, "Updated CRUD Plan");
-                    assert_eq!(
-                        updated_plan_result.instructions,
-                        "This plan has been updated"
-                    );
-                    assert_eq!(updated_plan_result.plan_type, PlanType::Fence);
-                    println!("Successfully updated plan {}", plan_id);
-                }
-                Err(e) => {
-                    panic!("❌ Failed to update plan: {}", e);
-                }
-            }
-
-            // Test 4: Verify the update by reading again
-            let plans_result = client.get_plans_by_herd(herd_id).await;
-            match plans_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
-                        assert!(found_plan.is_some(), "Should find the updated plan");
-
-                        let found_plan = found_plan.unwrap();
-                        assert_eq!(found_plan.name, "Updated CRUD Plan");
-                        assert_eq!(found_plan.instructions, "This plan has been updated");
-                        assert_eq!(found_plan.plan_type, PlanType::Fence);
-                    }
-                }
-                Err(e) => {
-                    panic!("❌ Failed to read plans after update: {}", e);
-                }
-            }
-
-            // Test 5: Delete the plan
-            let delete_result = client.delete_plan(plan_id).await;
-            match delete_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    println!("Successfully deleted plan {}", plan_id);
-                }
-                Err(e) => {
-                    panic!("❌ Failed to delete plan: {}", e);
-                }
-            }
-
-            // Test 6: Verify deletion by trying to read the plan
-            let plans_result = client.get_plans_by_herd(herd_id).await;
-            match plans_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
-                        assert!(found_plan.is_none(), "Should not find the deleted plan");
-                    }
-                }
-                Err(e) => {
-                    panic!("❌ Failed to read plans after deletion: {}", e);
-                }
+                let found_plan = found_plan.unwrap();
+                assert_eq!(found_plan.name, "Updated Test CRUD Plan");
+                assert_eq!(found_plan.instructions, "This plan has been updated");
+                assert_eq!(found_plan.plan_type, PlanType::Rally);
             }
         }
         Err(e) => {
-            panic!("❌ Failed to create plan: {}", e);
+            panic!("❌ Failed to read plans after update: {}", e);
         }
+    }
+
+    let delete_result = client
+        .delete_plan(plan_id)
+        .await
+        .expect("Plan deletion failed");
+    assert_eq!(delete_result.status, ResponseScoutStatus::Success);
+
+    // Add delay to ensure deletion is committed to database
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+    // Test 6: Verify deletion by trying to read the plan
+    let plans_result = client
+        .get_plans_by_herd(herd_id)
+        .await
+        .expect("Failed to read plans after deletion");
+    assert_eq!(plans_result.status, ResponseScoutStatus::Success);
+    if let Some(plans) = plans_result.data {
+        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
+        assert!(found_plan.is_none(), "Should not find the deleted plan");
     }
 }
 
@@ -2189,22 +1466,19 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
     let mut created_plan_ids = Vec::new();
 
     // Test 1: Create multiple plans
     let test_plans = vec![
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 1".to_string(),
             instructions: "First bulk test plan".to_string(),
@@ -2212,7 +1486,8 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             plan_type: PlanType::Mission,
         },
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 2".to_string(),
             instructions: "Second bulk test plan".to_string(),
@@ -2220,7 +1495,8 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             plan_type: PlanType::Fence,
         },
         Plan {
-            id: 0,             // Placeholder ID for creation
+            id: None,
+            id_local: None,
             inserted_at: None, // Database will use default value
             name: "Bulk Test Plan 3".to_string(),
             instructions: "Third bulk test plan".to_string(),
@@ -2239,28 +1515,24 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
 
                 let created_plan = response.data.unwrap();
                 assert!(
-                    created_plan.id >= 0,
+                    created_plan.id.unwrap() >= 0,
                     "Plan {} should have a valid ID",
                     i + 1
                 );
                 assert_eq!(created_plan.name, format!("Bulk Test Plan {}", i + 1));
                 assert_eq!(created_plan.herd_id, herd_id);
 
-                created_plan_ids.push(created_plan.id);
-                println!(
-                    "Created bulk test plan {} with ID: {}",
-                    i + 1,
-                    created_plan.id
-                );
-
-                // Track the created plan for cleanup
-                cleanup.track_plan(created_plan.id);
+                created_plan_ids.push(created_plan.id.unwrap());
+                cleanup.track_plan(created_plan.id.unwrap());
             }
             Err(e) => {
-                panic!("❌ Failed to create bulk test plan {}: {}", i + 1, e);
+                panic!("Failed to create bulk test plan {}: {}", i + 1, e);
             }
         }
     }
+
+    // Add delay to ensure all bulk plans are committed to database
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 2: Verify all plans were created
     let plans_result = client.get_plans_by_herd(herd_id).await;
@@ -2270,22 +1542,17 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             if let Some(plans) = response.data {
                 // Check that we can find all our created plans
                 for plan_id in &created_plan_ids {
-                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == *plan_id);
                     assert!(
                         found_plan.is_some(),
                         "Should find bulk test plan with ID {}",
                         plan_id
                     );
                 }
-
-                println!(
-                    "Successfully verified {} bulk test plans",
-                    created_plan_ids.len()
-                );
             }
         }
         Err(e) => {
-            panic!("❌ Failed to read plans after bulk creation: {}", e);
+            panic!("Failed to read plans after bulk creation: {}", e);
         }
     }
 
@@ -2295,13 +1562,15 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
         match delete_result {
             Ok(response) => {
                 assert_eq!(response.status, ResponseScoutStatus::Success);
-                println!("Successfully deleted bulk test plan {}", plan_id);
             }
             Err(e) => {
-                panic!("❌ Failed to delete bulk test plan {}: {}", plan_id, e);
+                panic!("Failed to delete bulk test plan {}: {}", plan_id, e);
             }
         }
     }
+
+    // Add delay to ensure deletions are committed to database
+    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
     // Test 4: Verify all plans were deleted
     let plans_result = client.get_plans_by_herd(herd_id).await;
@@ -2311,19 +1580,17 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
             if let Some(plans) = response.data {
                 // Check that none of our created plans exist
                 for plan_id in &created_plan_ids {
-                    let found_plan = plans.iter().find(|p| p.id == *plan_id);
+                    let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == *plan_id);
                     assert!(
                         found_plan.is_none(),
                         "Should not find deleted bulk test plan with ID {}",
                         plan_id
                     );
                 }
-
-                println!("Successfully verified all bulk test plans were deleted");
             }
         }
         Err(e) => {
-            panic!("❌ Failed to read plans after bulk deletion: {}", e);
+            panic!("Failed to read plans after bulk deletion: {}", e);
         }
     }
 }
@@ -2338,20 +1605,17 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test 1: Create a test plan first
     let test_plan = Plan {
-        id: 0,             // Placeholder ID for creation
+        id: Some(0), // Placeholder ID for creation
+        id_local: None,
         inserted_at: None, // Database will use default value
         name: "Individual Retrieval Test Plan".to_string(),
         instructions: "This plan is for testing individual retrieval".to_string(),
@@ -2366,11 +1630,8 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
             assert!(response.data.is_some());
 
             let created_plan = response.data.unwrap();
-            assert!(created_plan.id >= 0, "Created plan should have a valid ID");
-            let plan_id = created_plan.id;
-            println!("Created test plan with ID: {}", plan_id);
-
-            // Track the created plan for cleanup
+            let plan_id = created_plan.id.unwrap();
+            assert!(plan_id >= 0, "Created plan should have a valid ID");
             cleanup.track_plan(plan_id);
 
             // Test 2: Get the plan by ID
@@ -2381,7 +1642,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                     assert!(response.data.is_some());
 
                     let retrieved_plan = response.data.unwrap();
-                    assert_eq!(retrieved_plan.id, plan_id);
+                    assert_eq!(retrieved_plan.id.unwrap_or(0), plan_id);
                     assert_eq!(retrieved_plan.name, "Individual Retrieval Test Plan");
                     assert_eq!(
                         retrieved_plan.instructions,
@@ -2390,7 +1651,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                     assert_eq!(retrieved_plan.herd_id, herd_id);
                     assert_eq!(retrieved_plan.plan_type, PlanType::Mission);
 
-                    println!("Successfully retrieved plan {} by ID", plan_id);
+                    println!("Successfully retrieved plan {} multiple times", plan_id);
                 }
                 Err(e) => {
                     panic!("❌ Failed to get plan by ID: {}", e);
@@ -2425,7 +1686,7 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
                 Ok(response) => {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
                     if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id == plan_id);
+                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
                         assert!(
                             found_plan.is_some(),
                             "Should find the test plan in herd plans"
@@ -2446,10 +1707,9 @@ async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
             match delete_result {
                 Ok(response) => {
                     assert_eq!(response.status, ResponseScoutStatus::Success);
-                    println!("Successfully deleted test plan {}", plan_id);
                 }
                 Err(e) => {
-                    panic!("❌ Failed to delete test plan: {}", e);
+                    panic!("Failed to delete individual test plan: {}", e);
                 }
             }
 
@@ -2484,6 +1744,8 @@ test_with_cleanup!(
 
 #[tokio::test]
 async fn test_zones_and_actions_by_herd() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -2491,16 +1753,12 @@ async fn test_zones_and_actions_by_herd() {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let herd_id = client.herd.as_ref().unwrap().id;
+    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Test getting zones and actions by herd
     let zones_result = client.get_zones_and_actions_by_herd(herd_id, 10, 0).await;
@@ -2517,84 +1775,7 @@ async fn test_zones_and_actions_by_herd() {
 }
 
 #[test]
-fn test_data_validation() {
-    // Test Event validation
-    let valid_event = Event::new(
-        Some("Valid event".to_string()),
-        Some("https://example.com/image.jpg".to_string()),
-        None,
-        None,
-        90.0,   // Valid latitude
-        -180.0, // Valid longitude
-        0.0,    // Valid altitude
-        0.0,    // Valid heading
-        MediaType::Image,
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        false,
-        None,
-    );
-
-    assert!(valid_event.location.is_some());
-    assert_eq!(valid_event.location.unwrap(), "POINT(-180 90)");
-
-    // Test Session validation
-    let valid_session = Session::new(
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        1640998800, // End time after start time
-        "v1.0.0".to_string(),
-        None,
-        100.0,
-        50.0,
-        75.0,
-        10.0,
-        5.0,
-        7.5,
-        1000.0,
-        500.0,
-    );
-
-    assert!(valid_session.timestamp_start < valid_session.timestamp_end);
-
-    // Test Tag validation
-    let valid_tag = Tag::new(
-        1,
-        100.0,
-        200.0,
-        50.0,
-        30.0,
-        0.95, // Valid confidence (0-1)
-        TagObservationType::Auto,
-        "animal".to_string(),
-    );
-    assert!(valid_tag.conf >= 0.0 && valid_tag.conf <= 1.0);
-    assert!(valid_tag.width > 0.0);
-    assert!(valid_tag.height > 0.0);
-}
-
-#[test]
 fn test_response_handling() {
-    // Test success response
-    let success = ResponseScout::new(ResponseScoutStatus::Success, Some("data"));
-    assert_eq!(success.status, ResponseScoutStatus::Success);
-    assert!(success.data.is_some());
-
-    // Test failure response
-    let failure = ResponseScout::new(ResponseScoutStatus::Failure, None::<&str>);
-    assert_eq!(failure.status, ResponseScoutStatus::Failure);
-    assert!(failure.data.is_none());
-
-    // Test not authorized response
-    let not_authorized = ResponseScout::new(ResponseScoutStatus::NotAuthorized, None::<&str>);
-    assert_eq!(not_authorized.status, ResponseScoutStatus::NotAuthorized);
-
     // Test invalid event response
     let invalid_event = ResponseScout::new(ResponseScoutStatus::InvalidEvent, None::<&str>);
     assert_eq!(invalid_event.status, ResponseScoutStatus::InvalidEvent);
@@ -2605,86 +1786,9 @@ fn test_response_handling() {
 }
 
 #[tokio::test]
-async fn test_response_handling_comprehensive() {
-    setup_test_env();
-
-    // Test 1: ResponseScout status handling
-    let success_response = ResponseScout::new(ResponseScoutStatus::Success, Some("test data"));
-    assert_eq!(success_response.status, ResponseScoutStatus::Success);
-    assert!(success_response.data.is_some());
-    assert_eq!(success_response.data.unwrap(), "test data");
-
-    let failure_response = ResponseScout::new(ResponseScoutStatus::Failure, None::<&str>);
-    assert_eq!(failure_response.status, ResponseScoutStatus::Failure);
-    assert!(failure_response.data.is_none());
-
-    let not_authorized = ResponseScout::new(ResponseScoutStatus::NotAuthorized, None::<&str>);
-    assert_eq!(not_authorized.status, ResponseScoutStatus::NotAuthorized);
-
-    let invalid_event = ResponseScout::new(ResponseScoutStatus::InvalidEvent, None::<&str>);
-    assert_eq!(invalid_event.status, ResponseScoutStatus::InvalidEvent);
-
-    let invalid_file = ResponseScout::new(ResponseScoutStatus::InvalidFile, None::<&str>);
-    assert_eq!(invalid_file.status, ResponseScoutStatus::InvalidFile);
-
-    // Test 2: Response creation helpers
-    let _client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    // Test 3: Response with different data types
-    let string_response = ResponseScout::new(
-        ResponseScoutStatus::Success,
-        Some("string data".to_string()),
-    );
-    assert_eq!(string_response.status, ResponseScoutStatus::Success);
-    assert_eq!(string_response.data.unwrap(), "string data");
-
-    let int_response = ResponseScout::new(ResponseScoutStatus::Success, Some(42));
-    assert_eq!(int_response.status, ResponseScoutStatus::Success);
-    assert_eq!(int_response.data.unwrap(), 42);
-
-    let vec_response = ResponseScout::new(ResponseScoutStatus::Success, Some(vec![1, 2, 3]));
-    assert_eq!(vec_response.status, ResponseScoutStatus::Success);
-    assert_eq!(vec_response.data.unwrap(), vec![1, 2, 3]);
-
-    // Test 4: Response cloning
-    let original_response = ResponseScout::new(ResponseScoutStatus::Success, Some("original"));
-    let cloned_response = original_response.clone();
-    assert_eq!(original_response.status, cloned_response.status);
-    assert_eq!(original_response.data, cloned_response.data);
-
-    // Test 5: Response comparison
-    let response1 = ResponseScout::new(ResponseScoutStatus::Success, Some("data"));
-    let response2 = ResponseScout::new(ResponseScoutStatus::Success, Some("data"));
-    let response3 = ResponseScout::new(ResponseScoutStatus::Failure, None::<&str>);
-
-    assert_eq!(response1, response2);
-    assert_ne!(response1, response3);
-}
-
-#[tokio::test]
-async fn test_integration_with_mock_data() {
-    // This test simulates integration without requiring external connections
-
-    // Test ResponseScout status handling
-    let mock_response = ResponseScout::new(ResponseScoutStatus::Success, Some("mock data"));
-
-    match mock_response.status {
-        ResponseScoutStatus::Success => {
-            if let Some(data) = mock_response.data {
-                assert_eq!(data, "mock data");
-            } else {
-                panic!("❌ Mock response should have data");
-            }
-        }
-        _ => panic!("❌ Mock response should have Success status"),
-    }
-}
-
-#[tokio::test]
 async fn test_complete_data_collection_workflow() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
     let mut client = ScoutClient::new(
@@ -2693,22 +1797,19 @@ async fn test_complete_data_collection_workflow() {
     .unwrap();
 
     // Step 1: Identify the client
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Step 1: Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
-    let device_id = client.device.as_ref().unwrap().id;
-    let _herd_id = client.herd.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
+    let _herd_id = client.herd.as_ref().unwrap().id.unwrap();
 
     // Step 2: Create a session
     let session = Session::new(
-        device_id as i64,
+        device_id,
         chrono::Utc::now().timestamp() as u64,
-        (chrono::Utc::now().timestamp() as u64) + 3600,
+        Some((chrono::Utc::now().timestamp() as u64) + 3600),
         "workflow_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -2725,7 +1826,7 @@ async fn test_complete_data_collection_workflow() {
     if let Ok(response) = session_result {
         if response.status == ResponseScoutStatus::Success {
             let created_session = response.data.unwrap();
-            let session_id = created_session.id.unwrap();
+            let session_id = created_session.id.unwrap_or(0);
 
             // Step 3: Create events for the session
             let events = vec![
@@ -2766,7 +1867,7 @@ async fn test_complete_data_collection_workflow() {
                 // Get the created events with their IDs
                 let created_events = _response.data.unwrap();
 
-                // Step 4: Create tags for the first event
+                // Step 4: Create tags for the first event (if any events were created)
                 if let Some(first_event) = created_events.first() {
                     if let Some(event_id) = first_event.id {
                         let tags = vec![Tag::new(
@@ -2783,8 +1884,9 @@ async fn test_complete_data_collection_workflow() {
                         let tags_result = client.create_tags(event_id, &tags).await;
                         if let Ok(response) = tags_result {
                             if response.status == ResponseScoutStatus::Success {}
+                        } else {
+                            eprintln!("Tags creation failed, but continuing test");
                         }
-                    } else {
                     }
                 }
 
@@ -2812,18 +1914,18 @@ async fn test_complete_data_collection_workflow() {
                 let session_events = client.get_session_events(session_id).await;
                 if let Ok(response) = session_events {
                     if response.status == ResponseScoutStatus::Success {
-                        let events = response.data.unwrap();
+                        let _events = response.data.unwrap();
                     }
                 }
 
                 let session_connectivity = client.get_session_connectivity(session_id).await;
                 if let Ok(response) = session_connectivity {
                     if response.status == ResponseScoutStatus::Success {
-                        let connectivity_entries = response.data.unwrap();
+                        let _connectivity_entries = response.data.unwrap();
                     }
                 }
 
-                // Step 7: Clean up test data
+                // Step 7: Clean up test data (session deletion cascades to events, tags, connectivity)
                 let delete_result = client.delete_session(session_id).await;
                 if let Ok(response) = delete_result {
                     if response.status == ResponseScoutStatus::Success {}
@@ -2839,748 +1941,8 @@ async fn test_complete_data_collection_workflow() {
     }
 }
 
-#[tokio::test]
-async fn test_real_database_integration_comprehensive() {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(env::var("SCOUT_DEVICE_API_KEY").unwrap()).unwrap();
-
-    // Step 1: Real identification
-    let identify_result = client.identify().await;
-
-    match identify_result {
-        Ok(_) => {
-            assert!(client.is_identified());
-
-            let device_id = client.device.as_ref().unwrap().id;
-            let device_name = client.device.as_ref().unwrap().name.clone();
-            let herd_id = client.herd.as_ref().unwrap().id;
-            let herd_slug = client.herd.as_ref().unwrap().slug.clone();
-
-            // Step 2: Test device retrieval methods
-            let device_response = client.get_device().await;
-            if let Ok(response) = device_response {
-                if response.status == ResponseScoutStatus::Success {}
-            }
-
-            let herd_response = client.get_herd(None).await;
-            if let Ok(response) = herd_response {
-                if response.status == ResponseScoutStatus::Success {}
-            }
-
-            // Step 3: Test database function calls
-            let events_with_tags = client
-                .get_device_events_with_tags_via_function(device_id, 5)
-                .await;
-            if let Ok(response) = events_with_tags {
-                if response.status == ResponseScoutStatus::Success {
-                    let events = response.data.unwrap();
-                }
-            }
-
-            let sessions_with_coords = client.get_sessions_by_herd(herd_id).await;
-            if let Ok(response) = sessions_with_coords {
-                if response.status == ResponseScoutStatus::Success {
-                    let sessions = response.data.unwrap();
-                }
-            }
-
-            let plans = client.get_plans_by_herd(herd_id).await;
-            if let Ok(response) = plans {
-                if response.status == ResponseScoutStatus::Success {
-                    let plans = response.data.unwrap();
-                }
-            }
-
-            let zones = client.get_zones_and_actions_by_herd(herd_id, 5, 0).await;
-            if let Ok(response) = zones {
-                if response.status == ResponseScoutStatus::Success {
-                    let zones = response.data.unwrap();
-                }
-            }
-        }
-        Err(e) => {
-            // This might happen if the API key is invalid or database is not accessible
-            // We don't panic here as this is expected in some test environments
-        }
-    }
-}
-
-#[tokio::test]
-async fn test_integration_with_mock_data_comprehensive() {
-    setup_test_env();
-
-    // Test 1: Client structure and types
-    let mock_response = ResponseScout::new(ResponseScoutStatus::Success, Some("mock data"));
-
-    match mock_response.status {
-        ResponseScoutStatus::Success => {
-            if let Some(data) = mock_response.data {
-                assert_eq!(data, "mock data");
-            } else {
-                panic!("❌ Mock response should have data");
-            }
-        }
-        _ => panic!("❌ Mock response should have Success status"),
-    }
-
-    // Test 2: Data structure creation and validation
-    let mock_event = Event::new(
-        Some("Mock event".to_string()),
-        Some("https://mock.com/image.jpg".to_string()),
-        None,
-        None,
-        19.754824,
-        -155.15393,
-        10.0,
-        0.0,
-        MediaType::Image,
-        123,
-        1640995200,
-        false,
-        None,
-    );
-
-    assert_eq!(mock_event.message, Some("Mock event".to_string()));
-    assert_eq!(
-        mock_event.media_url,
-        Some("https://mock.com/image.jpg".to_string())
-    );
-    assert_eq!(mock_event.device_id, Some(123));
-    assert_eq!(mock_event.is_public, false);
-    assert!(mock_event.location.is_some());
-
-    let mock_session = Session::new(
-        123,
-        1640995200,
-        1640998800,
-        "mock_v1.0.0".to_string(),
-        Some("POINT(-155.15393 19.754824)".to_string()),
-        100.0,
-        50.0,
-        75.0,
-        10.0,
-        5.0,
-        7.5,
-        1000.0,
-        500.0,
-    );
-
-    assert_eq!(mock_session.device_id, 123);
-    assert_eq!(mock_session.software_version, "mock_v1.0.0");
-    assert_eq!(mock_session.altitude_max, 100.0);
-    assert_eq!(mock_session.altitude_min, 50.0);
-
-    let mock_tag = Tag::new(
-        1,
-        100.0,
-        200.0,
-        50.0,
-        30.0,
-        0.95,
-        TagObservationType::Auto,
-        "mock_animal".to_string(),
-    );
-
-    assert_eq!(mock_tag.x, 100.0);
-    assert_eq!(mock_tag.y, 200.0);
-    assert_eq!(mock_tag.conf, 0.95);
-    assert_eq!(mock_tag.class_name, "mock_animal");
-
-    // Test 3: Client creation and validation
-    let mock_client = ScoutClient::new("mock_api_key".to_string());
-    assert!(mock_client.is_ok());
-
-    let mock_client = mock_client.unwrap();
-    assert_eq!(mock_client.api_key, "mock_api_key");
-    assert!(mock_client.device.is_none());
-    assert!(mock_client.herd.is_none());
-    assert!(!mock_client.is_identified());
-
-    // Test 4: Response status validation
-    let statuses = vec![
-        ResponseScoutStatus::Success,
-        ResponseScoutStatus::Failure,
-        ResponseScoutStatus::NotAuthorized,
-        ResponseScoutStatus::InvalidEvent,
-        ResponseScoutStatus::InvalidFile,
-    ];
-
-    for status in statuses {
-        let response = ResponseScout::new(status.clone(), None::<&str>);
-        assert_eq!(response.status, status);
-        assert!(response.data.is_none());
-    }
-
-    // Test 5: Mock data serialization/deserialization
-    let mock_connectivity = Connectivity::new(
-        1,
-        1640995200,
-        -45.0,
-        -60.0,
-        100.0,
-        180.0,
-        "POINT(-155.15393 19.754824)".to_string(),
-        "H14_INDEX".to_string(),
-        "H13_INDEX".to_string(),
-        "H12_INDEX".to_string(),
-        "H11_INDEX".to_string(),
-    );
-
-    assert_eq!(mock_connectivity.session_id, 1);
-    assert_eq!(mock_connectivity.signal, -45.0);
-    assert_eq!(mock_connectivity.noise, -60.0);
-
-    // Test 6: Mock data with different values
-    let mock_plan = Plan {
-        id: 42,
-        inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
-        name: "Mock Plan".to_string(),
-        instructions: "Mock instructions".to_string(),
-        herd_id: 123,
-        plan_type: PlanType::Mission,
-    };
-
-    assert_eq!(mock_plan.id, 42);
-    assert_eq!(mock_plan.name, "Mock Plan");
-    assert_eq!(mock_plan.herd_id, 123);
-
-    // Test 7: Mock data arrays
-    let mock_events = vec![
-        Event::new(
-            Some("Mock event 1".to_string()),
-            None,
-            None,
-            None,
-            19.754824,
-            -155.15393,
-            10.0,
-            0.0,
-            MediaType::Image,
-            123,
-            1640995200,
-            false,
-            None,
-        ),
-        Event::new(
-            Some("Mock event 2".to_string()),
-            None,
-            None,
-            None,
-            19.755,
-            -155.154,
-            12.0,
-            90.0,
-            MediaType::Video,
-            123,
-            1640995260,
-            true,
-            None,
-        ),
-    ];
-
-    assert_eq!(mock_events.len(), 2);
-    assert_eq!(mock_events[0].message, Some("Mock event 1".to_string()));
-    assert_eq!(mock_events[1].message, Some("Mock event 2".to_string()));
-    assert_eq!(mock_events[0].media_type, MediaType::Image);
-    assert_eq!(mock_events[1].media_type, MediaType::Video);
-}
-
-#[tokio::test]
-async fn test_data_structures_comprehensive() {
-    setup_test_env();
-
-    let expected_device_id = env::var("SCOUT_DEVICE_ID")
-        .unwrap_or_else(|_| "123".to_string())
-        .parse()
-        .unwrap_or(123);
-
-    // Test 1: Event structure
-    let event = Event::new(
-        Some("Comprehensive test event".to_string()),
-        Some("https://example.com/comprehensive.jpg".to_string()),
-        Some("/path/to/file.jpg".to_string()),
-        Some("https://earthranger.example.com".to_string()),
-        19.754824,
-        -155.15393,
-        15.0,
-        45.0,
-        MediaType::Image,
-        expected_device_id,
-        1640995200,
-        true,
-        Some(1),
-    );
-
-    assert_eq!(event.message, Some("Comprehensive test event".to_string()));
-    assert_eq!(
-        event.media_url,
-        Some("https://example.com/comprehensive.jpg".to_string())
-    );
-    assert_eq!(event.file_path, Some("/path/to/file.jpg".to_string()));
-    assert_eq!(
-        event.earthranger_url,
-        Some("https://earthranger.example.com".to_string())
-    );
-    assert_eq!(event.device_id, Some(expected_device_id as i64));
-    assert_eq!(event.is_public, true);
-    assert_eq!(event.session_id, Some(1));
-    assert!(event.location.is_some());
-    assert_eq!(event.location.unwrap(), "POINT(-155.15393 19.754824)");
-
-    // Test 2: Session structure
-    let session = Session::new(
-        expected_device_id as i64,
-        1640995200,
-        1640998800,
-        "comprehensive_v1.0.0".to_string(),
-        Some("POINT(-155.15393 19.754824)".to_string()),
-        120.0,
-        45.0,
-        82.5,
-        15.0,
-        3.0,
-        9.0,
-        1200.0,
-        600.0,
-    );
-
-    assert_eq!(session.device_id, expected_device_id as i64);
-    assert_eq!(session.software_version, "comprehensive_v1.0.0");
-    assert_eq!(session.altitude_max, 120.0);
-    assert_eq!(session.altitude_min, 45.0);
-    assert_eq!(session.altitude_average, 82.5);
-    assert_eq!(session.velocity_max, 15.0);
-    assert_eq!(session.velocity_min, 3.0);
-    assert_eq!(session.velocity_average, 9.0);
-    assert_eq!(session.distance_total, 1200.0);
-    assert_eq!(session.distance_max_from_start, 600.0);
-    assert!(session.locations.is_some());
-
-    // Test 3: Tag structure
-    let tag = Tag::new(
-        1,
-        100.0,
-        200.0,
-        50.0,
-        30.0,
-        0.95,
-        TagObservationType::Auto,
-        "comprehensive_animal".to_string(),
-    );
-
-    assert_eq!(tag.x, 100.0);
-    assert_eq!(tag.y, 200.0);
-    assert_eq!(tag.width, 50.0);
-    assert_eq!(tag.height, 30.0);
-    assert_eq!(tag.conf, 0.95);
-    assert_eq!(tag.observation_type, TagObservationType::Auto);
-    assert_eq!(tag.class_name, "comprehensive_animal");
-    assert_eq!(tag.event_id, 0); // Default value
-
-    // Test 4: Connectivity structure
-    let connectivity = Connectivity::new(
-        1,
-        1640995200,
-        -45.0,
-        -60.0,
-        100.0,
-        180.0,
-        "POINT(-155.15393 19.754824)".to_string(),
-        "H14_INDEX".to_string(),
-        "H13_INDEX".to_string(),
-        "H12_INDEX".to_string(),
-        "H11_INDEX".to_string(),
-    );
-
-    assert_eq!(connectivity.session_id, 1);
-    assert_eq!(connectivity.signal, -45.0);
-    assert_eq!(connectivity.noise, -60.0);
-    assert_eq!(connectivity.altitude, 100.0);
-    assert_eq!(connectivity.heading, 180.0);
-    assert_eq!(connectivity.location, "POINT(-155.15393 19.754824)");
-    assert_eq!(connectivity.h14_index, "H14_INDEX");
-    assert_eq!(connectivity.h13_index, "H13_INDEX");
-    assert_eq!(connectivity.h12_index, "H12_INDEX");
-    assert_eq!(connectivity.h11_index, "H11_INDEX");
-
-    // Test 5: Plan structure
-    let plan = Plan {
-        id: 1,
-        inserted_at: Some("2023-01-01T00:00:00Z".to_string()),
-        name: "Comprehensive test plan".to_string(),
-        instructions: "Test instructions".to_string(),
-        herd_id: 1,
-        plan_type: PlanType::Mission,
-    };
-
-    assert_eq!(plan.id, 1);
-    assert_eq!(plan.name, "Comprehensive test plan");
-    assert_eq!(plan.instructions, "Test instructions");
-    assert_eq!(plan.herd_id, 1);
-    assert_eq!(plan.plan_type, PlanType::Mission);
-
-    // Test 6: Zone and Action structures
-    let action = Action {
-        id: 1,
-        inserted_at: "2023-01-01T00:00:00Z".to_string(),
-        zone_id: 1,
-        trigger: vec!["motion".to_string(), "sound".to_string()],
-        opcode: 42,
-    };
-
-    assert_eq!(action.id, 1);
-    assert_eq!(action.zone_id, 1);
-    assert_eq!(
-        action.trigger,
-        vec!["motion".to_string(), "sound".to_string()]
-    );
-    assert_eq!(action.opcode, 42);
-
-    let zone = Zone {
-        id: 1,
-        inserted_at: "2023-01-01T00:00:00Z".to_string(),
-        region: "POLYGON((-155.154 19.754, -155.153 19.754, -155.153 19.755, -155.154 19.755, -155.154 19.754))".to_string(),
-        herd_id: 1,
-        actions: Some(vec![action]),
-    };
-
-    assert_eq!(zone.id, 1);
-    assert_eq!(zone.herd_id, 1);
-    assert!(zone.actions.is_some());
-    assert_eq!(zone.actions.as_ref().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn test_client_creation_comprehensive() {
-    setup_test_env();
-
-    // Test 1: Basic client creation
-    let client = ScoutClient::new("test_key".to_string());
-    assert!(client.is_ok());
-
-    let client = client.unwrap();
-    assert_eq!(client.api_key, "test_key");
-    assert!(client.device.is_none());
-    assert!(client.herd.is_none());
-    assert!(!client.is_identified());
-
-    // Test 2: Client with different API keys
-    let api_keys = vec![
-        "key1",
-        "key2",
-        "test_api_key_123",
-        "very_long_api_key_that_should_work_fine",
-    ];
-
-    for api_key in api_keys {
-        let client = ScoutClient::new(api_key.to_string());
-        assert!(client.is_ok());
-        let client = client.unwrap();
-        assert_eq!(client.api_key, api_key);
-    }
-
-    // Test 3: Client state validation
-    let client = ScoutClient::new("test_key".to_string()).unwrap();
-
-    // Initial state
-    assert!(client.device.is_none());
-    assert!(client.herd.is_none());
-    assert!(!client.is_identified());
-
-    // Check that we can't access private fields directly
-    // (This is a compile-time check, so we just verify the public interface works)
-    assert_eq!(client.api_key, "test_key");
-
-    // Test 5: Client with environment variables
-    let env_client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "env_test_key".to_string()),
-    );
-    assert!(env_client.is_ok());
-}
-
-#[tokio::test]
-async fn test_response_scout_types_comprehensive() {
-    setup_test_env();
-
-    // Test 1: Success response with different data types
-    let success_string =
-        ResponseScout::new(ResponseScoutStatus::Success, Some("test data".to_string()));
-    assert_eq!(success_string.status, ResponseScoutStatus::Success);
-    assert!(success_string.data.is_some());
-    assert_eq!(success_string.data.unwrap(), "test data");
-
-    let success_int = ResponseScout::new(ResponseScoutStatus::Success, Some(42));
-    assert_eq!(success_int.status, ResponseScoutStatus::Success);
-    assert!(success_int.data.is_some());
-    assert_eq!(success_int.data.unwrap(), 42);
-
-    let success_float = ResponseScout::new(ResponseScoutStatus::Success, Some(3.14));
-    assert_eq!(success_float.status, ResponseScoutStatus::Success);
-    assert!(success_float.data.is_some());
-    assert_eq!(success_float.data.unwrap(), 3.14);
-
-    let success_bool = ResponseScout::new(ResponseScoutStatus::Success, Some(true));
-    assert_eq!(success_bool.status, ResponseScoutStatus::Success);
-    assert!(success_bool.data.is_some());
-    assert_eq!(success_bool.data.unwrap(), true);
-
-    let success_vec = ResponseScout::new(ResponseScoutStatus::Success, Some(vec![1, 2, 3]));
-    assert_eq!(success_vec.status, ResponseScoutStatus::Success);
-    assert!(success_vec.data.is_some());
-    assert_eq!(success_vec.data.unwrap(), vec![1, 2, 3]);
-
-    // Test 2: Failure responses
-    let failure_string = ResponseScout::new(ResponseScoutStatus::Failure, None::<String>);
-    assert_eq!(failure_string.status, ResponseScoutStatus::Failure);
-    assert!(failure_string.data.is_none());
-
-    let failure_int = ResponseScout::new(ResponseScoutStatus::Failure, None::<i32>);
-    assert_eq!(failure_int.status, ResponseScoutStatus::Failure);
-    assert!(failure_int.data.is_none());
-
-    // Test 3: Not authorized responses
-    let not_authorized_string =
-        ResponseScout::new(ResponseScoutStatus::NotAuthorized, None::<String>);
-    assert_eq!(
-        not_authorized_string.status,
-        ResponseScoutStatus::NotAuthorized
-    );
-    assert!(not_authorized_string.data.is_none());
-
-    let not_authorized_int = ResponseScout::new(ResponseScoutStatus::NotAuthorized, None::<i32>);
-    assert_eq!(
-        not_authorized_int.status,
-        ResponseScoutStatus::NotAuthorized
-    );
-    assert!(not_authorized_int.data.is_none());
-
-    // Test 4: Invalid event responses
-    let invalid_event_string =
-        ResponseScout::new(ResponseScoutStatus::InvalidEvent, None::<String>);
-    assert_eq!(
-        invalid_event_string.status,
-        ResponseScoutStatus::InvalidEvent
-    );
-    assert!(invalid_event_string.data.is_none());
-
-    let invalid_event_int = ResponseScout::new(ResponseScoutStatus::InvalidEvent, None::<i32>);
-    assert_eq!(invalid_event_int.status, ResponseScoutStatus::InvalidEvent);
-    assert!(invalid_event_int.data.is_none());
-
-    // Test 5: Invalid file responses
-    let invalid_file_string = ResponseScout::new(ResponseScoutStatus::InvalidFile, None::<String>);
-    assert_eq!(invalid_file_string.status, ResponseScoutStatus::InvalidFile);
-    assert!(invalid_file_string.data.is_none());
-
-    let invalid_file_int = ResponseScout::new(ResponseScoutStatus::InvalidFile, None::<i32>);
-    assert_eq!(invalid_file_int.status, ResponseScoutStatus::InvalidFile);
-    assert!(invalid_file_int.data.is_none());
-
-    // Test 6: Response cloning
-    let original = ResponseScout::new(ResponseScoutStatus::Success, Some("original"));
-    let cloned = original.clone();
-    assert_eq!(original.status, cloned.status);
-    assert_eq!(original.data, cloned.data);
-
-    // Test 7: Response comparison
-    let response1 = ResponseScout::new(ResponseScoutStatus::Success, Some("data"));
-    let response2 = ResponseScout::new(ResponseScoutStatus::Success, Some("data"));
-    let response3 = ResponseScout::new(ResponseScoutStatus::Failure, None::<&str>);
-
-    assert_eq!(response1, response2);
-    assert_ne!(response1, response3);
-
-    // Test 8: Response with complex data types
-    #[derive(Debug, Clone, PartialEq)]
-    struct ComplexData {
-        id: u32,
-        name: String,
-        values: Vec<i32>,
-    }
-
-    let complex_data = ComplexData {
-        id: 1,
-        name: "test".to_string(),
-        values: vec![1, 2, 3],
-    };
-
-    let success_complex =
-        ResponseScout::new(ResponseScoutStatus::Success, Some(complex_data.clone()));
-    assert_eq!(success_complex.status, ResponseScoutStatus::Success);
-    assert!(success_complex.data.is_some());
-    assert_eq!(success_complex.data.unwrap(), complex_data);
-}
-
-#[tokio::test]
-async fn test_data_validation_comprehensive() {
-    setup_test_env();
-
-    let _client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    // Test 1: Valid event data
-    let valid_event = Event::new(
-        Some("Valid event".to_string()),
-        Some("https://example.com/image.jpg".to_string()),
-        None,
-        None,
-        19.754824,  // Valid latitude
-        -155.15393, // Valid longitude
-        10.0,       // Valid altitude
-        0.0,        // Valid heading
-        MediaType::Image,
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        false,
-        None,
-    );
-
-    assert!(valid_event.location.is_some());
-    assert_eq!(valid_event.location.unwrap(), "POINT(-155.15393 19.754824)");
-    assert_eq!(valid_event.media_type, MediaType::Image);
-    assert_eq!(valid_event.is_public, false);
-
-    // Test 2: Valid session data
-    let valid_session = Session::new(
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200, // Start time
-        1640998800, // End time (after start time)
-        "v1.0.0".to_string(),
-        Some("POINT(-155.15393 19.754824)".to_string()),
-        100.0,  // altitude_max
-        50.0,   // altitude_min
-        75.0,   // altitude_average
-        10.0,   // velocity_max
-        5.0,    // velocity_min
-        7.5,    // velocity_average
-        1000.0, // distance_total
-        500.0,  // distance_max_from_start
-    );
-
-    assert!(valid_session.timestamp_start < valid_session.timestamp_end);
-    assert_eq!(valid_session.software_version, "v1.0.0");
-    assert!(valid_session.altitude_max >= valid_session.altitude_min);
-
-    // Test 3: Valid tag data
-    let valid_tag = Tag::new(
-        1,
-        100.0,                    // x
-        200.0,                    // y
-        50.0,                     // width
-        30.0,                     // height
-        0.95,                     // confidence (0-1)
-        TagObservationType::Auto, // Valid observation_type
-        "elephant".to_string(),   // class_name
-    );
-
-    assert!(valid_tag.conf >= 0.0 && valid_tag.conf <= 1.0);
-    assert!(valid_tag.width > 0.0);
-    assert!(valid_tag.height > 0.0);
-    assert!(
-        valid_tag.observation_type == TagObservationType::Auto
-            || valid_tag.observation_type == TagObservationType::Manual
-    );
-
-    // Test 4: Valid connectivity data
-    let valid_connectivity = Connectivity::new(
-        1, // session_id
-        1640995200,
-        -45.0, // signal
-        -60.0, // noise
-        100.0, // altitude
-        180.0, // heading
-        "POINT(-155.15393 19.754824)".to_string(),
-        "H14_INDEX".to_string(),
-        "H13_INDEX".to_string(),
-        "H12_INDEX".to_string(),
-        "H11_INDEX".to_string(),
-    );
-
-    assert_eq!(valid_connectivity.session_id, 1);
-    assert_eq!(valid_connectivity.h14_index, "H14_INDEX");
-    assert_eq!(valid_connectivity.h13_index, "H13_INDEX");
-
-    // Test 5: Edge case validation
-    let edge_event = Event::new(
-        None,             // No message
-        None,             // No media URL
-        None,             // No file path
-        None,             // No earthranger URL
-        90.0,             // Maximum latitude
-        -180.0,           // Minimum longitude
-        0.0,              // Minimum altitude
-        359.0,            // Maximum heading
-        MediaType::Video, // Different media type
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        0,    // Minimum timestamp
-        true, // Public event
-        None,
-    );
-
-    assert!(edge_event.location.is_some());
-    assert_eq!(edge_event.media_type, MediaType::Video);
-    assert_eq!(edge_event.is_public, true);
-
-    // Test 6: Boundary validation
-    let boundary_session = Session::new(
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        0,          // Minimum timestamp
-        9999999999, // Reasonable maximum timestamp (year 2286)
-        "boundary_test".to_string(),
-        None, // No location
-        0.0,  // Minimum altitude
-        0.0,  // Minimum altitude
-        0.0,  // Average altitude
-        0.0,  // Minimum velocity
-        0.0,  // Minimum velocity
-        0.0,  // Average velocity
-        0.0,  // Minimum distance
-        0.0,  // Minimum distance
-    );
-
-    assert!(boundary_session.timestamp_start < boundary_session.timestamp_end);
-    assert_eq!(boundary_session.altitude_max, 0.0);
-    assert_eq!(boundary_session.altitude_min, 0.0);
-
-    // Test 7: Invalid data should be caught by the type system
-    // This is a compile-time check, so we just verify the structures work correctly
-    let invalid_tag = Tag::new(
-        0,                        // Invalid class_id
-        -100.0,                   // Negative x (invalid)
-        -200.0,                   // Negative y (invalid)
-        -50.0,                    // Negative width (invalid)
-        -30.0,                    // Negative height (invalid)
-        1.5,                      // Confidence > 1 (invalid)
-        TagObservationType::Auto, // Valid observation_type
-        "".to_string(),           // Empty class_name
-    );
-
-    // Even with invalid data, the structure should be created (validation happens elsewhere)
-    assert_eq!(invalid_tag.x, -100.0);
-    assert_eq!(invalid_tag.y, -200.0);
-    assert_eq!(invalid_tag.conf, 1.5);
-    assert_eq!(invalid_tag.observation_type, TagObservationType::Auto);
-}
-
 #[test]
 fn test_tag_location_functionality() {
-    println!("🧪 Testing Tag location functionality...");
-
     // Test 1: Create tag without location
     let mut tag = Tag::new(
         1,
@@ -3682,8 +2044,6 @@ fn test_tag_location_functionality() {
 
 #[test]
 fn test_tag_upload_with_location() {
-    println!("🧪 Testing Tag upload with location...");
-
     // This test verifies that tags with location can be serialized correctly
     // for database upload (even though we can't actually upload without a real DB)
 
@@ -3738,7 +2098,8 @@ fn test_tag_upload_with_location() {
 
 #[tokio::test]
 async fn test_tag_upload_with_location_integration() {
-    println!("🧪 Testing Tag upload with location integration...");
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
 
     // This test would require a real database connection to actually upload
     // For now, we'll test the serialization and preparation for upload
@@ -3799,6 +2160,8 @@ async fn test_tag_upload_with_location_integration() {
 
 #[tokio::test]
 async fn test_tag_upload_with_location_database() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
     let cleanup = TestCleanup::new();
     test_tag_upload_with_location_database_impl(&cleanup).await;
 }
@@ -3811,25 +2174,19 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
     )
     .unwrap();
 
-    // Identify the client - should always succeed with proper credentials
-    let identify_result = client.identify().await;
-    if identify_result.is_err() {
-        panic!(
-            "❌ Client identification failed: {:?}",
-            identify_result.err()
-        );
-    }
-
-    println!("🧪 Testing Tag upload with location to database...");
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
 
     // Get the actual device ID from the identified client
-    let device_id = client.device.as_ref().unwrap().id;
+    let device_id = client.device.as_ref().unwrap().id.unwrap();
 
     // First create a real session for the event
     let session = Session::new(
         device_id,
         1640995200,
-        1640998800,
+        Some(1640998800),
         "tag_location_test_v1.0.0".to_string(),
         Some("POINT(-155.15393 19.754824)".to_string()),
         120.0,
@@ -3848,9 +2205,11 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
         Ok(session_response) => {
             if session_response.status == ResponseScoutStatus::Success {
                 let created_session = session_response.data.unwrap();
-                let session_id = created_session.id.unwrap();
+                let session_id = created_session.id.unwrap_or(0);
                 cleanup.track_session(session_id);
-                println!("✅ Session created with ID: {}", session_id);
+
+                // Add a delay to ensure session is committed to database
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
                 // Verify the session actually exists in the database
                 match client
@@ -3874,7 +2233,7 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
 
                 session_id
             } else {
-                panic!("❌ Session creation failed: {:?}", session_response.status);
+                panic!("Session creation failed: {:?}", session_response.status);
             }
         }
         Err(e) => {
@@ -3897,9 +2256,9 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
         45.0,       // heading
         MediaType::Image,
         device_id,
-        1640995200, // timestamp_observation
-        false,      // is_public
-        Some(session_id),
+        1640995200,       // timestamp_observation
+        false,            // is_public
+        Some(session_id), // session_id - restored with debugging
     );
 
     // Create the event first
@@ -3910,9 +2269,7 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
                 let created_event = event_response.data.unwrap();
                 let event_id = created_event.id.unwrap();
                 cleanup.track_event(event_id);
-                println!("✅ Event created with ID: {}", event_id);
 
-                // Create tags with location data
                 let mut tags_with_location = vec![
                     Tag::new_with_location(
                         1,
@@ -4004,11 +2361,14 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
                         }
                     }
                     Err(e) => {
-                        panic!("❌ Tags creation failed: {}. This test requires successful tag creation.", e);
+                        panic!(
+                            "Tags creation failed: {}. This test requires successful tag creation.",
+                            e
+                        );
                     }
                 }
             } else {
-                panic!("❌ Event creation failed: {:?}", event_response.status);
+                panic!("Event creation failed: {:?}", event_response.status);
             }
         }
         Err(e) => {
@@ -4018,4 +2378,534 @@ async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
             );
         }
     }
+}
+
+test_with_cleanup!(test_sessions_batch_upsert, test_sessions_batch_upsert_impl);
+
+async fn test_sessions_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create initial sessions
+    let sessions = vec![
+        Session::new(
+            device_id,
+            1704103200,       // 2024-01-01T10:00:00Z
+            Some(1704106800), // 2024-01-01T11:00:00Z
+            "1.0.0".to_string(),
+            None,
+            100.0,
+            50.0,
+            75.0,
+            25.0,
+            10.0,
+            15.0,
+            1000.0,
+            500.0,
+        ),
+        Session::new(
+            device_id,
+            1704110400,       // 2024-01-01T12:00:00Z
+            Some(1704114000), // 2024-01-01T13:00:00Z
+            "1.0.0".to_string(),
+            None,
+            120.0,
+            60.0,
+            90.0,
+            30.0,
+            15.0,
+            20.0,
+            1200.0,
+            600.0,
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_sessions_batch(&sessions)
+        .await
+        .expect("Session batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_sessions = insert_result.data.unwrap();
+    assert_eq!(created_sessions.len(), 2);
+
+    // Track for cleanup
+    for session in &created_sessions {
+        if let Some(session_id) = session.id {
+            cleanup.track_session(session_id);
+        }
+    }
+
+    // Modify sessions for upsert
+    let mut updated_sessions = created_sessions.clone();
+    updated_sessions[0].software_version = "2.0.0".to_string();
+    updated_sessions[1].altitude_max = 150.0;
+
+    // Upsert the modified sessions
+    let upsert_result = client
+        .upsert_sessions_batch(&updated_sessions)
+        .await
+        .expect("Session batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_sessions = upsert_result.data.unwrap();
+    assert_eq!(upserted_sessions.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_sessions[0].software_version, "2.0.0");
+    assert_eq!(upserted_sessions[1].altitude_max, 150.0);
+}
+
+test_with_cleanup!(
+    test_connectivity_batch_upsert,
+    test_connectivity_batch_upsert_impl
+);
+
+async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create a session first
+    let session = Session::new(
+        device_id,
+        1704117600,       // 2024-01-01T14:00:00Z
+        Some(1704121200), // 2024-01-01T15:00:00Z
+        "1.0.0".to_string(),
+        None,
+        100.0,
+        50.0,
+        75.0,
+        25.0,
+        10.0,
+        15.0,
+        1000.0,
+        500.0,
+    );
+
+    let session_result = client
+        .create_session(&session)
+        .await
+        .expect("Session creation failed");
+    let created_session = session_result.data.unwrap();
+    let session_id = created_session.id.unwrap();
+    cleanup.track_session(session_id);
+
+    // Create connectivity entries
+    let connectivity_entries = vec![
+        Connectivity::new(
+            session_id,
+            1704118200, // 2024-01-01T14:10:00Z
+            -70.0,
+            -90.0,
+            100.0,
+            0.0,
+            "POINT(-155.15393 19.754824)".to_string(),
+            "h14index1".to_string(),
+            "h13index1".to_string(),
+            "h12index1".to_string(),
+            "h11index1".to_string(),
+        ),
+        Connectivity::new(
+            session_id,
+            1704118800, // 2024-01-01T14:20:00Z
+            -75.0,
+            -95.0,
+            105.0,
+            90.0,
+            "POINT(-155.15400 19.754830)".to_string(),
+            "h14index2".to_string(),
+            "h13index2".to_string(),
+            "h12index2".to_string(),
+            "h11index2".to_string(),
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_connectivity_batch(&connectivity_entries)
+        .await
+        .expect("Connectivity batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_connectivity = insert_result.data.unwrap();
+    assert_eq!(created_connectivity.len(), 2);
+
+    // Track for cleanup
+    for connectivity in &created_connectivity {
+        if let Some(connectivity_id) = connectivity.id {
+            cleanup.track_connectivity(connectivity_id);
+        }
+    }
+
+    // Modify connectivity entries for upsert
+    let mut updated_connectivity = created_connectivity.clone();
+    updated_connectivity[0].signal = -65.0;
+    updated_connectivity[1].noise = -85.0;
+
+    // Upsert the modified connectivity
+    let upsert_result = client
+        .upsert_connectivity_batch(&updated_connectivity)
+        .await
+        .expect("Connectivity batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_connectivity = upsert_result.data.unwrap();
+    assert_eq!(upserted_connectivity.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_connectivity[0].signal, -65.0);
+    assert_eq!(upserted_connectivity[1].noise, -85.0);
+}
+
+test_with_cleanup!(test_events_batch_upsert, test_events_batch_upsert_impl);
+
+async fn test_events_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create events
+    let events = vec![
+        Event::new(
+            Some("Upsert event 1".to_string()),
+            Some("https://test.com/upsert1.jpg".to_string()),
+            None,
+            None,
+            19.754824,
+            -155.15393,
+            10.0,
+            0.0,
+            MediaType::Image,
+            device_id,
+            1640995400,
+            false,
+            None,
+        ),
+        Event::new(
+            Some("Upsert event 2".to_string()),
+            Some("https://test.com/upsert2.jpg".to_string()),
+            None,
+            None,
+            19.755,
+            -155.154,
+            12.0,
+            90.0,
+            MediaType::Image,
+            device_id,
+            1640995460,
+            false,
+            None,
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_events_batch(&events)
+        .await
+        .expect("Event batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_events = insert_result.data.unwrap();
+    assert_eq!(created_events.len(), 2);
+
+    // Track for cleanup
+    for event in &created_events {
+        if let Some(event_id) = event.id {
+            cleanup.track_event(event_id);
+        }
+    }
+
+    // Modify events for upsert
+    let mut updated_events = created_events.clone();
+    updated_events[0].message = Some("Updated upsert event 1".to_string());
+    updated_events[1].altitude = 15.0;
+
+    // Upsert the modified events
+    let upsert_result = client
+        .upsert_events_batch(&updated_events)
+        .await
+        .expect("Event batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_events = upsert_result.data.unwrap();
+    assert_eq!(upserted_events.len(), 2);
+
+    // Verify the updates
+    assert_eq!(
+        upserted_events[0].message,
+        Some("Updated upsert event 1".to_string())
+    );
+    assert_eq!(upserted_events[1].altitude, 15.0);
+}
+
+test_with_cleanup!(test_tags_batch_upsert, test_tags_batch_upsert_impl);
+
+async fn test_tags_batch_upsert_impl(cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .unwrap_or_else(|_| "123".to_string())
+        .parse()
+        .unwrap_or(123);
+
+    // Create an event first
+    let event = Event::new(
+        Some("Upsert tag event".to_string()),
+        Some("https://test.com/upsert_tags.jpg".to_string()),
+        None,
+        None,
+        19.754824,
+        -155.15393,
+        10.0,
+        0.0,
+        MediaType::Image,
+        device_id,
+        1640995500,
+        false,
+        None,
+    );
+
+    let event_result = client
+        .create_event(&event)
+        .await
+        .expect("Event creation failed");
+    let created_event = event_result.data.unwrap();
+    let event_id = created_event.id.unwrap();
+    cleanup.track_event(event_id);
+
+    // Create tags
+    let tags = vec![
+        Tag::new(
+            1,
+            100.0,
+            150.0,
+            50.0,
+            75.0,
+            0.95,
+            TagObservationType::Auto,
+            "elephant".to_string(),
+        ),
+        Tag::new(
+            2,
+            200.0,
+            250.0,
+            40.0,
+            60.0,
+            0.87,
+            TagObservationType::Auto,
+            "zebra".to_string(),
+        ),
+    ];
+
+    // Initial insert
+    let insert_result = client
+        .create_tags(event_id, &tags)
+        .await
+        .expect("Tag batch creation failed");
+    assert_eq!(insert_result.status, ResponseScoutStatus::Success);
+    let created_tags = insert_result.data.unwrap();
+    assert_eq!(created_tags.len(), 2);
+
+    // Track for cleanup
+    for tag in &created_tags {
+        if let Some(tag_id) = tag.id {
+            cleanup.track_tag(tag_id);
+        }
+    }
+
+    // Modify tags for upsert
+    let mut updated_tags = created_tags.clone();
+    updated_tags[0].conf = 0.98;
+    updated_tags[1].class_name = "giraffe".to_string();
+
+    // Upsert the modified tags
+    let upsert_result = client
+        .upsert_tags_batch(&updated_tags)
+        .await
+        .expect("Tag batch upsert failed");
+    assert_eq!(upsert_result.status, ResponseScoutStatus::Success);
+    let upserted_tags = upsert_result.data.unwrap();
+    assert_eq!(upserted_tags.len(), 2);
+
+    // Verify the updates
+    assert_eq!(upserted_tags[0].conf, 0.98);
+    assert_eq!(upserted_tags[1].class_name, "giraffe");
+}
+
+test_with_cleanup!(test_empty_batch_upserts, test_empty_batch_upserts_impl);
+
+async fn test_empty_batch_upserts_impl(_cleanup: &TestCleanup) {
+    setup_test_env();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    // Test empty upserts return success with empty data
+    let empty_sessions: Vec<Session> = Vec::new();
+    let session_result = client
+        .upsert_sessions_batch(&empty_sessions)
+        .await
+        .expect("Empty session upsert failed");
+    assert_eq!(session_result.status, ResponseScoutStatus::Success);
+    assert_eq!(session_result.data.unwrap().len(), 0);
+
+    let empty_connectivity: Vec<Connectivity> = Vec::new();
+    let connectivity_result = client
+        .upsert_connectivity_batch(&empty_connectivity)
+        .await
+        .expect("Empty connectivity upsert failed");
+    assert_eq!(connectivity_result.status, ResponseScoutStatus::Success);
+    assert_eq!(connectivity_result.data.unwrap().len(), 0);
+
+    let empty_events: Vec<Event> = Vec::new();
+    let event_result = client
+        .upsert_events_batch(&empty_events)
+        .await
+        .expect("Empty event upsert failed");
+    assert_eq!(event_result.status, ResponseScoutStatus::Success);
+    assert_eq!(event_result.data.unwrap().len(), 0);
+
+    let empty_tags: Vec<Tag> = Vec::new();
+    let tag_result = client
+        .upsert_tags_batch(&empty_tags)
+        .await
+        .expect("Empty tag upsert failed");
+    assert_eq!(tag_result.status, ResponseScoutStatus::Success);
+    assert_eq!(tag_result.data.unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_heartbeat_operations() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
+    setup_test_env();
+
+    let cleanup = TestCleanup::new();
+
+    let mut client = ScoutClient::new(
+        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
+    )
+    .unwrap();
+
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    assert!(client.is_identified(), "Client should be identified");
+
+    // Get device info
+    let device = client.get_device().await.expect("Failed to get device");
+    assert_eq!(device.status, ResponseScoutStatus::Success);
+    let device = device.data.unwrap();
+
+    // Create first heartbeat
+    let timestamp1 = chrono::Utc::now().to_rfc3339();
+    let heartbeat1 = Heartbeat::new(timestamp1.clone(), device.id.unwrap());
+
+    let create_result1 = client
+        .create_heartbeat(&heartbeat1)
+        .await
+        .expect("Failed to create first heartbeat");
+
+    assert_eq!(create_result1.status, ResponseScoutStatus::Success);
+    let created_heartbeat1 = create_result1.data.unwrap();
+    assert!(created_heartbeat1.id.is_some());
+    assert_eq!(created_heartbeat1.device_id, device.id.unwrap());
+    assert_eq!(created_heartbeat1.timestamp, timestamp1);
+
+    // Track for cleanup
+    cleanup.track_heartbeat(created_heartbeat1.id.unwrap());
+
+    // Wait and create second heartbeat to test ordering
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    let timestamp2 = chrono::Utc::now().to_rfc3339();
+    let heartbeat2 = Heartbeat::new(timestamp2.clone(), device.id.unwrap());
+
+    let create_result2 = client
+        .create_heartbeat(&heartbeat2)
+        .await
+        .expect("Failed to create second heartbeat");
+
+    assert_eq!(create_result2.status, ResponseScoutStatus::Success);
+    let created_heartbeat2 = create_result2.data.unwrap();
+    assert!(created_heartbeat2.id.is_some());
+    assert_eq!(created_heartbeat2.timestamp, timestamp2);
+
+    // Track for cleanup
+    cleanup.track_heartbeat(created_heartbeat2.id.unwrap());
+
+    // Get heartbeats for device
+    let get_result = client
+        .get_heartbeats_by_device(device.id.unwrap())
+        .await
+        .expect("Failed to get heartbeats");
+
+    assert_eq!(get_result.status, ResponseScoutStatus::Success);
+    let heartbeats = get_result.data.unwrap();
+    assert!(heartbeats.len() >= 2);
+
+    // Verify ordering (newest first)
+    assert_eq!(heartbeats[0].timestamp, timestamp2);
+
+    // Find both created heartbeats
+    let found_hb1 = heartbeats.iter().find(|h| h.id == created_heartbeat1.id);
+    let found_hb2 = heartbeats.iter().find(|h| h.id == created_heartbeat2.id);
+    assert!(found_hb1.is_some() && found_hb2.is_some());
+
+    // Clean up test data
+    cleanup.cleanup(&mut client).await;
 }

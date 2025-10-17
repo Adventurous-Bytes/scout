@@ -1,25 +1,1715 @@
-use crate::{client::ScoutClient, models::Herd};
-use anyhow::Result;
-use native_db::{Builder, Database, Models};
+use crate::{
+    client::ScoutClient,
+    models::{
+        Connectivity, ConnectivityLocal, Event, EventLocal, Session, SessionLocal, Syncable, Tag,
+        TagLocal,
+    },
+};
+use anyhow::{Error, Result};
+use native_db::{Builder, Database, Models, ToInput};
+use once_cell::sync::Lazy;
+use tracing::error;
 
-pub struct SyncEngine<'a> {
+// Static models instance shared across all SyncEngine instances
+static MODELS: Lazy<Models> = Lazy::new(|| {
+    let mut models = Models::new();
+    models
+        .define::<SessionLocal>()
+        .expect("Failed to define SessionLocal model");
+    models
+        .define::<EventLocal>()
+        .expect("Failed to define EventLocal model");
+    models
+        .define::<TagLocal>()
+        .expect("Failed to define TagLocal model");
+    models
+        .define::<ConnectivityLocal>()
+        .expect("Failed to define ConnectivityLocal model");
+    models
+});
+
+/// SyncEngine handles synchronization between local database and remote Scout server.
+///
+/// The sync engine maintains a hierarchical sync order:
+/// 1. Sessions (parent entities)
+/// 2. Connectivity entries (children of sessions)
+/// 3. Events (children of sessions)
+/// 4. Tags (children of events)
+///
+/// Features:
+/// - Batch operations for efficiency
+/// - Automatic ID relationship management
+/// - Configurable sync intervals and batch sizes
+/// - Auto-cleaning of completed sessions
+/// - Resilient error handling with partial failure recovery
+pub struct SyncEngine {
     scout_client: ScoutClient,
     db_local_path: String,
-    database: Database<'a>,
+    database: Database<'static>,
+    interval_flush_sessions_ms: Option<u64>,
+    max_num_items_per_sync: Option<u64>,
+    auto_clean: bool,
 }
 
-impl<'a> SyncEngine<'a> {
-    pub fn new(scout_client: ScoutClient, db_local_path: String) -> Result<SyncEngine<'a>> {
-        let mut models = Models::new();
-        match models.define::<Herd>() {
-            Ok(_) => (),
-            Err(e) => return Err(e.into()),
+pub enum EnumSyncAction {
+    Upsert,
+    Insert,
+    Skip,
+}
+
+const DEFAULT_INTERVAL_FLUSH_SESSIONS_MS: u64 = 20_000;
+const DEFAULT_MAX_NUM_ITEMS_PER_SYNC: u64 = 100;
+
+pub struct BatchSync<T: ToInput + Syncable> {
+    upsert: Vec<T>,
+    insert: Vec<T>,
+}
+
+impl<T: ToInput + Syncable> BatchSync<T> {
+    fn new() -> Self {
+        Self {
+            upsert: Vec::new(),
+            insert: Vec::new(),
         }
-        let db = Builder::new().create(&models, db_local_path)?;
+    }
+
+    fn add_upsert_item(&mut self, item: T) {
+        self.upsert.push(item);
+    }
+
+    fn add_insert_item(&mut self, item: T) {
+        self.insert.push(item);
+    }
+}
+
+impl SyncEngine {
+    /// Creates a new SyncEngine with custom configuration.
+    ///
+    /// # Arguments
+    /// * `scout_client` - Client for communicating with Scout server
+    /// * `db_local_path` - Path to local database file
+    /// * `interval_flush_sessions_ms` - How often to sync (None = manual only)
+    /// * `max_num_items_per_sync` - Maximum items per sync batch (None = unlimited)
+    /// * `auto_clean` - Whether to automatically clean completed sessions
+    pub fn new(
+        scout_client: ScoutClient,
+        db_local_path: String,
+        interval_flush_sessions_ms: Option<u64>,
+        max_num_items_per_sync: Option<u64>,
+        auto_clean: bool,
+    ) -> Result<Self> {
+        // Create database using static models reference
+        let database = Builder::new().create(&*MODELS, &db_local_path)?;
+        // initialize tracing
         Ok(Self {
             scout_client,
             db_local_path,
-            database: db,
+            database,
+            interval_flush_sessions_ms,
+            max_num_items_per_sync,
+            auto_clean,
         })
+    }
+
+    /// Creates a default SyncEngine with common settings:
+    /// - 3 second sync interval
+    /// - 100 items per sync batch
+    /// - Auto-clean enabled
+    pub fn with_defaults(scout_client: ScoutClient, db_local_path: String) -> Result<Self> {
+        Self::new(
+            scout_client,
+            db_local_path,
+            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
+            Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
+            true, // Enable auto-clean by default
+        )
+    }
+
+    fn get_batch<T: Syncable + ToInput>(
+        &self,
+        action_for_items_with_existing_ids: EnumSyncAction,
+        action_for_items_without_existing_ids: EnumSyncAction,
+    ) -> Result<BatchSync<T>, Error> {
+        let r = self.database.r_transaction()?;
+        let mut batch: BatchSync<T> = BatchSync::new();
+
+        for raw_item in r.scan().primary::<T>()?.all()? {
+            match raw_item {
+                Ok(item) => {
+                    // handle action for existing remote ids (on remote)
+                    if item.id().is_some() {
+                        match action_for_items_with_existing_ids {
+                            EnumSyncAction::Insert => {
+                                batch.add_insert_item(item);
+                            }
+                            EnumSyncAction::Upsert => {
+                                batch.add_upsert_item(item);
+                            }
+                            EnumSyncAction::Skip => {
+                                // Skip items that already have remote IDs
+                            }
+                        }
+                    }
+                    // handle action for no remote id (local only)
+                    else {
+                        match action_for_items_without_existing_ids {
+                            EnumSyncAction::Insert => {
+                                batch.add_insert_item(item);
+                            }
+                            EnumSyncAction::Upsert => {
+                                batch.add_upsert_item(item);
+                            }
+                            EnumSyncAction::Skip => {
+                                // Skip items without remote IDs (shouldn't happen)
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to process item: {}", e);
+                }
+            }
+        }
+        Ok(batch)
+    }
+
+    /// Flushes all local data to remote server in proper order: sessions -> connectivity -> events -> tags
+    /// Continues with remaining operations even if one fails, but reports all errors
+    pub async fn flush(&mut self) -> Result<(), Error> {
+        let mut sync_errors = Vec::new();
+
+        // Sync sessions first (they're the parent of everything)
+        if let Err(e) = self.flush_sessions().await {
+            sync_errors.push(format!("Sessions sync failed: {}", e));
+            tracing::error!(
+                "Sessions sync failed, continuing with other operations: {}",
+                e
+            );
+        }
+
+        // Sync connectivity (depends on sessions)
+        if let Err(e) = self.flush_connectivity().await {
+            sync_errors.push(format!("Connectivity sync failed: {}", e));
+            tracing::error!(
+                "Connectivity sync failed, continuing with other operations: {}",
+                e
+            );
+        }
+
+        // Sync events (depends on sessions)
+        if let Err(e) = self.flush_events().await {
+            sync_errors.push(format!("Events sync failed: {}", e));
+            tracing::error!(
+                "Events sync failed, continuing with other operations: {}",
+                e
+            );
+        }
+
+        // Sync tags (depends on events)
+        if let Err(e) = self.flush_tags().await {
+            sync_errors.push(format!("Tags sync failed: {}", e));
+            tracing::error!("Tags sync failed: {}", e);
+        }
+
+        // Auto clean if enabled and no critical errors occurred
+        if self.auto_clean && sync_errors.is_empty() {
+            if let Err(e) = self.clean().await {
+                sync_errors.push(format!("Clean operation failed: {}", e));
+                tracing::error!("Clean operation failed: {}", e);
+            }
+        }
+
+        // Return error if any operations failed
+        if !sync_errors.is_empty() {
+            return Err(Error::msg(format!(
+                "Sync completed with errors: {}",
+                sync_errors.join("; ")
+            )));
+        }
+
+        Ok(())
+    }
+
+    /// Syncs sessions to remote server
+    async fn flush_sessions(&mut self) -> Result<(), Error> {
+        // For sessions, we always upsert because they can be updated (e.g., timestamp_end)
+        let sessions_batch: BatchSync<SessionLocal> = self.get_batch::<SessionLocal>(
+            EnumSyncAction::Upsert, // Always upsert sessions with remote IDs
+            EnumSyncAction::Upsert, // Always upsert sessions without remote IDs (insert)
+        )?;
+
+        let mut all_sessions = sessions_batch.upsert;
+        all_sessions.extend(sessions_batch.insert);
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_sessions.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting sessions sync from {} to {} items",
+                    all_sessions.len(),
+                    max_items
+                );
+                all_sessions.truncate(max_items as usize);
+            }
+        }
+
+        if all_sessions.is_empty() {
+            return Ok(());
+        }
+
+        let sessions_for_upsert: Vec<Session> = all_sessions
+            .iter()
+            .map(|local_session| local_session.clone().into())
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_sessions_batch(&sessions_for_upsert)
+            .await?;
+
+        if let Some(upserted_sessions) = response.data {
+            let updated_locals: Vec<SessionLocal> = upserted_sessions
+                .into_iter()
+                .zip(all_sessions.iter())
+                .map(|(remote_session, original_local)| {
+                    let mut updated_local: SessionLocal = remote_session.into();
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(updated_locals.clone())?;
+
+            // Update descendants with new remote session IDs
+            for (updated_session, original_session) in
+                updated_locals.iter().zip(all_sessions.iter())
+            {
+                if let (Some(new_remote_id), Some(local_id)) =
+                    (updated_session.id, &original_session.id_local)
+                {
+                    if original_session.id.is_none() {
+                        if let Err(e) = self.update_session_descendants(local_id, new_remote_id) {
+                            tracing::error!(
+                                "Failed to update descendants for session {}: {}",
+                                local_id,
+                                e
+                            );
+                            // Continue processing other sessions
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Syncs connectivity entries to remote server
+    async fn flush_connectivity(&mut self) -> Result<(), Error> {
+        // For connectivity, we only process items without remote IDs (new items to insert)
+        let connectivity_batch: BatchSync<ConnectivityLocal> = self
+            .get_batch::<ConnectivityLocal>(
+                EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
+                EnumSyncAction::Insert, // Process items without remote IDs
+            )?;
+
+        // Only process items without remote IDs (the insert batch)
+        let mut all_connectivity = connectivity_batch.insert;
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_connectivity.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting connectivity sync from {} to {} items",
+                    all_connectivity.len(),
+                    max_items
+                );
+                all_connectivity.truncate(max_items as usize);
+            }
+        }
+
+        if all_connectivity.is_empty() {
+            return Ok(());
+        }
+
+        let connectivity_for_insert: Vec<Connectivity> = all_connectivity
+            .iter()
+            .map(|local_connectivity| local_connectivity.clone().into())
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_connectivity_batch(&connectivity_for_insert)
+            .await?;
+
+        if let Some(inserted_connectivity) = response.data {
+            let updated_connectivity: Vec<ConnectivityLocal> = inserted_connectivity
+                .into_iter()
+                .zip(all_connectivity.iter())
+                .map(|(remote_connectivity, original_local)| {
+                    let mut updated_local: ConnectivityLocal = remote_connectivity.into();
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(updated_connectivity)?;
+        }
+
+        Ok(())
+    }
+
+    /// Syncs events to remote server
+    async fn flush_events(&mut self) -> Result<(), Error> {
+        // For events, we only process items without remote IDs (new items to insert)
+        let events_batch: BatchSync<EventLocal> = self.get_batch::<EventLocal>(
+            EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
+            EnumSyncAction::Insert, // Process items without remote IDs
+        )?;
+
+        // Only process items without remote IDs (the insert batch)
+        let mut all_events = events_batch.insert;
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_events.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting events sync from {} to {} items",
+                    all_events.len(),
+                    max_items
+                );
+                all_events.truncate(max_items as usize);
+            }
+        }
+
+        if all_events.is_empty() {
+            return Ok(());
+        }
+
+        let events_for_insert: Vec<Event> = all_events
+            .iter()
+            .map(|local_event| local_event.clone().into())
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_events_batch(&events_for_insert)
+            .await?;
+
+        if let Some(inserted_events) = response.data {
+            let updated_events: Vec<EventLocal> = inserted_events
+                .into_iter()
+                .zip(all_events.iter())
+                .map(|(remote_event, original_local)| {
+                    let mut updated_local: EventLocal = remote_event.into();
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(updated_events.clone())?;
+
+            // Update tag descendants with new remote event IDs
+            for (updated_event, original_event) in updated_events.iter().zip(all_events.iter()) {
+                if let (Some(new_remote_id), Some(local_id)) =
+                    (updated_event.id, &original_event.id_local)
+                {
+                    if original_event.id.is_none() {
+                        if let Err(e) = self.update_event_descendants(local_id, new_remote_id) {
+                            tracing::error!(
+                                "Failed to update descendants for event {}: {}",
+                                local_id,
+                                e
+                            );
+                            // Continue processing other events
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Syncs tags to remote server
+    async fn flush_tags(&mut self) -> Result<(), Error> {
+        // For tags, we only process items without remote IDs (new items to insert)
+        let tags_batch: BatchSync<TagLocal> = self.get_batch::<TagLocal>(
+            EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
+            EnumSyncAction::Insert, // Process items without remote IDs
+        )?;
+
+        // Only process items without remote IDs (the insert batch)
+        let mut all_tags = tags_batch.insert;
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_tags.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting tags sync from {} to {} items",
+                    all_tags.len(),
+                    max_items
+                );
+                all_tags.truncate(max_items as usize);
+            }
+        }
+
+        if all_tags.is_empty() {
+            return Ok(());
+        }
+
+        let tags_for_insert: Vec<Tag> = all_tags
+            .iter()
+            .map(|local_tag| local_tag.clone().into())
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_tags_batch(&tags_for_insert)
+            .await?;
+
+        if let Some(inserted_tags) = response.data {
+            let updated_tags: Vec<TagLocal> = inserted_tags
+                .into_iter()
+                .zip(all_tags.iter())
+                .map(|(remote_tag, original_local)| {
+                    let mut updated_local: TagLocal = remote_tag.into();
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(updated_tags)?;
+        }
+
+        Ok(())
+    }
+
+    /// Starts the sync engine with automatic flushing at specified intervals.
+    /// This method runs indefinitely until an error occurs or the task is cancelled.
+    /// Use `spawn_background_sync` to run this in a background task.
+    pub async fn start(&mut self) -> Result<(), Error> {
+        if let Some(interval_ms) = self.interval_flush_sessions_ms {
+            tracing::info!(
+                "Starting sync engine with flush interval: {}ms, max items per sync: {:?}",
+                interval_ms,
+                self.max_num_items_per_sync
+            );
+
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_millis(interval_ms));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+            loop {
+                interval.tick().await;
+
+                match self.flush().await {
+                    Ok(_) => {
+                        tracing::debug!("Periodic flush completed successfully");
+                    }
+                    Err(e) => {
+                        tracing::error!("Periodic flush failed: {}", e);
+                        // Continue running despite failures
+                    }
+                }
+            }
+        } else {
+            tracing::warn!("No flush interval specified, sync engine will not run automatically");
+            Ok(())
+        }
+    }
+
+    /// Stops the sync engine (placeholder for future graceful shutdown implementation)
+    pub fn stop(&self) {
+        tracing::info!("Sync engine stopped");
+    }
+
+    /// Runs a single flush operation respecting max items per sync.
+    /// This is equivalent to calling `flush()` directly.
+    pub async fn flush_once(&mut self) -> Result<(), Error> {
+        self.flush().await
+    }
+
+    /// Performs flush followed by clean operation
+    pub async fn flush_and_clean(&mut self) -> Result<(), Error> {
+        // First flush to ensure all data is synchronized
+        self.flush().await?;
+
+        // Then clean completed sessions
+        self.clean().await?;
+
+        Ok(())
+    }
+
+    /// Cleans completed sessions and their descendants from local database
+    /// Only removes sessions where timestamp_end is Some, all entities have remote IDs,
+    /// and the session ended more than 30 seconds ago (safety buffer)
+    pub async fn clean(&mut self) -> Result<(), Error> {
+        tracing::info!("Starting clean operation for completed sessions");
+
+        let r = self.database.r_transaction()?;
+        let mut sessions_to_clean = Vec::new();
+
+        // Get current time for safety check
+        let now = chrono::Utc::now();
+
+        // Find completed sessions with remote IDs
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if let (Some(ref end_time_str), Some(_remote_id)) =
+                    (&session.timestamp_end, session.id)
+                {
+                    // Safety check: only clean sessions that ended more than 30 seconds ago
+                    if let Ok(end_time) = chrono::DateTime::parse_from_rfc3339(end_time_str) {
+                        let duration = now.signed_duration_since(end_time);
+                        if duration.num_seconds() > 30 {
+                            // Check if all descendants have remote IDs
+                            if self.session_descendants_have_remote_ids(&session, &r)? {
+                                sessions_to_clean.push(session);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        drop(r);
+
+        if sessions_to_clean.is_empty() {
+            tracing::debug!("No completed sessions found for cleaning");
+            return Ok(());
+        }
+
+        tracing::info!(
+            "Found {} completed sessions to clean",
+            sessions_to_clean.len()
+        );
+
+        // Clean each session and its descendants
+        for session in sessions_to_clean {
+            self.clean_session_and_descendants(&session).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Checks if all descendants of a session have remote IDs
+    fn session_descendants_have_remote_ids(
+        &self,
+        session: &SessionLocal,
+        r: &native_db::transaction::RTransaction,
+    ) -> Result<bool, Error> {
+        let session_local_id = match &session.id_local {
+            Some(id) => id,
+            None => return Ok(false),
+        };
+
+        // Check connectivity entries
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(connectivity) = raw_connectivity {
+                if connectivity.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    if connectivity.id.is_none() {
+                        tracing::debug!(
+                            "Session {} has connectivity without remote ID",
+                            session_local_id
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+
+        // Check events and their tags
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    if event.id.is_none() {
+                        tracing::debug!("Session {} has event without remote ID", session_local_id);
+                        return Ok(false);
+                    }
+
+                    // Check tags for this event
+                    if let Some(event_local_id) = &event.id_local {
+                        for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+                            if let Ok(tag) = raw_tag {
+                                if tag.ancestor_id_local.as_deref() == Some(event_local_id) {
+                                    if tag.id.is_none() {
+                                        tracing::debug!(
+                                            "Session {} has tag without remote ID for event {}",
+                                            session_local_id,
+                                            event_local_id
+                                        );
+                                        return Ok(false);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Removes a session and all its descendants from local database
+    async fn clean_session_and_descendants(&mut self, session: &SessionLocal) -> Result<(), Error> {
+        let session_local_id = match &session.id_local {
+            Some(id) => id.clone(),
+            None => return Ok(()),
+        };
+
+        tracing::info!("Cleaning session {} and descendants", session_local_id);
+
+        // First, collect all items to remove using read transaction
+        let r = self.database.r_transaction()?;
+
+        let mut tags_to_remove = Vec::new();
+        let mut events_to_remove = Vec::new();
+        let mut connectivity_to_remove = Vec::new();
+
+        // Collect events for this session
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.ancestor_id_local.as_deref() == Some(&session_local_id) {
+                    events_to_remove.push(event);
+                }
+            }
+        }
+
+        // Collect tags for each event
+        for event in &events_to_remove {
+            if let Some(event_local_id) = &event.id_local {
+                for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+                    if let Ok(tag) = raw_tag {
+                        if tag.ancestor_id_local.as_deref() == Some(event_local_id) {
+                            tags_to_remove.push(tag);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collect connectivity entries
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(connectivity) = raw_connectivity {
+                if connectivity.ancestor_id_local.as_deref() == Some(&session_local_id) {
+                    connectivity_to_remove.push(connectivity);
+                }
+            }
+        }
+
+        drop(r); // Close read transaction
+
+        // Now remove all items using write transaction
+        let rw = self.database.rw_transaction()?;
+
+        // Remove tags
+        let tags_count = tags_to_remove.len();
+        for tag in tags_to_remove {
+            rw.remove(tag)?;
+        }
+
+        // Remove events
+        let events_count = events_to_remove.len();
+        for event in events_to_remove {
+            rw.remove(event)?;
+        }
+
+        // Remove connectivity entries
+        let connectivity_count = connectivity_to_remove.len();
+        for connectivity in connectivity_to_remove {
+            rw.remove(connectivity)?;
+        }
+
+        // Remove the session itself
+        rw.remove(session.clone())?;
+
+        rw.commit()?;
+
+        tracing::info!(
+            "Cleaned session {}: removed {} tags, {} events, {} connectivity entries, and 1 session",
+            session_local_id,
+            tags_count,
+            events_count,
+            connectivity_count
+        );
+
+        Ok(())
+    }
+
+    /// Spawns the sync engine in a background task that runs indefinitely.
+    /// Returns a JoinHandle that can be used to await completion or cancel the task.
+    pub fn spawn_background_sync(mut self) -> tokio::task::JoinHandle<Result<(), Error>> {
+        tokio::spawn(async move { self.start().await })
+    }
+    /// Returns the path to the local database file
+    pub fn get_db_path(&self) -> &str {
+        &self.db_local_path
+    }
+
+    /// Generates a unique ID using timestamp and table count to avoid race conditions
+    pub fn generate_unique_id<T: ToInput>(&self) -> Result<u64, Error> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|e| Error::msg(format!("System time error: {}", e)))?
+            .as_millis() as u64;
+
+        // Use timestamp as base with table count as offset to ensure uniqueness
+        let count = self.get_table_count::<T>()?;
+        Ok(timestamp * 1000 + count)
+    }
+
+    /// Gets the number of items in a specific table type
+    pub fn get_table_count<T: ToInput>(&self) -> Result<u64, Error> {
+        let r = self.database.r_transaction()?;
+        let count = r.len().primary::<T>();
+        match count {
+            Ok(count) => Ok(count),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Removes multiple items from the local database
+    pub fn remove_items<T: ToInput>(&mut self, items: Vec<T>) -> Result<(), Error> {
+        let rw = self.database.rw_transaction();
+        match rw {
+            Ok(rw) => {
+                for item in items {
+                    rw.remove(item)?;
+                }
+                match rw.commit() {
+                    Ok(_) => Ok(()),
+                    Err(e) => {
+                        error!("Failed to commit items to database: {}", e);
+                        Err(e.into())
+                    }
+                }
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Inserts or updates multiple items in the local database
+    pub fn upsert_items<T: ToInput>(&mut self, items: Vec<T>) -> Result<(), Error> {
+        let rw = self.database.rw_transaction()?;
+        for item in items {
+            rw.upsert(item)?;
+        }
+        rw.commit()?;
+        Ok(())
+    }
+
+    /// Updates all descendants of a session with the new remote session ID
+    fn update_session_descendants(
+        &mut self,
+        session_local_id: &str,
+        new_remote_session_id: i64,
+    ) -> Result<(), Error> {
+        // Update connectivity entries
+        self.update_connectivity_session_id(session_local_id, new_remote_session_id)?;
+
+        // Update events that belong to this session
+        self.update_events_session_id(session_local_id, new_remote_session_id)?;
+
+        tracing::info!(
+            "Updated descendants for session {} with remote ID {}",
+            session_local_id,
+            new_remote_session_id
+        );
+        Ok(())
+    }
+
+    /// Updates connectivity entries to reference the new remote session ID
+    fn update_connectivity_session_id(
+        &mut self,
+        session_local_id: &str,
+        new_remote_session_id: i64,
+    ) -> Result<(), Error> {
+        let r = self.database.r_transaction()?;
+
+        // Find all connectivity entries that reference this session's local ID
+        let mut connectivity_to_update = Vec::new();
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(mut connectivity) = raw_connectivity {
+                if connectivity.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    connectivity.session_id = new_remote_session_id;
+                    connectivity_to_update.push(connectivity);
+                }
+            }
+        }
+
+        drop(r); // Close read transaction before opening write transaction
+
+        if !connectivity_to_update.is_empty() {
+            let count = connectivity_to_update.len();
+            self.upsert_items(connectivity_to_update)?;
+            tracing::debug!(
+                "Updated {} connectivity entries for session {}",
+                count,
+                session_local_id
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Updates events to reference the new remote session ID
+    fn update_events_session_id(
+        &mut self,
+        session_local_id: &str,
+        new_remote_session_id: i64,
+    ) -> Result<(), Error> {
+        let r = self.database.r_transaction()?;
+
+        // Find all events that reference this session's local ID
+        let mut events_to_update = Vec::new();
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(mut event) = raw_event {
+                if event.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    event.session_id = Some(new_remote_session_id);
+                    events_to_update.push(event);
+                }
+            }
+        }
+
+        drop(r); // Close read transaction before opening write transaction
+
+        if !events_to_update.is_empty() {
+            let count = events_to_update.len();
+            self.upsert_items(events_to_update)?;
+            tracing::debug!("Updated {} events for session {}", count, session_local_id);
+        }
+
+        Ok(())
+    }
+
+    /// Updates all descendants of an event with the new remote event ID
+    fn update_event_descendants(
+        &mut self,
+        event_local_id: &str,
+        new_remote_event_id: i64,
+    ) -> Result<(), Error> {
+        // Update tags that belong to this event
+        self.update_tags_event_id(event_local_id, new_remote_event_id)?;
+
+        tracing::info!(
+            "Updated descendants for event {} with remote ID {}",
+            event_local_id,
+            new_remote_event_id
+        );
+        Ok(())
+    }
+
+    /// Updates tags to reference the new remote event ID
+    fn update_tags_event_id(
+        &mut self,
+        event_local_id: &str,
+        new_remote_event_id: i64,
+    ) -> Result<(), Error> {
+        let r = self.database.r_transaction()?;
+
+        // Find all tags that reference this event's local ID
+        let mut tags_to_update = Vec::new();
+        for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+            if let Ok(mut tag) = raw_tag {
+                if tag.ancestor_id_local.as_deref() == Some(event_local_id) {
+                    tag.event_id = new_remote_event_id;
+                    tags_to_update.push(tag);
+                }
+            }
+        }
+
+        drop(r); // Close read transaction before opening write transaction
+
+        if !tags_to_update.is_empty() {
+            let count = tags_to_update.len();
+            self.upsert_items(tags_to_update)?;
+            tracing::debug!("Updated {} tags for event {}", count, event_local_id);
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{AncestorLocal, MediaType, SessionLocal, TagObservationType};
+
+    use tempfile::tempdir;
+
+    fn setup_test_env() {
+        dotenv::dotenv().ok();
+
+        // Check for required environment variables and panic if missing
+        let missing_vars = vec![
+            (
+                "SCOUT_DEVICE_API_KEY",
+                std::env::var("SCOUT_DEVICE_API_KEY").is_err(),
+            ),
+            (
+                "SCOUT_DATABASE_REST_URL",
+                std::env::var("SCOUT_DATABASE_REST_URL").is_err(),
+            ),
+            ("SCOUT_DEVICE_ID", std::env::var("SCOUT_DEVICE_ID").is_err()),
+            ("SCOUT_HERD_ID", std::env::var("SCOUT_HERD_ID").is_err()),
+        ];
+
+        let missing: Vec<&str> = missing_vars
+            .into_iter()
+            .filter(|(_, is_missing)| *is_missing)
+            .map(|(name, _)| name)
+            .collect();
+
+        if !missing.is_empty() {
+            panic!(
+                "❌ Missing required environment variables: {}. Please check your .env file.",
+                missing.join(", ")
+            );
+        }
+    }
+
+    fn create_test_sync_engine() -> Result<SyncEngine> {
+        setup_test_env();
+
+        // Require API key - tests should fail if not provided
+        let api_key = std::env::var("SCOUT_DEVICE_API_KEY")
+            .expect("SCOUT_DEVICE_API_KEY environment variable is required for sync tests");
+
+        let temp_dir = tempdir()?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = temp_dir
+            .path()
+            .join(format!("test_{}.db", timestamp))
+            .to_string_lossy()
+            .to_string();
+
+        let scout_client = ScoutClient::new(api_key)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+
+        // Initialize database with a simple transaction to ensure it's properly set up
+        {
+            let rw = sync_engine.database.rw_transaction()?;
+            rw.commit()?;
+        }
+
+        Ok(sync_engine)
+    }
+
+    async fn create_test_sync_engine_with_identification() -> Result<SyncEngine> {
+        setup_test_env();
+
+        // Require API key - tests should fail if not provided
+        let api_key = std::env::var("SCOUT_DEVICE_API_KEY")
+            .expect("SCOUT_DEVICE_API_KEY environment variable is required for sync tests");
+
+        let temp_dir = tempdir()?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = temp_dir
+            .path()
+            .join(format!("test_{}.db", timestamp))
+            .to_string_lossy()
+            .to_string();
+
+        // Create and identify scout client - MUST succeed for test to be valid
+        let mut scout_client = ScoutClient::new(api_key)?;
+        scout_client.identify().await.expect(
+            "Client identification failed - check SCOUT_DEVICE_API_KEY and database connection",
+        );
+
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+
+        // Initialize database with a simple transaction to ensure it's properly set up
+        {
+            let rw = sync_engine.database.rw_transaction()?;
+            rw.commit()?;
+        }
+
+        Ok(sync_engine)
+    }
+
+    #[tokio::test]
+    async fn test_upsert_sessions_and_count() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        // Check initial count is 0
+        let initial_count = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(initial_count, 0);
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create test sessions with proper data
+        let mut session1 = SessionLocal::default();
+        session1.set_id_local("test_session_1".to_string());
+        session1.device_id = device_id;
+        session1.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+
+        let mut session2 = SessionLocal::default();
+        session2.set_id_local("test_session_2".to_string());
+        session2.device_id = device_id;
+        session2.timestamp_start = "2023-01-01T01:00:00Z".to_string();
+
+        let mut session3 = SessionLocal::default();
+        session3.set_id_local("test_session_3".to_string());
+        session3.device_id = device_id;
+        session3.timestamp_start = "2023-01-01T02:00:00Z".to_string();
+
+        let sessions = vec![session1, session2, session3];
+
+        // Upsert the sessions
+        sync_engine.upsert_items(sessions)?;
+
+        // Check that count is now 3
+        let final_count = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(final_count, 3);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_get_batch() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        // Create a session with no remote ID (should go to insert batch)
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        let mut session_1 = SessionLocal::default();
+        session_1.set_id_local("test_session_1".to_string());
+        session_1.device_id = device_id;
+        session_1.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+        session_1.software_version = "1.0.0".to_string();
+
+        sync_engine.upsert_items::<SessionLocal>(vec![session_1.clone()])?;
+
+        // Verify the session was actually saved
+        let count = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(count, 1);
+
+        let batch = sync_engine
+            .get_batch::<SessionLocal>(EnumSyncAction::Upsert, EnumSyncAction::Insert)?;
+
+        // The session has no remote ID (id is None), so it should go to insert batch
+        assert_eq!(batch.insert.len(), 1);
+        assert_eq!(batch.upsert.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_multiple_upsert_operations() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+        // Create two different sessions
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        let mut session_1 = SessionLocal::default();
+        session_1.set_id_local("multi_test_session_1".to_string());
+        session_1.device_id = device_id;
+        session_1.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+
+        let mut session_2 = SessionLocal::default();
+        session_2.set_id_local("multi_test_session_2".to_string());
+        session_2.device_id = device_id;
+        session_2.timestamp_start = "2023-01-01T01:00:00Z".to_string();
+
+        sync_engine.upsert_items(vec![session_1])?;
+        let count_after_first = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(count_after_first, 1);
+
+        // Upsert second session
+        sync_engine.upsert_items(vec![session_2])?;
+        let count_after_second = sync_engine.get_table_count::<SessionLocal>()?;
+        // Count should be 2 since we have two different sessions
+        assert_eq!(count_after_second, 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_flush_sessions_without_remote() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        // Create sessions without remote IDs (they should be inserted to remote)
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        let mut session_1 = SessionLocal::default();
+        session_1.set_id_local("flush_test_session_1".to_string());
+        session_1.device_id = device_id;
+        session_1.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        session_1.software_version = "sync_unit_test_flush_sessions_without_remote_0".to_string();
+        session_1.altitude_max = 100.0;
+        session_1.altitude_min = 50.0;
+        session_1.altitude_average = 75.0;
+        session_1.velocity_max = 25.0;
+        session_1.velocity_min = 10.0;
+        session_1.velocity_average = 15.0;
+        session_1.distance_total = 1000.0;
+        session_1.distance_max_from_start = 500.0;
+
+        let mut session_2 = SessionLocal::default();
+        session_2.set_id_local("flush_test_session_2".to_string());
+        session_2.device_id = device_id;
+        session_2.timestamp_start = "2023-01-01T11:00:00Z".to_string();
+        session_2.software_version = "sync_unit_test_flush_sessions_without_remote_1".to_string();
+        session_2.altitude_max = 120.0;
+        session_2.altitude_min = 60.0;
+        session_2.altitude_average = 90.0;
+        session_2.velocity_max = 30.0;
+        session_2.velocity_min = 15.0;
+        session_2.velocity_average = 20.0;
+        session_2.distance_total = 1200.0;
+        session_2.distance_max_from_start = 600.0;
+
+        // Insert sessions locally (no remote ID yet)
+        sync_engine.upsert_items(vec![session_1, session_2])?;
+
+        // Verify sessions are in local database
+        let count_before = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(count_before, 2);
+
+        // Flush MUST succeed - test should fail if remote sync doesn't work
+        println!("🚀 Starting session flush to remote...");
+        let flush_result = sync_engine.flush().await;
+
+        match &flush_result {
+            Ok(_) => println!("✅ Session flush completed successfully!"),
+            Err(e) => {
+                println!("❌ Session flush failed: {}", e);
+                panic!(
+                    "Flush operation must succeed - check database connection and API key: {}",
+                    e
+                );
+            }
+        }
+
+        flush_result?;
+
+        // Verify sessions are still in database after successful sync
+        let count_after = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(count_after, 2);
+
+        // Verify ALL sessions received remote IDs from server
+        let r = sync_engine.database.r_transaction()?;
+        let mut sessions_with_remote_ids = 0;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id.is_some() {
+                    sessions_with_remote_ids += 1;
+                }
+            }
+        }
+
+        // STRICT: All sessions must have remote IDs after successful flush
+        assert_eq!(
+            sessions_with_remote_ids, 2,
+            "All sessions must have remote IDs after successful flush to remote database"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_flush_with_descendant_updates() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create a session without remote ID (will be inserted to remote)
+        let mut session = SessionLocal::default();
+        session.set_id_local("test_session_with_descendants".to_string());
+        session.device_id = device_id;
+        session.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        session.software_version = "sync_unit_test_flush_with_descendant_updates_0".to_string();
+        session.altitude_max = 100.0;
+        session.altitude_min = 50.0;
+        session.altitude_average = 75.0;
+        session.velocity_max = 25.0;
+        session.velocity_min = 10.0;
+        session.velocity_average = 15.0;
+        session.distance_total = 1000.0;
+        session.distance_max_from_start = 500.0;
+
+        // Create connectivity entry that references this session's local ID
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("test_connectivity_1".to_string());
+        connectivity.session_id = 0; // Will be updated after session gets remote ID
+        connectivity.set_ancestor_id_local("test_session_with_descendants".to_string());
+        connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
+        connectivity.signal = -70.0;
+        connectivity.noise = -90.0;
+        connectivity.altitude = 100.0;
+        connectivity.heading = 0.0;
+        connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        connectivity.h14_index = "h14".to_string();
+        connectivity.h13_index = "h13".to_string();
+        connectivity.h12_index = "h12".to_string();
+        connectivity.h11_index = "h11".to_string();
+
+        // Create event that references this session's local ID
+        let mut event = EventLocal::default();
+        event.set_id_local("test_event_1".to_string());
+        event.device_id = device_id;
+        event.session_id = None; // Will be updated after session gets remote ID
+        event.set_ancestor_id_local("test_session_with_descendants".to_string());
+        event.timestamp_observation = "2023-01-01T10:10:00Z".to_string();
+        event.message = Some("Test event".to_string());
+        event.altitude = 100.0;
+        event.heading = 0.0;
+        event.media_type = MediaType::Image;
+
+        // Insert all items locally
+        sync_engine.upsert_items(vec![session])?;
+        sync_engine.upsert_items(vec![connectivity])?;
+        sync_engine.upsert_items(vec![event])?;
+
+        // Verify initial state
+        let initial_session_count = sync_engine.get_table_count::<SessionLocal>()?;
+        let initial_connectivity_count = sync_engine.get_table_count::<ConnectivityLocal>()?;
+        let initial_event_count = sync_engine.get_table_count::<EventLocal>()?;
+        assert_eq!(initial_session_count, 1);
+        assert_eq!(initial_connectivity_count, 1);
+        assert_eq!(initial_event_count, 1);
+
+        // Flush MUST succeed - test should fail if remote sync doesn't work
+        println!("🚀 Starting descendant update flush to remote...");
+        let flush_result = sync_engine.flush().await;
+
+        match &flush_result {
+            Ok(_) => println!("✅ Descendant update flush completed successfully!"),
+            Err(e) => {
+                println!("❌ Descendant update flush failed: {}", e);
+                panic!(
+                    "Flush operation must succeed - check database connection and API key: {}",
+                    e
+                );
+            }
+        }
+
+        flush_result?;
+
+        // Verify all items are still in database after successful sync
+        let final_session_count = sync_engine.get_table_count::<SessionLocal>()?;
+        let final_connectivity_count = sync_engine.get_table_count::<ConnectivityLocal>()?;
+        let final_event_count = sync_engine.get_table_count::<EventLocal>()?;
+        assert_eq!(final_session_count, 1);
+        assert_eq!(final_connectivity_count, 1);
+        assert_eq!(final_event_count, 1);
+
+        // Verify that items received remote IDs and relationships were updated
+        let r = sync_engine.database.r_transaction()?;
+
+        // Session MUST have remote ID after successful flush
+        let mut session_remote_id = None;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some("test_session_with_descendants") {
+                    session_remote_id = session.id;
+                    break;
+                }
+            }
+        }
+        assert!(
+            session_remote_id.is_some(),
+            "Session must have remote ID after successful flush to remote database"
+        );
+
+        let session_id = session_remote_id.unwrap();
+
+        // Verify connectivity entries reference the session's remote ID
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(connectivity) = raw_connectivity {
+                if connectivity.ancestor_id_local.as_deref()
+                    == Some("test_session_with_descendants")
+                {
+                    assert_eq!(
+                        connectivity.session_id, session_id,
+                        "Connectivity must reference session's remote ID after flush"
+                    );
+                }
+            }
+        }
+
+        // Verify events reference the session's remote ID
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.ancestor_id_local.as_deref() == Some("test_session_with_descendants") {
+                    assert_eq!(
+                        event.session_id,
+                        Some(session_id),
+                        "Event must reference session's remote ID after flush"
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_clean_completed_sessions() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        // Create a completed session (with timestamp_end)
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        let mut completed_session = SessionLocal::default();
+        completed_session.set_id_local("completed_session".to_string());
+        completed_session.id = Some(12345); // Has remote ID
+        completed_session.device_id = device_id;
+        completed_session.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        completed_session.timestamp_end = Some("2023-01-01T11:00:00Z".to_string()); // Completed
+        completed_session.software_version = "1.0.0".to_string();
+        completed_session.altitude_max = 100.0;
+        completed_session.altitude_min = 50.0;
+        completed_session.altitude_average = 75.0;
+        completed_session.velocity_max = 25.0;
+        completed_session.velocity_min = 10.0;
+        completed_session.velocity_average = 15.0;
+        completed_session.distance_total = 1000.0;
+        completed_session.distance_max_from_start = 500.0;
+
+        // Create an incomplete session (no timestamp_end)
+        let mut incomplete_session = SessionLocal::default();
+        incomplete_session.set_id_local("incomplete_session".to_string());
+        incomplete_session.id = Some(23456); // Has remote ID
+        incomplete_session.device_id = device_id;
+        incomplete_session.timestamp_start = "2023-01-01T12:00:00Z".to_string();
+        // No timestamp_end - should not be cleaned
+        incomplete_session.software_version = "1.0.0".to_string();
+        incomplete_session.altitude_max = 120.0;
+        incomplete_session.altitude_min = 60.0;
+        incomplete_session.altitude_average = 90.0;
+        incomplete_session.velocity_max = 30.0;
+        incomplete_session.velocity_min = 15.0;
+        incomplete_session.velocity_average = 22.0;
+        incomplete_session.distance_total = 1200.0;
+        incomplete_session.distance_max_from_start = 600.0;
+
+        // Create descendants for completed session
+        let mut completed_connectivity = ConnectivityLocal::default();
+        completed_connectivity.set_id_local("completed_connectivity".to_string());
+        completed_connectivity.id = Some(34567); // Has remote ID
+        completed_connectivity.session_id = 12345;
+        completed_connectivity.set_ancestor_id_local("completed_session".to_string());
+        completed_connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
+        completed_connectivity.signal = -70.0;
+        completed_connectivity.noise = -90.0;
+        completed_connectivity.altitude = 100.0;
+        completed_connectivity.heading = 0.0;
+        completed_connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        completed_connectivity.h14_index = "h14".to_string();
+        completed_connectivity.h13_index = "h13".to_string();
+        completed_connectivity.h12_index = "h12".to_string();
+        completed_connectivity.h11_index = "h11".to_string();
+
+        let mut completed_event = EventLocal::default();
+        completed_event.set_id_local("completed_event".to_string());
+        completed_event.id = Some(45678); // Has remote ID
+        completed_event.device_id = 1;
+        completed_event.session_id = Some(12345);
+        completed_event.set_ancestor_id_local("completed_session".to_string());
+        completed_event.timestamp_observation = "2023-01-01T10:15:00Z".to_string();
+        completed_event.message = Some("Completed event".to_string());
+        completed_event.altitude = 100.0;
+        completed_event.heading = 0.0;
+        completed_event.media_type = MediaType::Image;
+
+        let mut completed_tag = TagLocal::default();
+        completed_tag.set_id_local("completed_tag".to_string());
+        completed_tag.id = Some(56789); // Has remote ID
+        completed_tag.x = 100.0;
+        completed_tag.y = 200.0;
+        completed_tag.width = 50.0;
+        completed_tag.height = 75.0;
+        completed_tag.conf = 0.95;
+        completed_tag.observation_type = crate::models::TagObservationType::Auto;
+        completed_tag.event_id = 45678;
+        completed_tag.set_ancestor_id_local("completed_event".to_string());
+        completed_tag.class_name = "test_animal".to_string();
+
+        // Insert all entities
+        sync_engine.upsert_items(vec![completed_session, incomplete_session])?;
+        sync_engine.upsert_items(vec![completed_connectivity])?;
+        sync_engine.upsert_items(vec![completed_event])?;
+        sync_engine.upsert_items(vec![completed_tag])?;
+
+        // Verify initial state
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+
+        // Run clean operation
+        sync_engine.clean().await?;
+
+        // Verify completed session and descendants are removed
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1); // Only incomplete remains
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 0); // Removed
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 0); // Removed
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 0); // Removed
+
+        // Verify the remaining session is the incomplete one
+        let r = sync_engine.database.r_transaction()?;
+        let remaining_sessions: Vec<SessionLocal> = r
+            .scan()
+            .primary::<SessionLocal>()?
+            .all()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+        assert_eq!(remaining_sessions.len(), 1);
+        assert_eq!(
+            remaining_sessions[0].id_local.as_deref(),
+            Some("incomplete_session")
+        );
+        assert!(remaining_sessions[0].timestamp_end.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_flush_database_to_remote() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        // Print diagnostic information
+        println!("🔍 Testing full database flush to remote...");
+        if let Ok(api_key) = std::env::var("SCOUT_DEVICE_API_KEY") {
+            println!(
+                "📡 Using API key: {}...",
+                &api_key[..std::cmp::min(api_key.len(), 8)]
+            );
+        }
+        if let Ok(db_url) = std::env::var("SCOUT_DATABASE_REST_URL") {
+            println!("🗄️ Database URL: {}", db_url);
+        }
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create a complete hierarchy: Session -> Connectivity + Event -> Tag
+        let mut session = SessionLocal::default();
+        session.set_id_local("flush_test_session".to_string());
+        session.device_id = device_id;
+        session.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        session.software_version = "test_flush_database_to_remote".to_string();
+        session.altitude_max = 100.0;
+        session.altitude_min = 50.0;
+        session.altitude_average = 75.0;
+        session.velocity_max = 25.0;
+        session.velocity_min = 10.0;
+        session.velocity_average = 15.0;
+        session.distance_total = 1000.0;
+        session.distance_max_from_start = 500.0;
+
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("flush_test_connectivity".to_string());
+        connectivity.set_ancestor_id_local("flush_test_session".to_string());
+        connectivity.session_id = 0; // Will be updated after session sync
+        connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
+        connectivity.signal = -70.0;
+        connectivity.noise = -90.0;
+        connectivity.altitude = 100.0;
+        connectivity.heading = 0.0;
+        connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        connectivity.h14_index = "h14".to_string();
+        connectivity.h13_index = "h13".to_string();
+        connectivity.h12_index = "h12".to_string();
+        connectivity.h11_index = "h11".to_string();
+
+        let mut event = EventLocal::default();
+        event.set_id_local("flush_test_event".to_string());
+        event.device_id = device_id;
+        event.session_id = None; // Will be updated after session sync
+        event.set_ancestor_id_local("flush_test_session".to_string());
+        event.timestamp_observation = "2023-01-01T10:10:00Z".to_string();
+        event.message = Some("Test flush event".to_string());
+        event.altitude = 100.0;
+        event.heading = 0.0;
+        event.media_type = MediaType::Image;
+
+        let mut tag = TagLocal::default();
+        tag.set_id_local("flush_test_tag".to_string());
+        tag.event_id = 0; // Will be updated after event sync
+        tag.set_ancestor_id_local("flush_test_event".to_string());
+        tag.class_name = "test_flush_tag".to_string();
+        tag.conf = 0.95;
+        tag.observation_type = TagObservationType::Manual;
+
+        // Insert all items locally
+        sync_engine.upsert_items(vec![session])?;
+        sync_engine.upsert_items(vec![connectivity])?;
+        sync_engine.upsert_items(vec![event])?;
+        sync_engine.upsert_items(vec![tag])?;
+
+        // Verify initial counts
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+
+        // Perform full database flush to remote - MUST succeed
+        println!("🚀 Starting full database flush...");
+        let flush_result = sync_engine.flush().await;
+
+        match &flush_result {
+            Ok(_) => println!("✅ Flush completed successfully!"),
+            Err(e) => {
+                println!("❌ Flush failed with error: {}", e);
+                println!(
+                    "💡 This indicates the test is correctly trying to sync to remote database"
+                );
+                println!("🔧 Check: 1) Valid SCOUT_DEVICE_API_KEY 2) Database permissions 3) RLS policies");
+                panic!(
+                    "Full database flush must succeed - check database connection and API key: {}",
+                    e
+                );
+            }
+        }
+
+        flush_result?;
+
+        // Verify all items are still in database after successful sync
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+
+        // Verify the hierarchical sync worked correctly
+        let r = sync_engine.database.r_transaction()?;
+
+        // Session MUST have remote ID after successful flush
+        let mut session_remote_id = None;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some("flush_test_session") {
+                    session_remote_id = session.id;
+                    break;
+                }
+            }
+        }
+
+        let session_id = session_remote_id
+            .expect("Session must have remote ID after successful flush to remote database");
+
+        // Verify connectivity references session remote ID
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(connectivity) = raw_connectivity {
+                if connectivity.id_local.as_deref() == Some("flush_test_connectivity") {
+                    assert_eq!(
+                        connectivity.session_id, session_id,
+                        "Connectivity must reference session's remote ID after flush"
+                    );
+                }
+            }
+        }
+
+        // Verify event references session remote ID and has remote ID
+        let mut event_remote_id = None;
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.id_local.as_deref() == Some("flush_test_event") {
+                    assert_eq!(
+                        event.session_id,
+                        Some(session_id),
+                        "Event must reference session's remote ID after flush"
+                    );
+                    event_remote_id = event.id;
+                    break;
+                }
+            }
+        }
+
+        let event_id = event_remote_id
+            .expect("Event must have remote ID after successful flush to remote database");
+
+        // Verify tag references event remote ID and has remote ID
+        for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+            if let Ok(tag) = raw_tag {
+                if tag.id_local.as_deref() == Some("flush_test_tag") {
+                    assert_eq!(
+                        tag.event_id, event_id,
+                        "Tag must reference event's remote ID after flush"
+                    );
+                    assert!(
+                        tag.id.is_some(),
+                        "Tag must have remote ID after successful flush"
+                    );
+                }
+            }
+        }
+
+        println!("✅ Full database flush to remote completed successfully!");
+        println!("✅ Session synced with remote ID: {}", session_id);
+        println!("✅ Event synced with remote ID: {}", event_id);
+        println!("✅ All relationships updated correctly!");
+
+        Ok(())
+    }
+
+    async fn create_test_sync_engine_with_invalid_credentials() -> Result<SyncEngine> {
+        let temp_dir = tempdir()?;
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let db_path = temp_dir
+            .path()
+            .join(format!("test_{}.db", timestamp))
+            .to_string_lossy()
+            .to_string();
+
+        // Create client with invalid credentials - this should fail
+        let mut scout_client = ScoutClient::new("invalid_api_key_12345".to_string())?;
+        scout_client.identify().await?; // This should fail
+
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+
+        // Initialize database with a simple transaction to ensure it's properly set up
+        {
+            let rw = sync_engine.database.rw_transaction()?;
+            rw.commit()?;
+        }
+
+        Ok(sync_engine)
+    }
+
+    #[tokio::test]
+    async fn test_sync_requires_valid_credentials() -> Result<()> {
+        println!("🔐 Testing sync failure with invalid credentials...");
+
+        let result = create_test_sync_engine_with_invalid_credentials().await;
+
+        match result {
+            Ok(_) => {
+                panic!("Sync engine creation should fail with invalid credentials");
+            }
+            Err(e) => {
+                println!("✅ Correctly failed with invalid credentials: {}", e);
+                println!("💡 This confirms the sync engine is properly validating credentials");
+            }
+        }
+
+        Ok(())
     }
 }

@@ -1,7 +1,7 @@
 import { IHerdModule } from "../types/herd_module";
 
 const DB_NAME = "ScoutCache";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Increment to invalidate old cache versions
 const HERD_MODULES_STORE = "herd_modules";
 const CACHE_METADATA_STORE = "cache_metadata";
 const PROVIDERS_STORE = "providers";
@@ -14,6 +14,7 @@ export interface CacheMetadata {
   timestamp: number;
   ttl: number; // Time to live in milliseconds
   version: string;
+  dbVersion: number; // Track DB schema version for cache invalidation
   etag?: string; // For conditional requests
   lastModified?: number; // For conditional requests
 }
@@ -44,6 +45,11 @@ export interface TimingStats {
   localStorage: number;
 }
 
+export interface DatabaseHealth {
+  healthy: boolean;
+  issues: string[];
+}
+
 export class ScoutCache {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
@@ -61,50 +67,93 @@ export class ScoutCache {
 
       request.onerror = () => {
         console.error("[ScoutCache] Failed to open IndexedDB:", request.error);
+        this.db = null;
+        this.initPromise = null;
         reject(request.error);
       };
 
       request.onsuccess = () => {
         this.db = request.result;
         console.log("[ScoutCache] IndexedDB initialized successfully");
+
+        // Add error handler for runtime database errors
+        this.db.onerror = (event) => {
+          console.error("[ScoutCache] Database error:", event);
+        };
+
         resolve();
       };
 
       request.onupgradeneeded = (event) => {
         const db = (event.target as IDBOpenDBRequest).result;
 
-        // Create herd modules store
-        if (!db.objectStoreNames.contains(HERD_MODULES_STORE)) {
+        try {
+          console.log(
+            `[ScoutCache] Upgrading database to version ${DB_VERSION}`,
+          );
+
+          // Remove all existing object stores to ensure clean slate
+          const existingStores = Array.from(db.objectStoreNames);
+          for (const storeName of existingStores) {
+            console.log(
+              `[ScoutCache] Removing existing object store: ${storeName}`,
+            );
+            db.deleteObjectStore(storeName);
+          }
+
+          // Create herd modules store (unified storage for all herd data)
           const herdModulesStore = db.createObjectStore(HERD_MODULES_STORE, {
             keyPath: "herdId",
           });
           herdModulesStore.createIndex("timestamp", "timestamp", {
             unique: false,
           });
-        }
+          herdModulesStore.createIndex("dbVersion", "dbVersion", {
+            unique: false,
+          });
+          console.log("[ScoutCache] Created herd_modules object store");
 
-        // Create cache metadata store
-        if (!db.objectStoreNames.contains(CACHE_METADATA_STORE)) {
+          // Create cache metadata store
           const metadataStore = db.createObjectStore(CACHE_METADATA_STORE, {
             keyPath: "key",
           });
-        }
+          console.log("[ScoutCache] Created cache_metadata object store");
 
-        // Create providers store
-        if (!db.objectStoreNames.contains(PROVIDERS_STORE)) {
-          const providersStore = db.createObjectStore(PROVIDERS_STORE, {
-            keyPath: "herdId",
-          });
-          providersStore.createIndex("timestamp", "timestamp", {
-            unique: false,
-          });
+          console.log(
+            `[ScoutCache] Database schema upgrade to version ${DB_VERSION} completed`,
+          );
+        } catch (error) {
+          console.error("[ScoutCache] Error during database upgrade:", error);
+          reject(error);
         }
+      };
 
-        console.log("[ScoutCache] Database schema upgraded");
+      request.onblocked = () => {
+        console.warn(
+          "[ScoutCache] Database upgrade blocked - other connections may need to be closed",
+        );
       };
     });
 
     return this.initPromise;
+  }
+
+  private validateDatabaseSchema(): boolean {
+    if (!this.db) return false;
+
+    const hasHerdModulesStore =
+      this.db.objectStoreNames.contains(HERD_MODULES_STORE);
+    const hasMetadataStore =
+      this.db.objectStoreNames.contains(CACHE_METADATA_STORE);
+
+    if (!hasHerdModulesStore) {
+      console.error("[ScoutCache] Missing herd_modules object store");
+    }
+    if (!hasMetadataStore) {
+      console.error("[ScoutCache] Missing cache_metadata object store");
+    }
+
+    return hasHerdModulesStore && hasMetadataStore;
   }
 
   async setHerdModules(
@@ -115,8 +164,14 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
+    if (!this.validateDatabaseSchema()) {
+      throw new Error(
+        "Database schema validation failed - required object stores not found",
+      );
+    }
+
     const transaction = this.db.transaction(
-      [HERD_MODULES_STORE, CACHE_METADATA_STORE, PROVIDERS_STORE],
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
       "readwrite",
     );
 
@@ -129,14 +184,15 @@ export class ScoutCache {
       const providersStore = transaction.objectStore(PROVIDERS_STORE);
 
       const timestamp = Date.now();
-      const version = "1.0.0";
+      const version = "2.0.0";
 
-      // Store each herd module and its providers
+      // Store each herd module (contains all nested data - devices, events, zones, etc.)
       herdModules.forEach((herdModule) => {
         const cacheEntry = {
           herdId: herdModule.herd.id.toString(),
           data: herdModule,
           timestamp,
+          dbVersion: DB_VERSION,
         };
         herdModulesStore.put(cacheEntry);
 
@@ -157,6 +213,7 @@ export class ScoutCache {
         timestamp,
         ttl: ttlMs,
         version,
+        dbVersion: DB_VERSION,
         etag,
         lastModified: timestamp,
       };
@@ -178,6 +235,12 @@ export class ScoutCache {
   async getHerdModules(): Promise<CacheResult<IHerdModule[]>> {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
+
+    if (!this.validateDatabaseSchema()) {
+      throw new Error(
+        "Database schema validation failed - required object stores not found",
+      );
+    }
 
     const transaction = this.db.transaction(
       [HERD_MODULES_STORE, CACHE_METADATA_STORE],
@@ -202,6 +265,20 @@ export class ScoutCache {
           return;
         }
 
+        // Check if cache is from an incompatible DB version
+        if (!metadata.dbVersion || metadata.dbVersion !== DB_VERSION) {
+          console.log(
+            `[ScoutCache] Cache from incompatible DB version (${metadata.dbVersion || "unknown"} !== ${DB_VERSION}), invalidating`,
+          );
+          this.stats.misses++;
+          // Clear old cache asynchronously
+          this.clearHerdModules().catch((error) => {
+            console.warn("[ScoutCache] Failed to clear old cache:", error);
+          });
+          resolve({ data: null, isStale: true, age: 0, metadata: null });
+          return;
+        }
+
         const age = now - metadata.timestamp;
         const isStale = age > metadata.ttl;
 
@@ -211,7 +288,11 @@ export class ScoutCache {
           const cacheEntries = getAllRequest.result;
           const herdModules = cacheEntries
             .filter(
-              (entry) => entry.data && entry.data.herd && entry.data.herd.slug,
+              (entry) =>
+                entry.data &&
+                entry.data.herd &&
+                entry.data.herd.slug &&
+                entry.dbVersion === DB_VERSION, // Only return entries from current DB version
             )
             .map((entry) => entry.data)
             .sort((a, b) =>
@@ -240,8 +321,14 @@ export class ScoutCache {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
 
+    if (!this.validateDatabaseSchema()) {
+      throw new Error(
+        "Database schema validation failed - required object stores not found",
+      );
+    }
+
     const transaction = this.db.transaction(
-      [HERD_MODULES_STORE, CACHE_METADATA_STORE, PROVIDERS_STORE],
+      [HERD_MODULES_STORE, CACHE_METADATA_STORE],
       "readwrite",
     );
 
@@ -263,6 +350,12 @@ export class ScoutCache {
   async invalidateHerdModules(): Promise<void> {
     await this.init();
     if (!this.db) throw new Error("Database not initialized");
+
+    if (!this.validateDatabaseSchema()) {
+      throw new Error(
+        "Database schema validation failed - required object stores not found",
+      );
+    }
 
     const transaction = this.db.transaction(
       [CACHE_METADATA_STORE],
@@ -307,7 +400,6 @@ export class ScoutCache {
     return result.age;
   }
 
-  // Method to check if we should refresh based on various conditions
   async shouldRefresh(
     maxAgeMs?: number,
     forceRefresh?: boolean,
@@ -322,6 +414,18 @@ export class ScoutCache {
       return { shouldRefresh: true, reason: "No cached data" };
     }
 
+    // Check for DB version mismatch
+    if (
+      !result.metadata ||
+      !result.metadata.dbVersion ||
+      result.metadata.dbVersion !== DB_VERSION
+    ) {
+      return {
+        shouldRefresh: true,
+        reason: `Cache from incompatible DB version (${result.metadata?.dbVersion || "unknown"} !== ${DB_VERSION})`,
+      };
+    }
+
     if (result.isStale) {
       return { shouldRefresh: true, reason: "Cache is stale" };
     }
@@ -329,16 +433,13 @@ export class ScoutCache {
     if (maxAgeMs && result.age > maxAgeMs) {
       return {
         shouldRefresh: true,
-        reason: `Cache age (${Math.round(
-          result.age / 1000,
-        )}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
+        reason: `Cache age (${Math.round(result.age / 1000)}s) exceeds max age (${Math.round(maxAgeMs / 1000)}s)`,
       };
     }
 
     return { shouldRefresh: false, reason: "Cache is valid and fresh" };
   }
 
-  // Method to preload cache with background refresh
   async preloadCache(
     loadFunction: () => Promise<IHerdModule[]>,
     ttlMs: number = DEFAULT_TTL_MS,
@@ -357,108 +458,103 @@ export class ScoutCache {
     }
   }
 
-  // Method to get providers for a specific herd from cache
-  async getProvidersForHerd(herdId: string): Promise<CacheResult<any[]>> {
-    await this.init();
-    if (!this.db) throw new Error("Database not initialized");
-
-    const transaction = this.db.transaction(
-      [PROVIDERS_STORE, CACHE_METADATA_STORE],
-      "readonly",
-    );
-
-    return new Promise((resolve, reject) => {
-      transaction.onerror = () => reject(transaction.error);
-
-      const providersStore = transaction.objectStore(PROVIDERS_STORE);
-      const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
-
-      // Get metadata first
-      const metadataRequest = metadataStore.get("providers");
-      metadataRequest.onsuccess = () => {
-        const metadata: CacheMetadata | undefined = metadataRequest.result;
-        const now = Date.now();
-
-        if (!metadata) {
-          this.stats.misses++;
-          resolve({ data: null, isStale: true, age: 0, metadata: null });
-          return;
-        }
-
-        const age = now - metadata.timestamp;
-        const isStale = age > metadata.ttl;
-
-        // Get providers for specific herd
-        const getRequest = providersStore.get(herdId);
-        getRequest.onsuccess = () => {
-          const cacheEntry = getRequest.result;
-          const providers = cacheEntry?.data || [];
-
-          // Update stats
-          if (providers.length > 0) {
-            this.stats.hits++;
-          } else {
-            this.stats.misses++;
-          }
-
-          resolve({
-            data: providers,
-            isStale,
-            age,
-            metadata,
-          });
-        };
-      };
-    });
-  }
-
-  // Method to set providers for a specific herd
-  async setProvidersForHerd(
-    herdId: string,
-    providers: any[],
-    ttlMs: number = DEFAULT_TTL_MS,
-  ): Promise<void> {
-    await this.init();
-    if (!this.db) throw new Error("Database not initialized");
-
-    const transaction = this.db.transaction(
-      [PROVIDERS_STORE, CACHE_METADATA_STORE],
-      "readwrite",
-    );
-
-    return new Promise((resolve, reject) => {
-      transaction.onerror = () => reject(transaction.error);
-      transaction.oncomplete = () => resolve();
-
-      const providersStore = transaction.objectStore(PROVIDERS_STORE);
-      const metadataStore = transaction.objectStore(CACHE_METADATA_STORE);
-
-      const timestamp = Date.now();
-      const version = "1.0.0";
-
-      // Store providers
-      const providersCacheEntry = {
-        herdId,
-        data: providers,
-        timestamp,
-      };
-      providersStore.put(providersCacheEntry);
-
-      // Update providers metadata
-      const metadata: CacheMetadata = {
-        key: "providers",
-        timestamp,
-        ttl: ttlMs,
-        version,
-        lastModified: timestamp,
-      };
-      metadataStore.put(metadata);
-    });
-  }
-
-  // Get the default TTL value
   getDefaultTtl(): number {
     return DEFAULT_TTL_MS;
+  }
+
+  getCurrentDbVersion(): number {
+    return DB_VERSION;
+  }
+
+  async isCacheVersionCompatible(): Promise<boolean> {
+    try {
+      const result = await this.getHerdModules();
+      if (!result.metadata) return false;
+
+      return (
+        result.metadata.dbVersion !== undefined &&
+        result.metadata.dbVersion === DB_VERSION
+      );
+    } catch (error) {
+      console.warn("[ScoutCache] Version compatibility check failed:", error);
+      return false;
+    }
+  }
+
+  async resetDatabase(): Promise<void> {
+    console.log("[ScoutCache] Resetting database...");
+
+    // Close existing connection
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+    }
+    this.initPromise = null;
+
+    // Delete the database
+    return new Promise((resolve, reject) => {
+      const deleteRequest = indexedDB.deleteDatabase(DB_NAME);
+
+      deleteRequest.onsuccess = () => {
+        console.log("[ScoutCache] Database reset successfully");
+        resolve();
+      };
+
+      deleteRequest.onerror = () => {
+        console.error(
+          "[ScoutCache] Failed to reset database:",
+          deleteRequest.error,
+        );
+        reject(deleteRequest.error);
+      };
+
+      deleteRequest.onblocked = () => {
+        console.warn(
+          "[ScoutCache] Database reset blocked - close all other tabs",
+        );
+        // Continue anyway, it will resolve when unblocked
+      };
+    });
+  }
+
+  async checkDatabaseHealth(): Promise<DatabaseHealth> {
+    const issues: string[] = [];
+
+    try {
+      await this.init();
+
+      if (!this.db) {
+        issues.push("Database connection not established");
+        return { healthy: false, issues };
+      }
+
+      if (!this.validateDatabaseSchema()) {
+        issues.push("Database schema validation failed");
+      }
+
+      // Check version compatibility
+      const isVersionCompatible = await this.isCacheVersionCompatible();
+      if (!isVersionCompatible) {
+        issues.push(`Cache version incompatible (current: ${DB_VERSION})`);
+      }
+
+      // Try a simple read operation
+      try {
+        const result = await this.getHerdModules();
+        if (result.data === null && result.age === 0) {
+          // This is expected for empty cache, not an error
+        }
+      } catch (error) {
+        issues.push(`Read operation failed: ${error}`);
+      }
+    } catch (error) {
+      issues.push(`Database initialization failed: ${error}`);
+    }
+
+    return {
+      healthy: issues.length === 0,
+      issues,
+    };
   }
 }
 
