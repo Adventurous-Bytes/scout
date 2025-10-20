@@ -238,38 +238,60 @@ impl SyncEngine {
             EnumSyncAction::Upsert, // Always upsert sessions without remote IDs (insert)
         )?;
 
-        let mut all_sessions = sessions_batch.upsert;
-        all_sessions.extend(sessions_batch.insert);
-
-        if let Some(max_items) = self.max_num_items_per_sync {
-            if all_sessions.len() > max_items as usize {
-                tracing::info!(
-                    "Limiting sessions sync from {} to {} items",
-                    all_sessions.len(),
-                    max_items
-                );
-                all_sessions.truncate(max_items as usize);
-            }
+        // Process insert and upsert batches separately to avoid "All object keys must match" errors
+        if !sessions_batch.insert.is_empty() {
+            self.process_session_batch(sessions_batch.insert).await?;
+        }
+        if !sessions_batch.upsert.is_empty() {
+            self.process_session_batch(sessions_batch.upsert).await?;
         }
 
-        if all_sessions.is_empty() {
+        Ok(())
+    }
+
+    /// Processes a batch of sessions with fallback to individual processing on bulk failure
+    async fn process_session_batch(
+        &mut self,
+        mut sessions: Vec<SessionLocal>,
+    ) -> Result<(), Error> {
+        if sessions.is_empty() {
             return Ok(());
         }
 
-        let sessions_for_upsert: Vec<Session> = all_sessions
+        // Apply batch size limit
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if sessions.len() > max_items as usize {
+                sessions.truncate(max_items as usize);
+            }
+        }
+
+        let sessions_for_upsert: Vec<Session> = sessions
             .iter()
             .map(|local_session| local_session.clone().into())
             .collect();
 
-        let response = self
+        // Try bulk upsert first, fallback to individual on key mismatch errors
+        let response = match self
             .scout_client
             .upsert_sessions_batch(&sessions_for_upsert)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e)
+                if e.to_string()
+                    .to_lowercase()
+                    .contains("all object keys must match") =>
+            {
+                return self.fallback_individual_upserts(sessions).await;
+            }
+            Err(e) => return Err(e),
+        };
 
+        // Process successful bulk response
         if let Some(upserted_sessions) = response.data {
             let updated_locals: Vec<SessionLocal> = upserted_sessions
                 .into_iter()
-                .zip(all_sessions.iter())
+                .zip(sessions.iter())
                 .map(|(remote_session, original_local)| {
                     let mut updated_local: SessionLocal = remote_session.into();
                     updated_local.id_local = original_local.id_local.clone();
@@ -279,27 +301,86 @@ impl SyncEngine {
 
             self.upsert_items(updated_locals.clone())?;
 
-            // Update descendants with new remote session IDs
-            for (updated_session, original_session) in
-                updated_locals.iter().zip(all_sessions.iter())
-            {
-                if let (Some(new_remote_id), Some(local_id)) =
-                    (updated_session.id, &original_session.id_local)
+            // Update descendants for new sessions - only if parent exists and was newly created
+            for (updated, original) in updated_locals.iter().zip(sessions.iter()) {
+                if let (Some(new_id), Some(local_id), None) =
+                    (updated.id, &original.id_local, original.id)
                 {
-                    if original_session.id.is_none() {
-                        if let Err(e) = self.update_session_descendants(local_id, new_remote_id) {
+                    // Validate the session was actually saved before updating descendants
+                    if self
+                        .validate_session_exists(local_id, new_id)
+                        .unwrap_or(false)
+                    {
+                        if let Err(e) = self.update_session_descendants(local_id, new_id) {
                             tracing::error!(
                                 "Failed to update descendants for session {}: {}",
                                 local_id,
                                 e
                             );
-                            // Continue processing other sessions
                         }
+                    } else {
+                        tracing::warn!(
+                            "Session {} with remote ID {} not found - skipping descendant updates",
+                            local_id,
+                            new_id
+                        );
                     }
                 }
             }
         }
+        Ok(())
+    }
 
+    /// Fallback to individual session upserts when bulk fails
+    async fn fallback_individual_upserts(
+        &mut self,
+        sessions: Vec<SessionLocal>,
+    ) -> Result<(), Error> {
+        for session in sessions {
+            let session_for_upsert: Session = session.clone().into();
+
+            match self
+                .scout_client
+                .upsert_sessions_batch(&[session_for_upsert])
+                .await
+            {
+                Ok(response) => {
+                    if let Some(mut upserted_sessions) = response.data {
+                        if let Some(upserted_session) = upserted_sessions.pop() {
+                            let mut updated_local: SessionLocal = upserted_session.into();
+                            updated_local.id_local = session.id_local.clone();
+                            self.upsert_items(vec![updated_local.clone()])?;
+
+                            // Update descendants for new sessions - validate parent exists first
+                            if let (Some(new_id), Some(local_id), None) =
+                                (updated_local.id, &session.id_local, session.id)
+                            {
+                                if self
+                                    .validate_session_exists(local_id, new_id)
+                                    .unwrap_or(false)
+                                {
+                                    if let Err(e) =
+                                        self.update_session_descendants(local_id, new_id)
+                                    {
+                                        tracing::error!("Failed to update descendants: {}", e);
+                                    }
+                                } else {
+                                    tracing::warn!(
+                                        "Session {} with remote ID {} not validated - skipping descendants",
+                                        local_id,
+                                        new_id
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Individual session upsert failed: {}", e);
+                    return Err(e);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -406,19 +487,30 @@ impl SyncEngine {
 
             self.upsert_items(updated_events.clone())?;
 
-            // Update tag descendants with new remote event IDs
+            // Update tag descendants with new remote event IDs - validate parent exists first
             for (updated_event, original_event) in updated_events.iter().zip(all_events.iter()) {
                 if let (Some(new_remote_id), Some(local_id)) =
                     (updated_event.id, &original_event.id_local)
                 {
                     if original_event.id.is_none() {
-                        if let Err(e) = self.update_event_descendants(local_id, new_remote_id) {
-                            tracing::error!(
-                                "Failed to update descendants for event {}: {}",
+                        // Validate the event was actually saved before updating descendants
+                        if self
+                            .validate_event_exists(local_id, new_remote_id)
+                            .unwrap_or(false)
+                        {
+                            if let Err(e) = self.update_event_descendants(local_id, new_remote_id) {
+                                tracing::error!(
+                                    "Failed to update descendants for event {}: {}",
+                                    local_id,
+                                    e
+                                );
+                            }
+                        } else {
+                            tracing::warn!(
+                                "Event {} with remote ID {} not found - skipping descendant updates",
                                 local_id,
-                                e
+                                new_remote_id
                             );
-                            // Continue processing other events
                         }
                     }
                 }
@@ -830,7 +922,21 @@ impl SyncEngine {
         for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
             if let Ok(mut connectivity) = raw_connectivity {
                 if connectivity.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    // Validate: if session_id is already set, ensure it matches
+                    if connectivity.session_id != 0
+                        && connectivity.session_id != new_remote_session_id
+                    {
+                        tracing::warn!(
+                            "Connectivity {} has conflicting session_id {} vs expected {}",
+                            connectivity.id_local.as_deref().unwrap_or("unknown"),
+                            connectivity.session_id,
+                            new_remote_session_id
+                        );
+                        continue; // Skip this entry to prevent wrong linkage
+                    }
+
                     connectivity.session_id = new_remote_session_id;
+                    // Keep ancestor_id_local as metadata showing original relationship
                     connectivity_to_update.push(connectivity);
                 }
             }
@@ -864,7 +970,21 @@ impl SyncEngine {
         for raw_event in r.scan().primary::<EventLocal>()?.all()? {
             if let Ok(mut event) = raw_event {
                 if event.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    // Validate: if session_id is already set, ensure it matches
+                    if let Some(existing_session_id) = event.session_id {
+                        if existing_session_id != new_remote_session_id {
+                            tracing::warn!(
+                                "Event {} has conflicting session_id {} vs expected {}",
+                                event.id_local.as_deref().unwrap_or("unknown"),
+                                existing_session_id,
+                                new_remote_session_id
+                            );
+                            continue; // Skip this entry to prevent wrong linkage
+                        }
+                    }
+
                     event.session_id = Some(new_remote_session_id);
+                    // Keep ancestor_id_local as metadata showing original relationship
                     events_to_update.push(event);
                 }
             }
@@ -911,7 +1031,19 @@ impl SyncEngine {
         for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
             if let Ok(mut tag) = raw_tag {
                 if tag.ancestor_id_local.as_deref() == Some(event_local_id) {
+                    // Validate: if event_id is already set, ensure it matches
+                    if tag.event_id != 0 && tag.event_id != new_remote_event_id {
+                        tracing::warn!(
+                            "Tag {} has conflicting event_id {} vs expected {}",
+                            tag.id_local.as_deref().unwrap_or("unknown"),
+                            tag.event_id,
+                            new_remote_event_id
+                        );
+                        continue; // Skip this entry to prevent wrong linkage
+                    }
+
                     tag.event_id = new_remote_event_id;
+                    // Keep ancestor_id_local as metadata showing original relationship
                     tags_to_update.push(tag);
                 }
             }
@@ -926,6 +1058,36 @@ impl SyncEngine {
         }
 
         Ok(())
+    }
+
+    /// Validates that a session exists in local database with given local_id and remote_id
+    fn validate_session_exists(&self, local_id: &str, remote_id: i64) -> Result<bool, Error> {
+        let r = self.database.r_transaction()?;
+
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some(local_id) && session.id == Some(remote_id) {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    /// Validates that an event exists in local database with given local_id and remote_id
+    fn validate_event_exists(&self, local_id: &str, remote_id: i64) -> Result<bool, Error> {
+        let r = self.database.r_transaction()?;
+
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.id_local.as_deref() == Some(local_id) && event.id == Some(remote_id) {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 }
 
@@ -1709,6 +1871,358 @@ mod tests {
                 println!("💡 This confirms the sync engine is properly validating credentials");
             }
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_session_lifecycle_insert_update_flush_sequence() -> Result<()> {
+        println!(
+            "🔄 Testing session lifecycle: insert -> update -> flush -> record another -> flush"
+        );
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // PHASE 1: Insert first session
+        let mut session1 = SessionLocal::default();
+        session1.set_id_local("lifecycle_session_1".to_string());
+        session1.device_id = device_id;
+        session1.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        session1.software_version = "test_session_lifecycle_v1".to_string();
+        session1.altitude_max = 100.0;
+        session1.altitude_min = 50.0;
+        session1.altitude_average = 75.0;
+        session1.velocity_max = 25.0;
+        session1.velocity_min = 10.0;
+        session1.velocity_average = 15.0;
+        session1.distance_total = 1000.0;
+        session1.distance_max_from_start = 500.0;
+
+        sync_engine.upsert_items(vec![session1.clone()])?;
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        println!("✅ Phase 1: First session inserted locally");
+
+        // PHASE 2: Update the same session with new data (e.g., session in progress)
+        session1.altitude_max = 150.0; // Updated max altitude
+        session1.distance_total = 1500.0; // Updated distance
+        session1.timestamp_end = None; // Still in progress
+
+        sync_engine.upsert_items(vec![session1.clone()])?;
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1); // Still just 1 session
+        println!("✅ Phase 2: Session updated with new data");
+
+        // PHASE 3: Flush the session to remote
+        println!("🚀 Phase 3: Flushing first session to remote...");
+        sync_engine.flush().await?;
+
+        // Verify session got remote ID
+        let r = sync_engine.database.r_transaction()?;
+        let mut session1_remote_id = None;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some("lifecycle_session_1") {
+                    session1_remote_id = session.id;
+                    break;
+                }
+            }
+        }
+        assert!(
+            session1_remote_id.is_some(),
+            "First session must have remote ID after flush"
+        );
+        println!(
+            "✅ Phase 3: First session flushed with remote ID: {:?}",
+            session1_remote_id
+        );
+
+        // PHASE 4: Complete the first session
+        session1.timestamp_end = Some("2023-01-01T11:30:00Z".to_string());
+        session1.altitude_max = 175.0; // Final max altitude
+        session1.distance_total = 2000.0; // Final distance
+
+        sync_engine.upsert_items(vec![session1])?;
+        println!("✅ Phase 4: First session marked as completed");
+
+        // PHASE 5: Record a completely new session (simulating back-to-back usage)
+        let mut session2 = SessionLocal::default();
+        session2.set_id_local("lifecycle_session_2".to_string());
+        session2.device_id = device_id;
+        session2.timestamp_start = "2023-01-01T12:00:00Z".to_string();
+        session2.software_version = "test_session_lifecycle_v2".to_string();
+        session2.altitude_max = 200.0;
+        session2.altitude_min = 80.0;
+        session2.altitude_average = 140.0;
+        session2.velocity_max = 35.0;
+        session2.velocity_min = 20.0;
+        session2.velocity_average = 25.0;
+        session2.distance_total = 800.0;
+        session2.distance_max_from_start = 400.0;
+
+        sync_engine.upsert_items(vec![session2.clone()])?;
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2); // Now have 2 sessions
+        println!("✅ Phase 5: Second session inserted (back-to-back usage)");
+
+        // PHASE 6: Add some events to second session before flushing
+        let mut event_for_session2 = EventLocal::default();
+        event_for_session2.set_id_local("lifecycle_event_session2".to_string());
+        event_for_session2.device_id = device_id;
+        event_for_session2.session_id = None; // Will be updated after session sync
+        event_for_session2.set_ancestor_id_local("lifecycle_session_2".to_string());
+        event_for_session2.timestamp_observation = "2023-01-01T12:15:00Z".to_string();
+        event_for_session2.message = Some("Event during second session".to_string());
+        event_for_session2.altitude = 150.0;
+        event_for_session2.heading = 45.0;
+        event_for_session2.media_type = MediaType::Video;
+
+        sync_engine.upsert_items(vec![event_for_session2])?;
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        println!("✅ Phase 6: Event added to second session");
+
+        // PHASE 7: Final flush of everything (simulating critical sync point)
+        println!("🚀 Phase 7: Final flush of all data...");
+        sync_engine.flush().await?;
+
+        // Verify final state
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+
+        // Verify both sessions have remote IDs
+        let r = sync_engine.database.r_transaction()?;
+        let mut sessions_with_remote_ids = 0;
+        let mut session2_remote_id = None;
+
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id.is_some() {
+                    sessions_with_remote_ids += 1;
+                    if session.id_local.as_deref() == Some("lifecycle_session_2") {
+                        session2_remote_id = session.id;
+                    }
+                }
+            }
+        }
+
+        assert_eq!(
+            sessions_with_remote_ids, 2,
+            "Both sessions must have remote IDs"
+        );
+        assert!(
+            session2_remote_id.is_some(),
+            "Second session must have remote ID"
+        );
+
+        // Verify event references second session's remote ID
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if event.id_local.as_deref() == Some("lifecycle_event_session2") {
+                    assert_eq!(
+                        event.session_id, session2_remote_id,
+                        "Event must reference second session's remote ID"
+                    );
+                    assert!(event.id.is_some(), "Event must have remote ID");
+                }
+            }
+        }
+
+        println!("✅ Phase 7: Final state verified - all data synced with relationships intact");
+        println!("🎉 Session lifecycle test completed successfully!");
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_session_update_during_recording_with_periodic_flush() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Start a new session
+        let mut active_session = SessionLocal::default();
+        active_session.set_id_local("live_recording_session".to_string());
+        active_session.device_id = device_id;
+        active_session.timestamp_start = "2023-01-01T14:00:00Z".to_string();
+        active_session.software_version = "live_recording_test".to_string();
+        active_session.altitude_max = 100.0;
+        active_session.distance_total = 0.0;
+
+        sync_engine.upsert_items(vec![active_session.clone()])?;
+
+        // Update session during recording
+        active_session.altitude_max = 120.0;
+        active_session.distance_total = 300.0;
+        sync_engine.upsert_items(vec![active_session.clone()])?;
+
+        // Add connectivity data
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("live_conn_1".to_string());
+        connectivity.set_ancestor_id_local("live_recording_session".to_string());
+        connectivity.timestamp_start = "2023-01-01T14:10:00Z".to_string();
+        connectivity.signal = -68.0;
+        connectivity.altitude = 120.0;
+        connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        connectivity.h14_index = "h14_live1".to_string();
+        connectivity.h13_index = "h13_live1".to_string();
+        connectivity.h12_index = "h12_live1".to_string();
+        connectivity.h11_index = "h11_live1".to_string();
+
+        sync_engine.upsert_items(vec![connectivity])?;
+
+        // Periodic flush during recording
+        sync_engine.flush().await?;
+
+        // Get session remote ID after flush
+        let r = sync_engine.database.r_transaction()?;
+        let mut session_remote_id = None;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some("live_recording_session") {
+                    session_remote_id = session.id;
+                    assert!(
+                        session.timestamp_end.is_none(),
+                        "Session should still be active"
+                    );
+                    break;
+                }
+            }
+        }
+        session_remote_id.expect("Session must have remote ID");
+        drop(r);
+
+        // Continue recording and add event
+        active_session.altitude_max = 140.0;
+        active_session.distance_total = 600.0;
+        sync_engine.upsert_items(vec![active_session.clone()])?;
+
+        let mut live_event = EventLocal::default();
+        live_event.set_id_local("live_event_1".to_string());
+        live_event.device_id = device_id;
+        live_event.set_ancestor_id_local("live_recording_session".to_string());
+        live_event.timestamp_observation = "2023-01-01T14:20:00Z".to_string();
+        live_event.message = Some("Live observation".to_string());
+        live_event.altitude = 140.0;
+        live_event.media_type = MediaType::Image;
+
+        sync_engine.upsert_items(vec![live_event])?;
+
+        // Final flush
+        sync_engine.flush().await?;
+
+        // Verify final state
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+
+        // Complete the session
+        active_session.timestamp_end = Some("2023-01-01T14:30:00Z".to_string());
+        sync_engine.upsert_items(vec![active_session])?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_field_workflow_multiple_sessions_with_strategic_flushing() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine_with_identification().await?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Pre-work session
+        let mut pre_work_session = SessionLocal::default();
+        pre_work_session.set_id_local("pre_work_session".to_string());
+        pre_work_session.device_id = device_id;
+        pre_work_session.timestamp_start = "2023-01-01T06:00:00Z".to_string();
+        pre_work_session.software_version = "field_workflow_test".to_string();
+        pre_work_session.altitude_max = 50.0;
+        pre_work_session.distance_total = 200.0;
+
+        sync_engine.upsert_items(vec![pre_work_session.clone()])?;
+
+        // Morning survey with event and connectivity
+        let mut morning_survey = SessionLocal::default();
+        morning_survey.set_id_local("morning_survey".to_string());
+        morning_survey.device_id = device_id;
+        morning_survey.timestamp_start = "2023-01-01T08:00:00Z".to_string();
+        morning_survey.software_version = "field_workflow_test".to_string();
+        morning_survey.altitude_max = 150.0;
+        morning_survey.distance_total = 1200.0;
+
+        sync_engine.upsert_items(vec![morning_survey.clone()])?;
+
+        let mut survey_event = EventLocal::default();
+        survey_event.set_id_local("survey_obs_1".to_string());
+        survey_event.device_id = device_id;
+        survey_event.set_ancestor_id_local("morning_survey".to_string());
+        survey_event.timestamp_observation = "2023-01-01T08:30:00Z".to_string();
+        survey_event.message = Some("Bird observation".to_string());
+        survey_event.altitude = 120.0;
+        survey_event.media_type = MediaType::Image;
+
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("survey_conn_1".to_string());
+        connectivity.set_ancestor_id_local("morning_survey".to_string());
+        connectivity.timestamp_start = "2023-01-01T08:15:00Z".to_string();
+        connectivity.signal = -68.0;
+        connectivity.altitude = 130.0;
+        connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        connectivity.h14_index = "h14_survey1".to_string();
+        connectivity.h13_index = "h13_survey1".to_string();
+        connectivity.h12_index = "h12_survey1".to_string();
+        connectivity.h11_index = "h11_survey1".to_string();
+
+        sync_engine.upsert_items(vec![survey_event])?;
+        sync_engine.upsert_items(vec![connectivity])?;
+
+        // Strategic flush
+        sync_engine.flush().await?;
+
+        // Continue with remote area session
+        let mut remote_session = SessionLocal::default();
+        remote_session.set_id_local("remote_area_session".to_string());
+        remote_session.device_id = device_id;
+        remote_session.timestamp_start = "2023-01-01T13:00:00Z".to_string();
+        remote_session.software_version = "field_workflow_test".to_string();
+        remote_session.altitude_max = 200.0;
+        remote_session.distance_total = 2500.0;
+
+        sync_engine.upsert_items(vec![remote_session])?;
+
+        // Add two events to remote session
+        let mut remote_event1 = EventLocal::default();
+        remote_event1.set_id_local("remote_obs_1".to_string());
+        remote_event1.device_id = device_id;
+        remote_event1.set_ancestor_id_local("remote_area_session".to_string());
+        remote_event1.timestamp_observation = "2023-01-01T13:30:00Z".to_string();
+        remote_event1.message = Some("Wildlife in remote area".to_string());
+        remote_event1.altitude = 200.0;
+        remote_event1.media_type = MediaType::Video;
+
+        let mut remote_event2 = EventLocal::default();
+        remote_event2.set_id_local("remote_obs_2".to_string());
+        remote_event2.device_id = device_id;
+        remote_event2.set_ancestor_id_local("remote_area_session".to_string());
+        remote_event2.timestamp_observation = "2023-01-01T14:15:00Z".to_string();
+        remote_event2.message = Some("Rare species sighting".to_string());
+        remote_event2.altitude = 195.0;
+        remote_event2.media_type = MediaType::Image;
+
+        sync_engine.upsert_items(vec![remote_event1, remote_event2])?;
+
+        // End of day flush
+        sync_engine.flush().await?;
+
+        // Verify final state
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 3);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 3);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
 
         Ok(())
     }
