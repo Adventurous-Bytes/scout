@@ -241,9 +241,7 @@ fn setup_test_env() {
     }
 
     // Check for Supabase API key for PostgREST access
-    let has_supabase_api_key = env::var("SUPABASE_PUBLIC_API_KEY").is_ok()
-        || env::var("SCOUT_SUPABASE_ANON_KEY").is_ok()
-        || env::var("SCOUT_SUPABASE_SERVICE_KEY").is_ok();
+    let has_supabase_api_key = env::var("SUPABASE_PUBLIC_API_KEY").is_ok();
 
     if !has_supabase_api_key {
         panic!(
