@@ -45,16 +45,16 @@ impl ScoutClient {
         Ok(())
     }
 
-    /// Gets device information directly from database using the get_device_by_api_key function
+    /// Gets device information using two-step approach: first get device ID from API key, then get device by ID
     async fn get_device_from_db(&mut self) -> Result<Device> {
         let api_key = self.api_key.clone();
         let db_client = self.get_db_client()?;
 
-        // For RPC calls, we need to handle the response differently
+        // Step 1: Get device ID from API key using the get_device_id_from_key function
         let client = db_client.get_client()?;
         let response = client
             .rpc(
-                "get_device_by_api_key",
+                "get_device_id_from_key",
                 serde_json::json!({
                     "device_api_key": api_key
                 })
@@ -65,33 +65,31 @@ impl ScoutClient {
 
         let body = response.text().await?;
 
-        // Try to parse as the expected type
-        let device_pretty: DevicePrettyLocation = serde_json::from_str(&body).map_err(|e| {
+        // Parse the device ID from response
+        let device_id: i64 = serde_json::from_str(&body).map_err(|e| {
             anyhow!(
-                "Failed to parse device response: {} - Response: {}",
+                "Failed to parse device ID response: {} - Response: {}",
                 e,
                 body
             )
         })?;
 
-        // Convert DevicePrettyLocation to Device
-        let device = Device {
-            id: device_pretty.id,
-            id_local: None,
-            inserted_at: device_pretty.inserted_at,
-            created_by: device_pretty.created_by,
-            herd_id: device_pretty.herd_id,
-            device_type: DeviceType::from(device_pretty.device_type.as_str()),
-            name: device_pretty.name,
-            description: device_pretty.description,
-            domain_name: device_pretty.domain_name,
-            altitude: device_pretty.altitude.map(|a| a as f64),
-            heading: device_pretty.heading.map(|h| h as f64),
-            location: device_pretty.location,
-            video_publisher_token: None,
-            video_subscriber_token: None,
-        };
+        // Step 2: Get full device information using the device ID
+        let results = db_client
+            .query(|client| {
+                client
+                    .from("devices")
+                    .select("*")
+                    .eq("id", device_id.to_string())
+                    .limit(1)
+            })
+            .await?;
 
+        if results.is_empty() {
+            return Err(anyhow!("Device not found with ID: {}", device_id));
+        }
+
+        let device = results.into_iter().next().unwrap();
         Ok(device)
     }
 
