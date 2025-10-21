@@ -49,6 +49,7 @@ pub struct SyncEngine {
     interval_flush_sessions_ms: Option<u64>,
     max_num_items_per_sync: Option<u64>,
     auto_clean: bool,
+    shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
 }
 
 pub enum EnumSyncAction {
@@ -108,6 +109,7 @@ impl SyncEngine {
             interval_flush_sessions_ms,
             max_num_items_per_sync,
             auto_clean,
+            shutdown_tx: None,
         })
     }
 
@@ -584,32 +586,50 @@ impl SyncEngine {
                 self.max_num_items_per_sync
             );
 
+            let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel(1);
+            self.shutdown_tx = Some(shutdown_tx);
+
             let mut interval =
                 tokio::time::interval(tokio::time::Duration::from_millis(interval_ms));
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
             loop {
-                interval.tick().await;
-
-                match self.flush().await {
-                    Ok(_) => {
-                        tracing::debug!("Periodic flush completed successfully");
+                tokio::select! {
+                    _ = interval.tick() => {
+                        match self.flush().await {
+                            Ok(_) => {
+                                tracing::debug!("Periodic flush completed successfully");
+                            }
+                            Err(e) => {
+                                tracing::error!("Periodic flush failed: {}", e);
+                                // Continue running despite failures
+                            }
+                        }
                     }
-                    Err(e) => {
-                        tracing::error!("Periodic flush failed: {}", e);
-                        // Continue running despite failures
+                    _ = shutdown_rx.recv() => {
+                        tracing::info!("Sync engine shutting down gracefully");
+                        break;
                     }
                 }
             }
+            Ok(())
         } else {
             tracing::warn!("No flush interval specified, sync engine will not run automatically");
             Ok(())
         }
     }
 
-    /// Stops the sync engine (placeholder for future graceful shutdown implementation)
-    pub fn stop(&self) {
-        tracing::info!("Sync engine stopped");
+    /// Stops any active auto-flushing session
+    pub fn stop(&mut self) {
+        if let Some(shutdown_tx) = self.shutdown_tx.take() {
+            if let Err(_) = shutdown_tx.send(()) {
+                tracing::warn!("No active sync session to stop");
+            } else {
+                tracing::info!("Sync engine stop signal sent");
+            }
+        } else {
+            tracing::warn!("No active sync session to stop");
+        }
     }
 
     /// Runs a single flush operation respecting max items per sync.
