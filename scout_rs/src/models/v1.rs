@@ -36,6 +36,8 @@ pub enum DeviceType {
     DroneFixedWing,
     DroneQuad,
     GpsTracker,
+    GpsTrackerVehicle,
+    GpsTrackerPerson,
     SentryTower,
     SmartBuoy,
     RadioMeshBaseStation,
@@ -44,12 +46,14 @@ pub enum DeviceType {
 }
 
 impl From<&str> for DeviceType {
-    fn from(s: &str) -> Self {
-        match s {
+    fn from(value: &str) -> Self {
+        match value {
             "trail_camera" => DeviceType::TrailCamera,
             "drone_fixed_wing" => DeviceType::DroneFixedWing,
             "drone_quad" => DeviceType::DroneQuad,
             "gps_tracker" => DeviceType::GpsTracker,
+            "gps_tracker_vehicle" => DeviceType::GpsTrackerVehicle,
+            "gps_tracker_person" => DeviceType::GpsTrackerPerson,
             "sentry_tower" => DeviceType::SentryTower,
             "smart_buoy" => DeviceType::SmartBuoy,
             "radio_mesh_base_station" => DeviceType::RadioMeshBaseStation,

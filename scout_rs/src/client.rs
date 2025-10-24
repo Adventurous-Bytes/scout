@@ -602,6 +602,23 @@ impl ScoutClient {
         ))
     }
 
+    /// Gets all devices that the current user/device has permission to view.
+    /// RLS policies will automatically filter results based on permissions:
+    /// - Devices can see themselves and other devices in the same herd
+    /// - Users can see devices in herds they have view access to
+    pub async fn get_all_devices(&mut self) -> Result<ResponseScout<Vec<Device>>> {
+        let db_client = self.get_db_client()?;
+
+        let results = db_client
+            .query(|client| client.from("devices").order("inserted_at.desc"))
+            .await?;
+
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(results),
+        ))
+    }
+
     /// Gets a specific event by ID directly from the database
     pub async fn get_event_by_id(&mut self, event_id: i64) -> Result<ResponseScout<Event>> {
         let db_client = self.get_db_client()?;

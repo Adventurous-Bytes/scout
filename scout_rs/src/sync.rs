@@ -1,8 +1,8 @@
 use crate::{
     client::ScoutClient,
     models::{
-        Connectivity, ConnectivityLocal, Event, EventLocal, Session, SessionLocal, Syncable, Tag,
-        TagLocal,
+        data, Connectivity, ConnectivityLocal, Event, EventLocal, Session, SessionLocal, Syncable,
+        Tag, TagLocal,
     },
 };
 use anyhow::{Error, Result};
@@ -22,9 +22,22 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
     models
         .define::<TagLocal>()
         .expect("Failed to define TagLocal model");
+
+    // Define v1 connectivity model (existing data)
     models
-        .define::<ConnectivityLocal>()
-        .expect("Failed to define ConnectivityLocal model");
+        .define::<data::v1::ConnectivityLocal>()
+        .expect("Failed to define v1 ConnectivityLocal model");
+
+    // Define v2 connectivity model (new data with battery_percentage)
+    models
+        .define::<data::v2::ConnectivityLocal>()
+        .expect("Failed to define v2 ConnectivityLocal model");
+
+    // Define new Operator model
+    models
+        .define::<data::v2::Operator>()
+        .expect("Failed to define Operator model");
+
     models
 });
 
@@ -943,11 +956,11 @@ impl SyncEngine {
             if let Ok(mut connectivity) = raw_connectivity {
                 if connectivity.ancestor_id_local.as_deref() == Some(session_local_id) {
                     // Validate: if session_id is already set, ensure it matches
-                    if connectivity.session_id != 0
-                        && connectivity.session_id != new_remote_session_id
+                    if connectivity.session_id.is_some()
+                        && connectivity.session_id != Some(new_remote_session_id)
                     {
                         tracing::warn!(
-                            "Connectivity {} has conflicting session_id {} vs expected {}",
+                            "Connectivity {} has conflicting session_id {:?} vs expected {}",
                             connectivity.id_local.as_deref().unwrap_or("unknown"),
                             connectivity.session_id,
                             new_remote_session_id
@@ -955,7 +968,16 @@ impl SyncEngine {
                         continue; // Skip this entry to prevent wrong linkage
                     }
 
-                    connectivity.session_id = new_remote_session_id;
+                    // Convert to hybrid connectivity: keep device_id and add session_id
+                    connectivity.session_id = Some(new_remote_session_id);
+                    // Ensure device_id is set if not already present
+                    if connectivity.device_id.is_none() {
+                        // This should not happen in v2, but handle gracefully
+                        tracing::warn!(
+                            "Connectivity {} missing device_id, this may cause RLS issues",
+                            connectivity.id_local.as_deref().unwrap_or("unknown")
+                        );
+                    }
                     // Keep ancestor_id_local as metadata showing original relationship
                     connectivity_to_update.push(connectivity);
                 }
@@ -1431,7 +1453,8 @@ mod tests {
         // Create connectivity entry that references this session's local ID
         let mut connectivity = ConnectivityLocal::default();
         connectivity.set_id_local("test_connectivity_1".to_string());
-        connectivity.session_id = 0; // Will be updated after session gets remote ID
+        connectivity.session_id = None; // Use device-based connectivity for initial sync
+        connectivity.device_id = Some(device_id); // Reference the actual device ID
         connectivity.set_ancestor_id_local("test_session_with_descendants".to_string());
         connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
         connectivity.signal = -70.0;
@@ -1521,8 +1544,14 @@ mod tests {
                     == Some("test_session_with_descendants")
                 {
                     assert_eq!(
-                        connectivity.session_id, session_id,
-                        "Connectivity must reference session's remote ID after flush"
+                        connectivity.device_id,
+                        Some(device_id),
+                        "Connectivity must reference the correct device ID"
+                    );
+                    assert_eq!(
+                        connectivity.session_id,
+                        Some(session_id),
+                        "Connectivity must reference session's remote ID after flush (hybrid mode)"
                     );
                 }
             }
@@ -1591,7 +1620,8 @@ mod tests {
         let mut completed_connectivity = ConnectivityLocal::default();
         completed_connectivity.set_id_local("completed_connectivity".to_string());
         completed_connectivity.id = Some(34567); // Has remote ID
-        completed_connectivity.session_id = 12345;
+        completed_connectivity.session_id = None; // Use device-based connectivity
+        completed_connectivity.device_id = Some(device_id);
         completed_connectivity.set_ancestor_id_local("completed_session".to_string());
         completed_connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
         completed_connectivity.signal = -70.0;
@@ -1707,7 +1737,8 @@ mod tests {
         let mut connectivity = ConnectivityLocal::default();
         connectivity.set_id_local("flush_test_connectivity".to_string());
         connectivity.set_ancestor_id_local("flush_test_session".to_string());
-        connectivity.session_id = 0; // Will be updated after session sync
+        connectivity.session_id = None; // Use device-based connectivity for initial sync
+        connectivity.device_id = Some(device_id); // Reference the actual device ID
         connectivity.timestamp_start = "2023-01-01T10:05:00Z".to_string();
         connectivity.signal = -70.0;
         connectivity.noise = -90.0;
@@ -1795,12 +1826,19 @@ mod tests {
             .expect("Session must have remote ID after successful flush to remote database");
 
         // Verify connectivity references session remote ID
+        // Verify connectivity was properly linked to both device and session (hybrid)
         for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
             if let Ok(connectivity) = raw_connectivity {
                 if connectivity.id_local.as_deref() == Some("flush_test_connectivity") {
                     assert_eq!(
-                        connectivity.session_id, session_id,
-                        "Connectivity must reference session's remote ID after flush"
+                        connectivity.device_id,
+                        Some(device_id),
+                        "Connectivity must reference the correct device ID"
+                    );
+                    assert_eq!(
+                        connectivity.session_id,
+                        Some(session_id),
+                        "Connectivity must reference session's remote ID after session sync"
                     );
                 }
             }

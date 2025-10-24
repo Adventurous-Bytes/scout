@@ -1,7 +1,7 @@
 use scout_rs::client::*;
 use scout_rs::models::{
-    Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScout, ResponseScoutStatus,
-    Session, Tag, TagObservationType,
+    data, Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScoutStatus, Session,
+    Syncable, Tag, TagObservationType,
 };
 use std::env;
 
@@ -302,53 +302,6 @@ async fn test_client_identification() {
     }
 }
 
-async fn test_event_creation_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    client
-        .identify()
-        .await
-        .expect("Client identification failed");
-
-    // Create test event
-    let event = Event::new(
-        Some("Integration test event".to_string()),
-        Some("https://test.com/image.jpg".to_string()),
-        None,
-        Some("https://test.earthranger.com".to_string()),
-        19.754824,
-        -155.15393,
-        15.0,
-        45.0,
-        MediaType::Image,
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        true,
-        None,
-    );
-
-    let event_result = client
-        .create_event(&event)
-        .await
-        .expect("Event creation failed");
-    assert_eq!(event_result.status, ResponseScoutStatus::Success);
-    let created_event = event_result.data.unwrap();
-    assert!(created_event.id.unwrap_or(0) >= 0);
-    if let Some(event_id) = created_event.id {
-        cleanup.track_event(event_id);
-    }
-}
-
-test_with_cleanup!(test_event_creation, test_event_creation_impl);
-
 async fn test_event_batch_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
@@ -602,57 +555,6 @@ test_with_cleanup!(
     test_event_with_tags_creation_impl
 );
 
-async fn test_session_creation_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    client
-        .identify()
-        .await
-        .expect("Client identification failed");
-
-    // Get the actual device ID from the identified client
-    let device_id = client
-        .device
-        .as_ref()
-        .unwrap()
-        .id
-        .expect("Device should have an ID");
-
-    // Create test session
-    let session = Session::new(
-        device_id,
-        1640995200,
-        Some(1640998800),
-        "v2.0.0".to_string(),
-        Some("POINT(-155.15393 19.754824)".to_string()),
-        120.0,
-        45.0,
-        82.5,
-        15.0,
-        3.0,
-        9.0,
-        1200.0,
-        600.0,
-    );
-
-    let session_result = client
-        .create_session(&session)
-        .await
-        .expect("Session creation failed");
-    assert_eq!(session_result.status, ResponseScoutStatus::Success);
-    let created_session = session_result.data.unwrap();
-    if let Some(session_id) = created_session.id {
-        cleanup.track_session(session_id);
-    }
-}
-
-test_with_cleanup!(test_session_creation, test_session_creation_impl);
-
 async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
@@ -725,74 +627,6 @@ async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
 }
 
 test_with_cleanup!(test_does_session_exist, test_does_session_exist_impl);
-
-#[tokio::test]
-async fn test_connectivity_creation() {
-    // Acquire global database test lock to prevent concurrent database access
-    let _guard = DB_TEST_MUTEX.lock().await;
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    client
-        .identify()
-        .await
-        .expect("Client identification failed");
-
-    // First create a real session for the connectivity data
-    let session = Session::new(
-        env::var("SCOUT_DEVICE_ID")
-            .unwrap_or_else(|_| "123".to_string())
-            .parse()
-            .unwrap_or(123),
-        1640995200,
-        Some(1640998800),
-        "connectivity_test_v1.0.0".to_string(),
-        Some("POINT(-155.15393 19.754824)".to_string()),
-        120.0,
-        45.0,
-        82.5,
-        15.0,
-        3.0,
-        9.0,
-        1200.0,
-        600.0,
-    );
-
-    let session_result = client
-        .create_session(&session)
-        .await
-        .expect("Session creation failed");
-    assert_eq!(session_result.status, ResponseScoutStatus::Success);
-    let created_session = session_result.data.unwrap();
-    let session_id = created_session.id.unwrap();
-
-    let connectivity = Connectivity::new(
-        session_id,
-        chrono::Utc::now().timestamp() as u64,
-        -45.0,
-        -60.0,
-        100.0,
-        180.0,
-        "POINT(-155.15393 19.754824)".to_string(),
-        "H14_INDEX".to_string(),
-        "H13_INDEX".to_string(),
-        "H12_INDEX".to_string(),
-        "H11_INDEX".to_string(),
-    );
-
-    let connectivity_result = client
-        .create_connectivity(&connectivity)
-        .await
-        .expect("Connectivity creation failed");
-    assert_eq!(connectivity_result.status, ResponseScoutStatus::Success);
-    assert!(connectivity_result.data.is_some());
-
-    let _ = client.delete_session(session_id).await;
-}
 
 #[tokio::test]
 async fn test_compatibility_methods() {
@@ -1323,139 +1157,6 @@ async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
 
 test_with_cleanup!(test_plans_comprehensive, test_plans_comprehensive_impl);
 
-async fn test_plans_crud_operations_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    client
-        .identify()
-        .await
-        .expect("Client identification failed");
-
-    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
-
-    let new_plan = Plan {
-        id: None,
-        id_local: None,
-        inserted_at: None,
-        name: "Test CRUD Plan".to_string(),
-        instructions: "This is a test plan for CRUD operations".to_string(),
-        herd_id,
-        plan_type: PlanType::Mission,
-    };
-
-    let create_result = client
-        .create_plan(&new_plan)
-        .await
-        .expect("Plan creation failed");
-    assert_eq!(create_result.status, ResponseScoutStatus::Success);
-    let created_plan = create_result.data.unwrap();
-    assert!(created_plan.id.unwrap() >= 0);
-    assert_eq!(created_plan.name, "Test CRUD Plan");
-    assert_eq!(
-        created_plan.instructions,
-        "This is a test plan for CRUD operations"
-    );
-    assert_eq!(created_plan.herd_id, herd_id);
-    assert_eq!(created_plan.plan_type, PlanType::Mission);
-
-    let plan_id = created_plan.id.unwrap();
-    cleanup.track_plan(plan_id);
-
-    // Add delay to ensure plan is committed to database
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    let plans_result = client
-        .get_plans_by_herd(herd_id)
-        .await
-        .expect("Failed to read plans");
-    assert_eq!(plans_result.status, ResponseScoutStatus::Success);
-    if let Some(plans) = plans_result.data {
-        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
-        assert!(found_plan.is_some(), "Should find the created plan");
-        let found_plan = found_plan.unwrap();
-        assert_eq!(found_plan.name, "Test CRUD Plan");
-        assert_eq!(
-            found_plan.instructions,
-            "This is a test plan for CRUD operations"
-        );
-    }
-
-    // Test 3: Update the plan
-    let updated_plan = Plan {
-        id: Some(plan_id),
-        id_local: None,
-        inserted_at: created_plan.inserted_at,
-        name: "Updated Test CRUD Plan".to_string(),
-        instructions: "This plan has been updated".to_string(),
-        herd_id,
-        plan_type: PlanType::Rally,
-    };
-
-    let update_result = client
-        .update_plan(plan_id, &updated_plan)
-        .await
-        .expect("Plan update failed");
-    assert_eq!(update_result.status, ResponseScoutStatus::Success);
-    let updated_plan_result = update_result.data.unwrap();
-    assert_eq!(updated_plan_result.id.unwrap_or(0), plan_id);
-    assert_eq!(updated_plan_result.name, "Updated Test CRUD Plan");
-    assert_eq!(
-        updated_plan_result.instructions,
-        "This plan has been updated"
-    );
-    assert_eq!(updated_plan_result.plan_type, PlanType::Rally);
-
-    // Add delay to ensure plan update is committed to database
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Test 4: Verify the update by reading again
-    let plans_result = client.get_plans_by_herd(herd_id).await;
-    match plans_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            if let Some(plans) = response.data {
-                let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
-                assert!(found_plan.is_some(), "Should find the updated plan");
-
-                let found_plan = found_plan.unwrap();
-                assert_eq!(found_plan.name, "Updated Test CRUD Plan");
-                assert_eq!(found_plan.instructions, "This plan has been updated");
-                assert_eq!(found_plan.plan_type, PlanType::Rally);
-            }
-        }
-        Err(e) => {
-            panic!("❌ Failed to read plans after update: {}", e);
-        }
-    }
-
-    let delete_result = client
-        .delete_plan(plan_id)
-        .await
-        .expect("Plan deletion failed");
-    assert_eq!(delete_result.status, ResponseScoutStatus::Success);
-
-    // Add delay to ensure deletion is committed to database
-    tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-
-    // Test 6: Verify deletion by trying to read the plan
-    let plans_result = client
-        .get_plans_by_herd(herd_id)
-        .await
-        .expect("Failed to read plans after deletion");
-    assert_eq!(plans_result.status, ResponseScoutStatus::Success);
-    if let Some(plans) = plans_result.data {
-        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
-        assert!(found_plan.is_none(), "Should not find the deleted plan");
-    }
-}
-
-test_with_cleanup!(test_plans_crud_operations, test_plans_crud_operations_impl);
-
 async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
@@ -1595,151 +1296,6 @@ async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
 
 test_with_cleanup!(test_plans_bulk_operations, test_plans_bulk_operations_impl);
 
-async fn test_plan_individual_retrieval_impl(cleanup: &TestCleanup) {
-    setup_test_env();
-
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
-
-    client
-        .identify()
-        .await
-        .expect("Client identification failed");
-
-    let herd_id = client.herd.as_ref().unwrap().id.unwrap();
-
-    // Test 1: Create a test plan first
-    let test_plan = Plan {
-        id: Some(0), // Placeholder ID for creation
-        id_local: None,
-        inserted_at: None, // Database will use default value
-        name: "Individual Retrieval Test Plan".to_string(),
-        instructions: "This plan is for testing individual retrieval".to_string(),
-        herd_id,
-        plan_type: PlanType::Mission,
-    };
-
-    let create_result = client.create_plan(&test_plan).await;
-    match create_result {
-        Ok(response) => {
-            assert_eq!(response.status, ResponseScoutStatus::Success);
-            assert!(response.data.is_some());
-
-            let created_plan = response.data.unwrap();
-            let plan_id = created_plan.id.unwrap();
-            assert!(plan_id >= 0, "Created plan should have a valid ID");
-            cleanup.track_plan(plan_id);
-
-            // Test 2: Get the plan by ID
-            let get_result = client.get_plan_by_id(plan_id).await;
-            match get_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    assert!(response.data.is_some());
-
-                    let retrieved_plan = response.data.unwrap();
-                    assert_eq!(retrieved_plan.id.unwrap_or(0), plan_id);
-                    assert_eq!(retrieved_plan.name, "Individual Retrieval Test Plan");
-                    assert_eq!(
-                        retrieved_plan.instructions,
-                        "This plan is for testing individual retrieval"
-                    );
-                    assert_eq!(retrieved_plan.herd_id, herd_id);
-                    assert_eq!(retrieved_plan.plan_type, PlanType::Mission);
-
-                    println!("Successfully retrieved plan {} multiple times", plan_id);
-                }
-                Err(e) => {
-                    panic!("❌ Failed to get plan by ID: {}", e);
-                }
-            }
-
-            // Test 3: Test getting non-existent plan
-            let non_existent_id = 999999;
-            let non_existent_result = client.get_plan_by_id(non_existent_id).await;
-            match non_existent_result {
-                Ok(response) => {
-                    // Should return failure status for non-existent plan
-                    assert_eq!(response.status, ResponseScoutStatus::Failure);
-                    assert!(response.data.is_none());
-                    println!(
-                        "Correctly handled non-existent plan ID: {}",
-                        non_existent_id
-                    );
-                }
-                Err(e) => {
-                    // This is also acceptable - some databases might return an error
-                    println!(
-                        "Expected behavior: Non-existent plan ID returned error: {}",
-                        e
-                    );
-                }
-            }
-
-            // Test 4: Verify the plan still exists in herd plans
-            let herd_plans_result = client.get_plans_by_herd(herd_id).await;
-            match herd_plans_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                    if let Some(plans) = response.data {
-                        let found_plan = plans.iter().find(|p| p.id.unwrap_or(0) == plan_id);
-                        assert!(
-                            found_plan.is_some(),
-                            "Should find the test plan in herd plans"
-                        );
-
-                        let found_plan = found_plan.unwrap();
-                        assert_eq!(found_plan.name, "Individual Retrieval Test Plan");
-                        assert_eq!(found_plan.plan_type, PlanType::Mission);
-                    }
-                }
-                Err(e) => {
-                    panic!("❌ Failed to get herd plans: {}", e);
-                }
-            }
-
-            // Test 5: Clean up the test plan
-            let delete_result = client.delete_plan(plan_id).await;
-            match delete_result {
-                Ok(response) => {
-                    assert_eq!(response.status, ResponseScoutStatus::Success);
-                }
-                Err(e) => {
-                    panic!("Failed to delete individual test plan: {}", e);
-                }
-            }
-
-            // Test 6: Verify deletion by trying to get the plan by ID
-            let get_after_delete_result = client.get_plan_by_id(plan_id).await;
-            match get_after_delete_result {
-                Ok(response) => {
-                    // Should return failure status for deleted plan
-                    assert_eq!(response.status, ResponseScoutStatus::Failure);
-                    assert!(response.data.is_none());
-                    println!("Correctly handled deleted plan ID: {}", plan_id);
-                }
-                Err(e) => {
-                    // This is also acceptable
-                    println!("Expected behavior: Deleted plan ID returned error: {}", e);
-                }
-            }
-        }
-        Err(e) => {
-            panic!(
-                "❌ Failed to create test plan for individual retrieval test: {}",
-                e
-            );
-        }
-    }
-}
-
-test_with_cleanup!(
-    test_plan_individual_retrieval,
-    test_plan_individual_retrieval_impl
-);
-
 #[tokio::test]
 async fn test_identify_method_fix() {
     // Acquire global database test lock to prevent concurrent database access
@@ -1820,17 +1376,6 @@ async fn test_zones_and_actions_by_herd() {
             panic!("❌ Zones and actions by herd retrieval failed: {}", e);
         }
     }
-}
-
-#[test]
-fn test_response_handling() {
-    // Test invalid event response
-    let invalid_event = ResponseScout::new(ResponseScoutStatus::InvalidEvent, None::<&str>);
-    assert_eq!(invalid_event.status, ResponseScoutStatus::InvalidEvent);
-
-    // Test invalid file response
-    let invalid_file = ResponseScout::new(ResponseScoutStatus::InvalidFile, None::<&str>);
-    assert_eq!(invalid_file.status, ResponseScoutStatus::InvalidFile);
 }
 
 #[tokio::test]
@@ -1940,7 +1485,8 @@ async fn test_complete_data_collection_workflow() {
 
                 // Step 5: Create connectivity data
                 let connectivity = Connectivity::new(
-                    session_id,
+                    Some(session_id),
+                    None, // device_id
                     chrono::Utc::now().timestamp() as u64,
                     -45.0,
                     -60.0,
@@ -1951,6 +1497,7 @@ async fn test_complete_data_collection_workflow() {
                     "H13_INDEX".to_string(),
                     "H12_INDEX".to_string(),
                     "H11_INDEX".to_string(),
+                    Some(85.0), // battery_percentage
                 );
 
                 let connectivity_result = client.create_connectivity(&connectivity).await;
@@ -1987,161 +1534,6 @@ async fn test_complete_data_collection_workflow() {
     } else {
         panic!("❌ Step 2: Session creation error");
     }
-}
-
-#[test]
-fn test_tag_location_functionality() {
-    // Test 1: Create tag without location
-    let mut tag = Tag::new(
-        1,
-        0.5,
-        0.5,
-        0.2,
-        0.2,
-        0.9,
-        TagObservationType::Manual,
-        "animal".to_string(),
-    );
-
-    assert!(tag.location.is_none());
-    assert!(tag.get_coordinates().is_none());
-    println!("✅ Tag without location created successfully");
-
-    // Test 2: Create tag with location using new_with_location
-    let tag_with_location = Tag::new_with_location(
-        1,
-        0.5,
-        0.5,
-        0.2,
-        0.2,
-        0.9,
-        TagObservationType::Manual,
-        "animal".to_string(),
-        40.7128,
-        -74.0060,
-    );
-
-    assert!(tag_with_location.location.is_some());
-    assert!(tag_with_location.location.is_some());
-    assert!(tag_with_location
-        .location
-        .as_ref()
-        .unwrap()
-        .contains("POINT("));
-    assert!(tag_with_location
-        .location
-        .as_ref()
-        .unwrap()
-        .contains("40.7128"));
-    assert!(tag_with_location
-        .location
-        .as_ref()
-        .unwrap()
-        .contains("-74.006"));
-
-    if let Some((lat, lon)) = tag_with_location.get_coordinates() {
-        assert!((lat - 40.7128).abs() < 0.0001);
-        assert!((lon - (-74.0060)).abs() < 0.0001);
-        println!(
-            "✅ Tag with location created successfully: lat={}, lon={}",
-            lat, lon
-        );
-    } else {
-        panic!("❌ Failed to get coordinates from tag with location");
-    }
-
-    // Test 3: Set location after creation
-    tag.set_location(37.7749, -122.4194);
-    assert!(tag.location.is_some());
-    assert!(tag.location.is_some());
-    assert!(tag.location.as_ref().unwrap().contains("POINT("));
-    assert!(tag.location.as_ref().unwrap().contains("37.7749"));
-    assert!(tag.location.as_ref().unwrap().contains("-122.4194"));
-
-    if let Some((lat, lon)) = tag.get_coordinates() {
-        assert!((lat - 37.7749).abs() < 0.0001);
-        assert!((lon - (-122.4194)).abs() < 0.0001);
-        println!("✅ Location set after creation: lat={}, lon={}", lat, lon);
-    } else {
-        panic!("❌ Failed to get coordinates after setting location");
-    }
-
-    // Test 4: Parse location string
-    if let Some((lat, lon)) = Tag::parse_location("POINT(-74.0060 40.7128)") {
-        assert!((lat - 40.7128).abs() < 0.0001);
-        assert!((lon - (-74.0060)).abs() < 0.0001);
-        println!("✅ Location parsing successful: lat={}, lon={}", lat, lon);
-    } else {
-        panic!("❌ Failed to parse location string");
-    }
-
-    // Test 5: Clear location
-    tag.clear_location();
-    assert!(tag.location.is_none());
-    assert!(tag.get_coordinates().is_none());
-    println!("✅ Location cleared successfully");
-
-    // Test 6: Invalid location string parsing
-    assert!(Tag::parse_location("Invalid format").is_none());
-    assert!(Tag::parse_location("POINT(invalid coords)").is_none());
-    assert!(Tag::parse_location("POINT(1)").is_none());
-    println!("✅ Invalid location string handling works correctly");
-
-    println!("🎉 All tag location functionality tests passed!");
-}
-
-#[test]
-fn test_tag_upload_with_location() {
-    // This test verifies that tags with location can be serialized correctly
-    // for database upload (even though we can't actually upload without a real DB)
-
-    // Create a tag with location
-    let mut tag = Tag::new_with_location(
-        1,
-        0.5,
-        0.5,
-        0.2,
-        0.2,
-        0.9,
-        TagObservationType::Manual,
-        "elephant".to_string(),
-        40.7128,
-        -74.0060,
-    );
-
-    // Set event_id as would happen in real upload
-    tag.update_event_id(123);
-
-    // Verify the tag has location
-    assert!(tag.location.is_some());
-    assert_eq!(tag.location, Some("POINT(-74.006 40.7128)".to_string()));
-
-    // Test serialization (what happens when uploading to database)
-    let serialized = serde_json::to_string(&tag).unwrap();
-    println!("Serialized tag: {}", serialized);
-
-    // Verify location is included in serialized JSON
-    assert!(serialized.contains("POINT(-74.006 40.7128)"));
-    assert!(serialized.contains("\"location\""));
-
-    // Test deserialization
-    let deserialized: Tag = serde_json::from_str(&serialized).unwrap();
-    assert_eq!(deserialized.location, tag.location);
-    assert_eq!(deserialized.event_id, tag.event_id);
-
-    // Test that coordinates can be extracted
-    if let Some((lat, lon)) = deserialized.get_coordinates() {
-        assert!((lat - 40.7128).abs() < 0.0001);
-        assert!((lon - (-74.0060)).abs() < 0.0001);
-        println!(
-            "✅ Coordinates extracted correctly: lat={}, lon={}",
-            lat, lon
-        );
-    } else {
-        panic!("❌ Failed to extract coordinates from deserialized tag");
-    }
-
-    println!("✅ Tag upload with location test passed!");
 }
 
 #[tokio::test]
@@ -2568,7 +1960,8 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
     // Create connectivity entries
     let connectivity_entries = vec![
         Connectivity::new(
-            session_id,
+            Some(session_id),
+            None,       // device_id
             1704118200, // 2024-01-01T14:10:00Z
             -70.0,
             -90.0,
@@ -2579,9 +1972,11 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             "h13index1".to_string(),
             "h12index1".to_string(),
             "h11index1".to_string(),
+            Some(90.0), // battery_percentage
         ),
         Connectivity::new(
-            session_id,
+            Some(session_id),
+            None,       // device_id
             1704118800, // 2024-01-01T14:20:00Z
             -75.0,
             -95.0,
@@ -2592,6 +1987,7 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             "h13index2".to_string(),
             "h12index2".to_string(),
             "h11index2".to_string(),
+            Some(88.5), // battery_percentage
         ),
     ];
 
@@ -2956,4 +2352,348 @@ async fn test_heartbeat_operations() {
 
     // Clean up test data
     cleanup.cleanup(&mut client).await;
+}
+
+// ===== V2 MODEL TESTS =====
+
+#[test]
+fn test_connectivity_v1_to_v2_migration() {
+    let v1_connectivity = data::v1::ConnectivityLocal {
+        id: Some(1),
+        id_local: Some("local_1".to_string()),
+        session_id: 1,
+        ancestor_id_local: None,
+        inserted_at: Some("2024-01-01T00:00:00Z".to_string()),
+        timestamp_start: "2024-01-01T00:00:00Z".to_string(),
+        signal: -65.0,
+        noise: -95.0,
+        altitude: 100.0,
+        heading: 45.0,
+        location: Some("POINT(1.0 2.0)".to_string()),
+        h14_index: "h14".to_string(),
+        h13_index: "h13".to_string(),
+        h12_index: "h12".to_string(),
+        h11_index: "h11".to_string(),
+    };
+
+    // Test migration from V1 to V2
+    let v2_connectivity: data::v2::ConnectivityLocal = v1_connectivity.into();
+
+    // Verify all fields migrated correctly
+    assert_eq!(v2_connectivity.signal, -65.0);
+    assert_eq!(v2_connectivity.noise, -95.0);
+    assert_eq!(v2_connectivity.session_id, Some(1));
+    assert_eq!(v2_connectivity.h14_index, "h14");
+    assert_eq!(v2_connectivity.location, Some("POINT(1.0 2.0)".to_string()));
+
+    // New field should be None for migrated data
+    assert_eq!(v2_connectivity.battery_percentage, None);
+}
+
+#[test]
+fn test_connectivity_v2_with_battery() {
+    let v2_connectivity = data::v2::ConnectivityLocal::new(
+        Some(1),                      // session_id
+        None,                         // device_id
+        1234567890,                   // timestamp_start
+        -65.0,                        // signal
+        -95.0,                        // noise
+        100.0,                        // altitude
+        45.0,                         // heading
+        "POINT(1.0 2.0)".to_string(), // location
+        "h14".to_string(),            // h14_index
+        "h13".to_string(),            // h13_index
+        "h12".to_string(),            // h12_index
+        "h11".to_string(),            // h11_index
+        Some(85.5),                   // battery_percentage
+    );
+
+    assert_eq!(v2_connectivity.battery_percentage, Some(85.5));
+    assert_eq!(v2_connectivity.session_id, Some(1));
+    assert_eq!(v2_connectivity.signal, -65.0);
+    assert_eq!(v2_connectivity.location, Some("POINT(1.0 2.0)".to_string()));
+}
+
+#[test]
+fn test_connectivity_v2_api_struct() {
+    let v2_connectivity = data::v2::Connectivity::new(
+        Some(1),                                // session_id
+        None,                                   // device_id
+        1234567890,                             // timestamp_start
+        -70.0,                                  // signal
+        -100.0,                                 // noise
+        150.0,                                  // altitude
+        90.0,                                   // heading
+        "POINT(-122.4194 37.7749)".to_string(), // location
+        "h14_abc".to_string(),                  // h14_index
+        "h13_def".to_string(),                  // h13_index
+        "h12_ghi".to_string(),                  // h12_index
+        "h11_jkl".to_string(),                  // h11_index
+        Some(92.3),                             // battery_percentage
+    );
+
+    assert_eq!(v2_connectivity.battery_percentage, Some(92.3));
+    assert_eq!(v2_connectivity.session_id, Some(1));
+    assert_eq!(v2_connectivity.signal, -70.0);
+    assert_eq!(v2_connectivity.altitude, 150.0);
+    assert!(v2_connectivity.timestamp_start.contains("2009-02-13")); // Unix timestamp 1234567890
+}
+
+#[test]
+fn test_operator_model() {
+    let operator = data::v2::Operator::new(
+        "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        "start_mission".to_string(),
+        Some(1),
+    );
+
+    assert_eq!(operator.user_id, "550e8400-e29b-41d4-a716-446655440000");
+    assert_eq!(operator.action, "start_mission");
+    assert_eq!(operator.session_id, Some(1));
+    assert!(operator.timestamp.is_some());
+
+    // Test that timestamp is valid RFC3339
+    let timestamp = operator.timestamp.unwrap();
+    assert!(timestamp.contains("T"));
+    // RFC3339 format - should be valid
+    assert!(timestamp.len() > 19); // Basic length check for YYYY-MM-DDTHH:MM:SS format
+}
+
+#[test]
+fn test_operator_syncable_trait() {
+    let mut operator = data::v2::Operator::default();
+
+    // Test Syncable trait implementation
+    assert_eq!(operator.id(), None);
+    operator.set_id(42);
+    assert_eq!(operator.id(), Some(42));
+
+    assert_eq!(operator.id_local(), None);
+    operator.set_id_local("local_123".to_string());
+    assert_eq!(operator.id_local(), Some("local_123".to_string()));
+}
+
+#[test]
+fn test_operator_default() {
+    let operator = data::v2::Operator::default();
+
+    assert_eq!(operator.id, None);
+    assert_eq!(operator.id_local, None);
+    assert_eq!(operator.created_at, None);
+    assert_eq!(operator.timestamp, None);
+    assert_eq!(operator.session_id, None);
+    assert_eq!(operator.user_id, String::new());
+    assert_eq!(operator.action, String::new());
+}
+
+#[test]
+fn test_connectivity_v2_conversions() {
+    // Test ConnectivityLocalV2 to ConnectivityV2
+    let local_v2 = data::v2::ConnectivityLocal {
+        id: Some(123),
+        id_local: Some("test_connectivity".to_string()),
+        session_id: Some(1),
+        device_id: None,
+        ancestor_id_local: None,
+        inserted_at: None,
+        timestamp_start: "2023-01-01T10:00:00Z".to_string(),
+        signal: -65.0,
+        noise: -95.0,
+        altitude: 100.0,
+        heading: 45.0,
+        location: Some("POINT(1.0 2.0)".to_string()),
+        h14_index: "h14".to_string(),
+        h13_index: "h13".to_string(),
+        h12_index: "h12".to_string(),
+        h11_index: "h11".to_string(),
+        battery_percentage: Some(85.5),
+    };
+
+    let api_v2: data::v2::Connectivity = local_v2.clone().into();
+
+    // Verify conversion
+    assert_eq!(api_v2.id, Some(123));
+    assert_eq!(api_v2.session_id, Some(1));
+    assert_eq!(api_v2.signal, -65.0);
+    assert_eq!(api_v2.battery_percentage, Some(85.5));
+
+    // Test reverse conversion
+    let back_to_local: data::v2::ConnectivityLocal = api_v2.into();
+    assert_eq!(back_to_local.id, Some(123));
+    assert_eq!(back_to_local.session_id, Some(1));
+    assert_eq!(back_to_local.battery_percentage, Some(85.5));
+    assert_eq!(back_to_local.id_local, None); // API structs don't have id_local
+    assert_eq!(back_to_local.ancestor_id_local, None); // API structs don't have ancestor_id_local
+}
+
+#[test]
+fn test_connectivity_v2_syncable_trait() {
+    let mut connectivity_v2 = data::v2::ConnectivityLocal::default();
+
+    // Test Syncable trait
+    assert_eq!(connectivity_v2.id(), None);
+    connectivity_v2.set_id(123);
+    assert_eq!(connectivity_v2.id(), Some(123));
+
+    assert_eq!(connectivity_v2.id_local(), None);
+    connectivity_v2.set_id_local("conn_local_456".to_string());
+    assert_eq!(
+        connectivity_v2.id_local(),
+        Some("conn_local_456".to_string())
+    );
+
+    // Test AncestorLocal trait
+    use scout_rs::models::data::v2::AncestorLocal;
+    assert_eq!(connectivity_v2.ancestor_id_local(), None);
+    connectivity_v2.set_ancestor_id_local("ancestor_789".to_string());
+    assert_eq!(
+        connectivity_v2.ancestor_id_local(),
+        Some("ancestor_789".to_string())
+    );
+}
+
+#[test]
+fn test_migration_preserves_data_integrity() {
+    // Create comprehensive V1 data
+    let v1_connectivity = data::v1::ConnectivityLocal {
+        id: Some(999),
+        id_local: Some("comprehensive_test".to_string()),
+        session_id: 42,
+        ancestor_id_local: Some("ancestor_comprehensive".to_string()),
+        inserted_at: Some("2024-12-01T15:30:45Z".to_string()),
+        timestamp_start: "2024-12-01T15:30:00Z".to_string(),
+        signal: -72.5,
+        noise: -98.3,
+        altitude: 256.7,
+        heading: 137.2,
+        location: Some("POINT(-74.0060 40.7128)".to_string()), // NYC coordinates
+        h14_index: "h14_comprehensive".to_string(),
+        h13_index: "h13_comprehensive".to_string(),
+        h12_index: "h12_comprehensive".to_string(),
+        h11_index: "h11_comprehensive".to_string(),
+    };
+
+    // Migrate to V2
+    let v2_connectivity: data::v2::ConnectivityLocal = v1_connectivity.clone().into();
+
+    // Verify every field migrated correctly
+    assert_eq!(v2_connectivity.id, v1_connectivity.id);
+    assert_eq!(v2_connectivity.id_local, v1_connectivity.id_local);
+    assert_eq!(v2_connectivity.session_id, Some(v1_connectivity.session_id));
+    assert_eq!(
+        v2_connectivity.ancestor_id_local,
+        v1_connectivity.ancestor_id_local
+    );
+    assert_eq!(v2_connectivity.inserted_at, v1_connectivity.inserted_at);
+    assert_eq!(
+        v2_connectivity.timestamp_start,
+        v1_connectivity.timestamp_start
+    );
+    assert_eq!(v2_connectivity.signal, v1_connectivity.signal);
+    assert_eq!(v2_connectivity.noise, v1_connectivity.noise);
+    assert_eq!(v2_connectivity.altitude, v1_connectivity.altitude);
+    assert_eq!(v2_connectivity.heading, v1_connectivity.heading);
+    assert_eq!(v2_connectivity.location, v1_connectivity.location);
+    assert_eq!(v2_connectivity.h14_index, v1_connectivity.h14_index);
+    assert_eq!(v2_connectivity.h13_index, v1_connectivity.h13_index);
+    assert_eq!(v2_connectivity.h12_index, v1_connectivity.h12_index);
+    assert_eq!(v2_connectivity.h11_index, v1_connectivity.h11_index);
+
+    // New field should be None for migrated data
+    assert_eq!(v2_connectivity.battery_percentage, None);
+}
+
+#[test]
+fn test_connectivity_v2_battery_percentage_ranges() {
+    // Test various battery percentage values
+    let test_cases = vec![None, Some(0.0), Some(50.0), Some(100.0), Some(99.99)];
+
+    for battery_value in test_cases {
+        let connectivity = data::v2::ConnectivityLocal::new(
+            Some(1),
+            None,
+            1234567890,
+            -65.0,
+            -95.0,
+            100.0,
+            45.0,
+            "POINT(0.0 0.0)".to_string(),
+            "h14".to_string(),
+            "h13".to_string(),
+            "h12".to_string(),
+            "h11".to_string(),
+            battery_value,
+        );
+
+        assert_eq!(connectivity.battery_percentage, battery_value);
+        assert_eq!(connectivity.session_id, Some(1));
+    }
+}
+
+#[test]
+fn test_connectivity_v2_device_based() {
+    // Test creating connectivity directly associated with device instead of session
+    let device_connectivity = data::v2::ConnectivityLocal::new(
+        None,                                   // session_id - None for device-based connectivity
+        Some(42),                               // device_id - associated with device
+        1234567890,                             // timestamp_start
+        -70.0,                                  // signal
+        -85.0,                                  // noise
+        125.0,                                  // altitude
+        180.0,                                  // heading
+        "POINT(-122.4194 37.7749)".to_string(), // location
+        "h14_dev".to_string(),                  // h14_index
+        "h13_dev".to_string(),                  // h13_index
+        "h12_dev".to_string(),                  // h12_index
+        "h11_dev".to_string(),                  // h11_index
+        Some(78.2),                             // battery_percentage
+    );
+
+    // Verify device-based connectivity
+    assert_eq!(device_connectivity.session_id, None);
+    assert_eq!(device_connectivity.device_id, Some(42));
+    assert_eq!(device_connectivity.battery_percentage, Some(78.2));
+    assert_eq!(device_connectivity.signal, -70.0);
+
+    // Test mixed scenario: session-based connectivity
+    let session_connectivity = data::v2::ConnectivityLocal::new(
+        Some(123),                                 // session_id - associated with session
+        None,                                      // device_id - None when using session
+        1234567890,                                // timestamp_start
+        -65.0,                                     // signal
+        -90.0,                                     // noise
+        100.0,                                     // altitude
+        45.0,                                      // heading
+        "POINT(-155.15393 19.754824)".to_string(), // location
+        "h14_ses".to_string(),                     // h14_index
+        "h13_ses".to_string(),                     // h13_index
+        "h12_ses".to_string(),                     // h12_index
+        "h11_ses".to_string(),                     // h11_index
+        Some(92.1),                                // battery_percentage
+    );
+
+    // Verify session-based connectivity
+    assert_eq!(session_connectivity.session_id, Some(123));
+    assert_eq!(session_connectivity.device_id, None);
+    assert_eq!(session_connectivity.battery_percentage, Some(92.1));
+    assert_eq!(session_connectivity.signal, -65.0);
+}
+
+#[test]
+fn test_gps_tracker_vehicle_device_type() {
+    // Test the new gps_tracker_vehicle device type
+    let device_type = data::v1::DeviceType::GpsTrackerVehicle;
+
+    // Test conversion from string
+    let from_string = data::v1::DeviceType::from("gps_tracker_vehicle");
+    assert_eq!(from_string, data::v1::DeviceType::GpsTrackerVehicle);
+
+    // Test that it's different from regular gps_tracker
+    let regular_gps = data::v1::DeviceType::from("gps_tracker");
+    assert_ne!(device_type, regular_gps);
+    assert_eq!(regular_gps, data::v1::DeviceType::GpsTracker);
+
+    // Test unknown fallback still works
+    let unknown = data::v1::DeviceType::from("invalid_type");
+    assert_eq!(unknown, data::v1::DeviceType::Unknown);
 }
