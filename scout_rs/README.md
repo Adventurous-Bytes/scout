@@ -1,119 +1,80 @@
-# Scout RS
+# Scout Rust Client
 
-A Rust client for the Scout API that allows uploading events and images to the Scout database.
+A Rust client library for the Scout database system with direct database access via PostgREST.
 
-## 🚀 Quick Start
+## Quick Start
 
 ```rust
 use scout_rs::client::ScoutClient;
+use scout_rs::db_client::DatabaseConfig;
+use scout_rs::models::data::Connectivity;
 
-// Create the client
-let mut client = ScoutClient::new(
-    "https://api.example.com/api/scout".to_string(), // Now optional
-    "your_api_key_here".to_string()
-)?;
-
-// Identify device/herd and establish database connection directly from database
-client.identify().await?;
-
-// Now perform operations directly on the database via PostgREST
-let event = Event::new(/* ... */);
-let created_event = client.create_event(&event).await?;
-
-let tags = vec![Tag::new(/* ... */)];
-let created_tags = client.create_tags(created_event.id.unwrap(), &tags).await?;
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Initialize client with database configuration from environment
+    let config = DatabaseConfig::from_env()?;
+    let mut client = ScoutClient::new(config);
+    
+    // Identify device and establish connection
+    client.identify().await?;
+    
+    // Get peer devices in the same herd
+    let peers = client.get_peer_devices().await?;
+    println!("Found {} peer devices", peers.data.unwrap().len());
+    
+    // Create and push a connectivity event
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    
+    let connectivity = Connectivity::new(
+        None,                                   // session_id (optional)
+        Some(client.device.as_ref().unwrap().id.unwrap()), // device_id
+        timestamp,                              // timestamp_start (unix epoch)
+        -65.0,                                  // signal strength
+        -95.0,                                  // noise floor
+        100.0,                                  // altitude
+        45.0,                                   // heading
+        "POINT(-122.4194 37.7749)".to_string(), // location (SF)
+        "8928308280fffff".to_string(),          // h14_index
+        "8828308280fffff".to_string(),          // h13_index
+        "8728308280fffff".to_string(),          // h12_index
+        "8628308280fffff".to_string(),          // h11_index
+        Some(85.5),                             // battery_percentage
+    );
+    
+    let result = client.create_connectivity(&connectivity).await?;
+    println!("Connectivity event created with ID: {}", result.data.unwrap().id.unwrap());
+    
+    Ok(())
+}
 ```
 
-**Environment Variables Required:**
+## Environment Setup
+
+Create a `.env` file with your database configuration:
 
 ```bash
-SCOUT_DATABASE_REST_URL=https://your-db.supabase.co/rest/v1
+SCOUT_DATABASE_REST_URL=https://your-database.supabase.co/rest/v1
 SCOUT_DEVICE_API_KEY=your_device_api_key_here
+SUPABASE_PUBLIC_API_KEY=your_supabase_public_key_here
 ```
 
-**Quick Setup:**
+## Features
 
-1. Copy `env.example` to `.env`
-2. Fill in your actual values
-3. Run your application
+- **Direct Database Access**: Operations via PostgREST for better performance
+- **Device Management**: Automatic device identification and peer discovery
+- **Real-time Data**: Push connectivity, events, and sensor data
+- **Row Level Security**: Automatic data isolation by herd membership
+- **Batch Operations**: Efficient bulk data operations
+- **Local Sync**: Optional local database synchronization
 
-## 🎯 **What's New**
-
-The Scout client has been **completely refactored** to use **direct database access** via PostgREST instead of HTTP API endpoints. This eliminates the need for "careful lockstep development" and provides:
-
-- **🚀 Better Performance**: Direct database operations instead of HTTP round-trips
-- **🔒 Secure Authentication**: API key-based authentication with PostgREST
-- **📊 Full Database Access**: Complete CRUD operations on all Scout entities
-- **🔄 Simplified Architecture**: Single client with comprehensive functionality
-- **✅ Backward Compatibility**: Existing code continues to work without changes
-
-## 📚 Documentation & Migration
-
-- **[Migration Guide](MIGRATION_GUIDE.md)**: Complete guide for migrating from the old HTTP API client
-- **[Environment Setup](env.example)**: Example configuration file
-- **[Examples](examples/)**: Working examples of all client operations
-
-## 🔧 Features
-
-- **Direct Database Access**: All operations go directly to PostgreSQL via PostgREST
-- **Comprehensive CRUD**: Full support for events, sessions, connectivity, tags, and more
-- **Batch Operations**: Efficient batch creation and updates
-- **Geographic Queries**: Location-based event filtering
-- **Session Management**: Complete session lifecycle management
-- **Device & Herd Management**: Direct access to device and herd information
-
-## 📦 Installation
+## Installation
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-scout_rs = "0.4.1"
+scout_rs = "0.6"
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
 ```
-
-## 🌟 Key Benefits
-
-1. **No More API Lockstep**: Direct database access eliminates API version dependencies
-2. **Better Performance**: Reduced latency and improved throughput
-3. **Full Control**: Access to all database features and capabilities
-4. **Simplified Testing**: Easier to set up test environments
-5. **Future-Proof**: Database schema changes don't require client updates
-
-## ✅ **Backward Compatibility**
-
-**Existing code continues to work without any changes!** The client maintains the same public API:
-
-- **Same return types**: All methods still return `ResponseScout<T>` with `status` and `data` fields
-- **Same status handling**: Use `ResponseScoutStatus::Success`, `ResponseScoutStatus::Failure`, etc.
-- **Same data access**: Access data via the `.data` field as before
-- **No breaking changes**: Drop-in replacement for the old HTTP API client
-
-### Migration Example
-
-```rust
-// Your existing code works exactly the same
-let response = client.get_device().await?;
-if response.status == ResponseScoutStatus::Success {
-    if let Some(device) = response.data {
-        println!("Device: {}", device.name);
-    }
-}
-```
-
-**The only difference**: Operations now go directly to the database instead of HTTP API endpoints, providing better performance and eliminating API dependencies.
-
-## 🔐 Security
-
-- **API Key Authentication**: Secure device identification via stored API keys
-- **PostgREST Gateway**: Database access through secure REST gateway
-- **Environment Variables**: Sensitive configuration kept out of code
-
-## 📖 Examples
-
-See the [examples directory](examples/) for comprehensive usage examples including:
-
-- [Basic Usage](examples/basic_usage.rs) - Complete client setup and operations
-- Event and tag creation
-- Session management
-- Connectivity tracking
-- Batch operations
