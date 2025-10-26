@@ -10,13 +10,14 @@ pub struct DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    /// Creates a new database config from environment variables
-    pub fn from_env() -> Result<Self> {
-        Self::from_env_with_api_key(None)
-    }
-
     /// Creates a new database config from environment variables with an optional Scout device API key
-    pub fn from_env_with_api_key(scout_device_api_key: Option<String>) -> Result<Self> {
+    /// If the scout device API key is not provided, it will fall back to the environment variable.
+    ///
+    /// The environment variables are:
+    /// - SCOUT_DATABASE_REST_URL: The URL of the PostgREST API endpoint.
+    /// - SCOUT_DEVICE_API_KEY: The API key for the Scout device.
+    /// - SUPABASE_PUBLIC_API_KEY: The public API key for Supabase.
+    pub fn from_env() -> Result<Self> {
         dotenv::dotenv().ok();
 
         let mut rest_url = std::env::var("SCOUT_DATABASE_REST_URL")
@@ -32,14 +33,8 @@ impl DatabaseConfig {
         }
 
         // Use provided API key or fall back to environment variable
-        let scout_api_key = scout_device_api_key.unwrap_or_else(|| {
-            std::env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| {
-                eprintln!(
-                    "Warning: SCOUT_DEVICE_API_KEY environment variable not found, using empty string"
-                );
-                String::new()
-            })
-        });
+        let scout_api_key = std::env::var("SCOUT_DEVICE_API_KEY")
+            .map_err(|_| anyhow!("SCOUT_DEVICE_API_KEY environment variable not found"))?;
 
         let supabase_api_key = std::env::var("SUPABASE_PUBLIC_API_KEY").map_err(|_| {
             anyhow!("SUPABASE_PUBLIC_API_KEY environment variable is required for Supabase access")

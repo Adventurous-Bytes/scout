@@ -7,8 +7,8 @@ use crate::models::*;
 
 #[derive(Debug)]
 pub struct ScoutClient {
-    pub api_key: String,
-    pub device: Option<Device>,
+    pub config_db: DatabaseConfig,
+    pub device: Option<DevicePrettyLocation>,
     pub herd: Option<Herd>,
     db_client: Option<ScoutDbClient>,
 }
@@ -18,19 +18,18 @@ impl ScoutClient {
     ///
     /// # Arguments
     /// * `api_key` - The API key for the Scout service.
-    pub fn new(api_key: String) -> Result<Self> {
-        Ok(Self {
-            api_key,
+    pub fn new(config_db: DatabaseConfig) -> Self {
+        Self {
+            config_db,
             device: None,
             herd: None,
             db_client: None,
-        })
+        }
     }
 
     /// Identifies the device and herd, then establishes direct database connection
     pub async fn identify(&mut self) -> Result<()> {
-        let db_config = DatabaseConfig::from_env_with_api_key(Some(self.api_key.clone()))?;
-        let mut db_client = ScoutDbClient::new(db_config);
+        let mut db_client = ScoutDbClient::new(self.config_db.clone());
         db_client.connect()?;
 
         self.db_client = Some(db_client);
@@ -46,8 +45,9 @@ impl ScoutClient {
     }
 
     /// Gets device information using get_device_by_api_key function and parsing JSON response
-    async fn get_device_from_db(&mut self) -> Result<Device> {
-        let api_key = self.api_key.clone();
+    async fn get_device_from_db(&mut self) -> Result<DevicePrettyLocation> {
+        let config_db = self.config_db.clone();
+        let api_key = config_db.get_scout_api_key();
         let db_client = self.get_db_client()?;
 
         // Call get_device_by_api_key function
@@ -74,25 +74,7 @@ impl ScoutClient {
             )
         })?;
 
-        // Convert DevicePrettyLocation to Device
-        let device = Device {
-            id: device_pretty.id,
-            id_local: None,
-            inserted_at: device_pretty.inserted_at,
-            created_by: device_pretty.created_by,
-            herd_id: device_pretty.herd_id,
-            device_type: DeviceType::from(device_pretty.device_type.as_str()),
-            name: device_pretty.name,
-            description: device_pretty.description,
-            domain_name: device_pretty.domain_name,
-            altitude: device_pretty.altitude,
-            heading: device_pretty.heading,
-            location: device_pretty.location,
-            video_publisher_token: None,
-            video_subscriber_token: None,
-        };
-
-        Ok(device)
+        Ok(device_pretty)
     }
 
     /// Gets herd information directly from database
@@ -189,8 +171,8 @@ impl ScoutClient {
 
     // ===== BACKWARD COMPATIBILITY METHODS =====
 
-    /// Gets device information (backward compatibility method)
-    pub async fn get_device(&mut self) -> Result<ResponseScout<Device>> {
+    /// Gets device information
+    pub async fn get_device(&mut self) -> Result<ResponseScout<DevicePrettyLocation>> {
         if let Some(device) = &self.device {
             return Ok(ResponseScout::new(
                 ResponseScoutStatus::Success,
@@ -617,6 +599,28 @@ impl ScoutClient {
             ResponseScoutStatus::Success,
             Some(results),
         ))
+    }
+
+    /// Gets devices in the same herd as the current device (peer devices).
+    /// This method requires the client to be identified first.
+    /// Returns an error if the device or herd is not set.
+    pub async fn get_peer_devices(&mut self) -> Result<ResponseScout<Vec<Device>>> {
+        // Check if client is identified with device info
+        let device = self
+            .device
+            .as_ref()
+            .ok_or_else(|| anyhow!("Device not identified - call identify() first"))?;
+
+        // Check if device has a herd_id
+        let herd_id = device.herd_id;
+        if herd_id <= 0 {
+            return Err(anyhow!(
+                "Device herd_id is invalid - ensure device is properly configured"
+            ));
+        }
+
+        // Get all devices in the same herd using existing method
+        self.get_devices_by_herd(herd_id).await
     }
 
     /// Gets a specific event by ID directly from the database

@@ -139,14 +139,9 @@ impl<T> ResponseScout<T> {
 // ===== DATA STRUCTURES =====
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[native_model(id = 9, version = 1)]
-#[native_db]
 pub struct DevicePrettyLocation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
-    #[serde(skip)]
-    #[primary_key]
-    pub id_local: Option<String>,
     pub inserted_at: String,
     pub created_by: String,
     pub herd_id: i64,
@@ -165,7 +160,6 @@ impl Default for DevicePrettyLocation {
     fn default() -> Self {
         Self {
             id: None,
-            id_local: None,
             inserted_at: String::new(),
             created_by: String::new(),
             herd_id: 0,
@@ -179,24 +173,6 @@ impl Default for DevicePrettyLocation {
             latitude: None,
             longitude: None,
         }
-    }
-}
-
-impl Syncable for DevicePrettyLocation {
-    fn id(&self) -> Option<i64> {
-        self.id
-    }
-
-    fn set_id(&mut self, id: i64) {
-        self.id = Some(id);
-    }
-
-    fn id_local(&self) -> Option<String> {
-        self.id_local.clone()
-    }
-
-    fn set_id_local(&mut self, id_local: String) {
-        self.id_local = Some(id_local);
     }
 }
 

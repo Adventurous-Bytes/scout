@@ -1,8 +1,8 @@
 use clap::Parser;
 use scout_rs::client::ScoutClient;
+use scout_rs::db_client::DatabaseConfig;
 use scout_rs::models::{Event, Plan, ResponseScoutStatus, Tag};
 use serde_json;
-use std::env;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
@@ -77,11 +77,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
 
     // Get API key from args or environment
-    let api_key = args.api_key.unwrap_or_else(|| {
-        env::var("SCOUT_DEVICE_API_KEY").expect("SCOUT_DEVICE_API_KEY environment variable not set")
-    });
-
-    let mut client = ScoutClient::new(api_key)?;
+    let config_db = DatabaseConfig::from_env()?;
+    let mut client = ScoutClient::new(config_db);
 
     match args.command.as_str() {
         "get_device" => {

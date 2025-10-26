@@ -1,4 +1,5 @@
 use scout_rs::client::*;
+use scout_rs::db_client::DatabaseConfig;
 use scout_rs::models::{
     data, Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScoutStatus, Session,
     Syncable, Tag, TagObservationType,
@@ -105,13 +106,6 @@ impl TestCleanup {
         }
     }
 
-    /// Track artifact ID for cleanup
-    fn track_artifact(&self, artifact_id: i64) {
-        if let Ok(mut tracker) = self.tracker.lock() {
-            tracker.artifacts.push(artifact_id);
-        }
-    }
-
     /// Track plan ID for cleanup
     fn track_plan(&self, plan_id: i64) {
         if let Ok(mut tracker) = self.tracker.lock() {
@@ -188,10 +182,7 @@ macro_rules! test_with_cleanup {
             $test_fn(&cleanup).await;
 
             // Clean up test data
-            let mut client = ScoutClient::new(
-                env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-            )
-            .unwrap();
+            let mut client = create_test_client();
 
             if client.identify().await.is_ok() {
                 cleanup.cleanup(&mut client).await;
@@ -250,6 +241,13 @@ fn setup_test_env() {
     }
 }
 
+/// Helper function to create a ScoutClient with proper configuration
+fn create_test_client() -> ScoutClient {
+    let config =
+        DatabaseConfig::from_env().expect("Failed to create database config from environment");
+    ScoutClient::new(config)
+}
+
 #[tokio::test]
 async fn test_client_identification() {
     // Acquire global database test lock to prevent concurrent database access
@@ -257,10 +255,7 @@ async fn test_client_identification() {
     setup_test_env();
 
     // Create a client with actual credentials from .env file
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     // Test identification process
     let identify_result = client.identify().await;
@@ -305,10 +300,7 @@ async fn test_client_identification() {
 async fn test_event_batch_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -392,10 +384,7 @@ test_with_cleanup!(test_event_batch_creation, test_event_batch_creation_impl);
 async fn test_event_with_tags_creation_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -558,10 +547,7 @@ test_with_cleanup!(
 async fn test_does_session_exist_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -634,10 +620,7 @@ async fn test_compatibility_methods() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -751,7 +734,12 @@ async fn test_error_handling() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new("invalid_api_key".to_string()).unwrap();
+    let invalid_config = DatabaseConfig {
+        rest_url: "https://invalid.supabase.co/rest/v1".to_string(),
+        scout_api_key: "invalid_api_key".to_string(),
+        supabase_api_key: "invalid_supabase_key".to_string(),
+    };
+    let mut client = ScoutClient::new(invalid_config);
 
     // Test that operations fail gracefully when not identified
     let event = Event::new(
@@ -792,10 +780,7 @@ async fn test_error_handling_and_edge_cases() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     // Test 1: Operations before identification
     let event = Event::new(
@@ -855,10 +840,7 @@ async fn test_device_events_with_tags_via_function() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -889,10 +871,7 @@ async fn test_sessions_with_coordinates_via_function() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -921,10 +900,7 @@ async fn test_connectivity_with_coordinates_via_function() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     // Identify the client - should always succeed with proper credentials
     client
@@ -981,10 +957,7 @@ async fn test_connectivity_with_coordinates_via_function() {
 async fn test_plans_comprehensive_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -1160,10 +1133,7 @@ test_with_cleanup!(test_plans_comprehensive, test_plans_comprehensive_impl);
 async fn test_plans_bulk_operations_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -1303,10 +1273,7 @@ async fn test_identify_method_fix() {
     setup_test_env();
 
     // Create a client with actual credentials from .env file
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     // Test the specific identify scenario that was failing
     let identify_result = client.identify().await;
@@ -1352,10 +1319,7 @@ async fn test_zones_and_actions_by_herd() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -1384,10 +1348,7 @@ async fn test_complete_data_collection_workflow() {
     let _guard = DB_TEST_MUTEX.lock().await;
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     // Step 1: Identify the client
     client
@@ -1609,10 +1570,7 @@ async fn test_tag_upload_with_location_database() {
 async fn test_tag_upload_with_location_database_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -1825,10 +1783,7 @@ test_with_cleanup!(test_sessions_batch_upsert, test_sessions_batch_upsert_impl);
 async fn test_sessions_batch_upsert_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -1917,10 +1872,7 @@ test_with_cleanup!(
 async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -2031,10 +1983,7 @@ test_with_cleanup!(test_events_batch_upsert, test_events_batch_upsert_impl);
 async fn test_events_batch_upsert_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -2123,10 +2072,7 @@ test_with_cleanup!(test_tags_batch_upsert, test_tags_batch_upsert_impl);
 async fn test_tags_batch_upsert_impl(cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -2227,10 +2173,7 @@ test_with_cleanup!(test_empty_batch_upserts, test_empty_batch_upserts_impl);
 async fn test_empty_batch_upserts_impl(_cleanup: &TestCleanup) {
     setup_test_env();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -2279,10 +2222,7 @@ async fn test_heartbeat_operations() {
 
     let cleanup = TestCleanup::new();
 
-    let mut client = ScoutClient::new(
-        env::var("SCOUT_DEVICE_API_KEY").unwrap_or_else(|_| "test_api_key".to_string()),
-    )
-    .unwrap();
+    let mut client = create_test_client();
 
     client
         .identify()
@@ -2352,6 +2292,101 @@ async fn test_heartbeat_operations() {
 
     // Clean up test data
     cleanup.cleanup(&mut client).await;
+}
+
+#[tokio::test]
+async fn test_get_peer_devices() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
+    setup_test_env();
+
+    let mut client = create_test_client();
+
+    // Test 1: get_peer_devices should fail before identification
+    let result = client.get_peer_devices().await;
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Device not identified"));
+
+    // Test 2: identify client and then get peer devices
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    let peer_devices_result = client.get_peer_devices().await;
+    assert!(peer_devices_result.is_ok());
+
+    let response = peer_devices_result.unwrap();
+    assert_eq!(response.status, ResponseScoutStatus::Success);
+    assert!(response.data.is_some());
+
+    let peer_devices = response.data.unwrap();
+
+    // Should contain at least the current device itself
+    assert!(!peer_devices.is_empty());
+
+    // All devices should belong to the same herd
+    let expected_herd_id = client.device.as_ref().unwrap().herd_id;
+    for device in &peer_devices {
+        assert_eq!(device.herd_id, expected_herd_id);
+    }
+
+    // Should include the current device
+    let current_device_id = client.device.as_ref().unwrap().id.unwrap();
+    let found_self = peer_devices.iter().any(|d| d.id == Some(current_device_id));
+    assert!(
+        found_self,
+        "Current device should be included in peer devices"
+    );
+
+    println!(
+        "✅ Found {} peer devices in herd {}",
+        peer_devices.len(),
+        expected_herd_id
+    );
+}
+
+#[tokio::test]
+async fn test_get_peer_devices_edge_cases() {
+    // Acquire global database test lock to prevent concurrent database access
+    let _guard = DB_TEST_MUTEX.lock().await;
+    setup_test_env();
+
+    // Test 1: Unidentified client should fail
+    let mut unidentified_client = create_test_client();
+    let result = unidentified_client.get_peer_devices().await;
+    assert!(result.is_err());
+    let error_msg = result.unwrap_err().to_string();
+    assert!(error_msg.contains("Device not identified"));
+
+    // Test 2: Test with properly identified client
+    let mut client = create_test_client();
+    client
+        .identify()
+        .await
+        .expect("Client identification failed");
+
+    // Should work normally after identification
+    let result = client.get_peer_devices().await;
+    assert!(result.is_ok());
+
+    let response = result.unwrap();
+    assert_eq!(response.status, ResponseScoutStatus::Success);
+
+    // Verify we get valid devices
+    let devices = response.data.unwrap();
+    assert!(
+        !devices.is_empty(),
+        "Should find at least one device (self)"
+    );
+
+    println!(
+        "✅ Edge case tests passed - found {} devices",
+        devices.len()
+    );
 }
 
 // ===== V2 MODEL TESTS =====
