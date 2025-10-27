@@ -1176,6 +1176,63 @@ impl SyncEngine {
 
         Ok(false)
     }
+
+    /// Log information about each table in the local database
+    /// Displays table name, count, and all rows for each table
+    pub fn log(&self) -> Result<(), Error> {
+        println!("=== Database Tables Log ===");
+
+        // Log SessionLocal table
+        self.log_table::<SessionLocal>("SessionLocal")?;
+
+        // Log EventLocal table
+        self.log_table::<EventLocal>("EventLocal")?;
+
+        // Log TagLocal table
+        self.log_table::<TagLocal>("TagLocal")?;
+
+        // Log v1 ConnectivityLocal table
+        self.log_table::<data::v1::ConnectivityLocal>("ConnectivityLocal (v1)")?;
+
+        // Log v2 ConnectivityLocal table
+        self.log_table::<data::v2::ConnectivityLocal>("ConnectivityLocal (v2)")?;
+
+        // Log Operator table
+        self.log_table::<data::v2::Operator>("Operator")?;
+
+        println!("=== End Database Tables Log ===");
+        Ok(())
+    }
+
+    /// Helper method to log a specific table
+    fn log_table<T: ToInput + std::fmt::Debug>(&self, table_name: &str) -> Result<(), Error> {
+        let r = self.database.r_transaction()?;
+        let count = r.len().primary::<T>().unwrap_or(0);
+
+        println!("\n--- Table: {} ---", table_name);
+        println!("Count: {}", count);
+
+        if count > 0 {
+            println!("Rows:");
+            let mut row_num = 1;
+            for raw_item in r.scan().primary::<T>()?.all()? {
+                match raw_item {
+                    Ok(item) => {
+                        println!("  {}: {:?}", row_num, item);
+                        row_num += 1;
+                    }
+                    Err(e) => {
+                        println!("  Error reading row {}: {:?}", row_num, e);
+                        row_num += 1;
+                    }
+                }
+            }
+        } else {
+            println!("No rows found");
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
