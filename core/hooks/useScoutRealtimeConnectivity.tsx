@@ -97,7 +97,9 @@ export function useScoutRealtimeConnectivity(
           }
           break;
       }
-
+      console.log(
+        "[Connectivity] updating tracker connectivity in response to broadcast",
+      );
       dispatch(setActiveHerdGpsTrackersConnectivity(updatedConnectivity));
     },
     [connectivity],
@@ -175,10 +177,10 @@ export function useScoutRealtimeConnectivity(
     console.log(
       `[Connectivity] Loaded data for ${Object.keys(connectivityData).length} devices`,
     );
-  }, [activeHerdId]);
+  }, [activeHerdId, herdModules]);
 
   useEffect(() => {
-    if (!scoutSupabase || !activeHerdId) return;
+    if (!scoutSupabase || !activeHerdId || herdModules.length == 0) return;
 
     // Clean up existing channels
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
@@ -207,5 +209,5 @@ export function useScoutRealtimeConnectivity(
       channels.current.forEach((ch) => scoutSupabase.removeChannel(ch));
       channels.current = [];
     };
-  }, [activeHerdId]);
+  }, [activeHerdId, herdModules]);
 }
