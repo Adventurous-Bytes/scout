@@ -663,8 +663,7 @@ impl SyncEngine {
     }
 
     /// Cleans completed sessions and their descendants from local database
-    /// Only removes sessions where timestamp_end is Some, all entities have remote IDs,
-    /// and the session ended more than 30 seconds ago (safety buffer)
+    /// Only removes sessions where timestamp_end is Some, all entities have remote IDs
     pub async fn clean(&mut self) -> Result<(), Error> {
         tracing::info!("Starting clean operation for completed sessions");
 
@@ -677,18 +676,12 @@ impl SyncEngine {
         // Find completed sessions with remote IDs
         for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
             if let Ok(session) = raw_session {
-                if let (Some(ref end_time_str), Some(_remote_id)) =
+                if let (Some(_end_time_str), Some(_remote_id)) =
                     (&session.timestamp_end, session.id)
                 {
-                    // Safety check: only clean sessions that ended more than 30 seconds ago
-                    if let Ok(end_time) = chrono::DateTime::parse_from_rfc3339(end_time_str) {
-                        let duration = now.signed_duration_since(end_time);
-                        if duration.num_seconds() > 30 {
-                            // Check if all descendants have remote IDs
-                            if self.session_descendants_have_remote_ids(&session, &r)? {
-                                sessions_to_clean.push(session);
-                            }
-                        }
+                    // Check if all descendants have remote IDs
+                    if self.session_descendants_have_remote_ids(&session, &r)? {
+                        sessions_to_clean.push(session);
                     }
                 }
             }
@@ -2417,6 +2410,264 @@ mod tests {
         assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 3);
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 3);
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+
+        Ok(())
+    }
+    #[tokio::test]
+    async fn test_upsert_same_session_id_no_duplicates() -> Result<()> {
+        setup_test_env();
+        let mut sync_engine = create_test_sync_engine()?;
+
+        // Check initial count is 0
+        let initial_count = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(initial_count, 0);
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create a test session
+        let mut session = SessionLocal::default();
+        session.set_id_local("duplicate_test_session".to_string());
+        session.device_id = device_id;
+        session.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+        session.earthranger_url = Some("https://example.com/session1".to_string());
+
+        // First upsert - should insert the session
+        sync_engine.upsert_items(vec![session.clone()])?;
+        let count_after_first = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(count_after_first, 1);
+
+        // Create a modified version of the same session (same id_local but different data)
+        let mut updated_session = session.clone();
+        updated_session.earthranger_url = Some("https://example.com/updated_session".to_string());
+        updated_session.timestamp_end = Some("2023-01-01T01:00:00Z".to_string());
+
+        // Second upsert with same id_local - should update, not create duplicate
+        sync_engine.upsert_items(vec![updated_session])?;
+        let count_after_second = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(
+            count_after_second, 1,
+            "Session count should remain 1 after upserting same ID"
+        );
+
+        // Third upsert with the original session again - should still be 1
+        sync_engine.upsert_items(vec![session])?;
+        let count_after_third = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(
+            count_after_third, 1,
+            "Session count should remain 1 after upserting same ID again"
+        );
+
+        // Test with multiple sessions including duplicates in the same batch
+        let mut session2 = SessionLocal::default();
+        session2.set_id_local("batch_duplicate_test_session_2".to_string());
+        session2.device_id = device_id;
+        session2.timestamp_start = "2023-01-01T02:00:00Z".to_string();
+
+        let mut session3 = SessionLocal::default();
+        session3.set_id_local("batch_duplicate_test_session_3".to_string());
+        session3.device_id = device_id;
+        session3.timestamp_start = "2023-01-01T03:00:00Z".to_string();
+
+        // Create duplicate of session2 with different data
+        let mut session2_duplicate = session2.clone();
+        session2_duplicate.earthranger_url =
+            Some("https://example.com/duplicate_session2".to_string());
+
+        // Upsert batch with original and duplicate
+        sync_engine.upsert_items(vec![session2, session3, session2_duplicate])?;
+        let final_count = sync_engine.get_table_count::<SessionLocal>()?;
+        assert_eq!(
+            final_count, 3,
+            "Should have 3 unique sessions total (1 original + 2 new)"
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_clean_safety_mechanisms() -> Result<()> {
+        setup_test_env();
+        let mut sync_engine = create_test_sync_engine()?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Test Case 1: Complete session but no remote ID - should NOT be cleaned
+        let mut complete_no_remote = SessionLocal::default();
+        complete_no_remote.set_id_local("complete_no_remote".to_string());
+        complete_no_remote.id = None; // No remote ID
+        complete_no_remote.device_id = device_id;
+        complete_no_remote.timestamp_start = "2023-01-01T10:00:00Z".to_string();
+        complete_no_remote.timestamp_end = Some("2023-01-01T11:00:00Z".to_string());
+        complete_no_remote.software_version = "1.0.0".to_string();
+        complete_no_remote.altitude_max = 100.0;
+        complete_no_remote.altitude_min = 50.0;
+        complete_no_remote.altitude_average = 75.0;
+        complete_no_remote.velocity_max = 25.0;
+        complete_no_remote.velocity_min = 10.0;
+        complete_no_remote.velocity_average = 15.0;
+        complete_no_remote.distance_total = 1000.0;
+        complete_no_remote.distance_max_from_start = 500.0;
+
+        // Test Case 2: Complete session with remote ID but descendant lacks remote ID
+        let mut complete_with_unsynced_descendant = SessionLocal::default();
+        complete_with_unsynced_descendant.set_id_local("complete_with_unsynced".to_string());
+        complete_with_unsynced_descendant.id = Some(12345); // Has remote ID
+        complete_with_unsynced_descendant.device_id = device_id;
+        complete_with_unsynced_descendant.timestamp_start = "2023-01-01T12:00:00Z".to_string();
+        complete_with_unsynced_descendant.timestamp_end = Some("2023-01-01T13:00:00Z".to_string());
+        complete_with_unsynced_descendant.software_version = "1.0.0".to_string();
+        complete_with_unsynced_descendant.altitude_max = 120.0;
+        complete_with_unsynced_descendant.altitude_min = 60.0;
+        complete_with_unsynced_descendant.altitude_average = 90.0;
+        complete_with_unsynced_descendant.velocity_max = 30.0;
+        complete_with_unsynced_descendant.velocity_min = 15.0;
+        complete_with_unsynced_descendant.velocity_average = 22.0;
+        complete_with_unsynced_descendant.distance_total = 1200.0;
+        complete_with_unsynced_descendant.distance_max_from_start = 600.0;
+
+        // Create event with NO remote ID for the second session
+        let mut unsynced_event = EventLocal::default();
+        unsynced_event.set_id_local("unsynced_event".to_string());
+        unsynced_event.id = None; // No remote ID - this should prevent cleaning
+        unsynced_event.device_id = device_id;
+        unsynced_event.session_id = Some(12345);
+        unsynced_event.set_ancestor_id_local("complete_with_unsynced".to_string());
+        unsynced_event.timestamp_observation = "2023-01-01T12:15:00Z".to_string();
+        unsynced_event.message = Some("Unsynced event".to_string());
+        unsynced_event.altitude = 100.0;
+        unsynced_event.heading = 0.0;
+        unsynced_event.media_type = MediaType::Image;
+
+        // Test Case 3: Complete session with all descendants synced - SHOULD be cleaned
+        let mut complete_fully_synced = SessionLocal::default();
+        complete_fully_synced.set_id_local("complete_fully_synced".to_string());
+        complete_fully_synced.id = Some(23456); // Has remote ID
+        complete_fully_synced.device_id = device_id;
+        complete_fully_synced.timestamp_start = "2023-01-01T14:00:00Z".to_string();
+        complete_fully_synced.timestamp_end = Some("2023-01-01T15:00:00Z".to_string());
+        complete_fully_synced.software_version = "1.0.0".to_string();
+        complete_fully_synced.altitude_max = 150.0;
+        complete_fully_synced.altitude_min = 80.0;
+        complete_fully_synced.altitude_average = 115.0;
+        complete_fully_synced.velocity_max = 35.0;
+        complete_fully_synced.velocity_min = 20.0;
+        complete_fully_synced.velocity_average = 27.0;
+        complete_fully_synced.distance_total = 1500.0;
+        complete_fully_synced.distance_max_from_start = 750.0;
+
+        // Create fully synced descendants
+        let mut synced_connectivity = ConnectivityLocal::default();
+        synced_connectivity.set_id_local("synced_connectivity".to_string());
+        synced_connectivity.id = Some(34567); // Has remote ID
+        synced_connectivity.session_id = None;
+        synced_connectivity.device_id = Some(device_id);
+        synced_connectivity.set_ancestor_id_local("complete_fully_synced".to_string());
+        synced_connectivity.timestamp_start = "2023-01-01T14:05:00Z".to_string();
+        synced_connectivity.signal = -70.0;
+        synced_connectivity.noise = -90.0;
+        synced_connectivity.altitude = 100.0;
+        synced_connectivity.heading = 0.0;
+        synced_connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+        synced_connectivity.h14_index = "h14".to_string();
+        synced_connectivity.h13_index = "h13".to_string();
+        synced_connectivity.h12_index = "h12".to_string();
+        synced_connectivity.h11_index = "h11".to_string();
+
+        let mut synced_event = EventLocal::default();
+        synced_event.set_id_local("synced_event".to_string());
+        synced_event.id = Some(45678); // Has remote ID
+        synced_event.device_id = device_id;
+        synced_event.session_id = Some(23456);
+        synced_event.set_ancestor_id_local("complete_fully_synced".to_string());
+        synced_event.timestamp_observation = "2023-01-01T14:15:00Z".to_string();
+        synced_event.message = Some("Synced event".to_string());
+        synced_event.altitude = 100.0;
+        synced_event.heading = 0.0;
+        synced_event.media_type = MediaType::Image;
+
+        // Insert all test data
+        sync_engine.upsert_items(vec![
+            complete_no_remote,
+            complete_with_unsynced_descendant,
+            complete_fully_synced,
+        ])?;
+        sync_engine.upsert_items(vec![unsynced_event, synced_event])?;
+        sync_engine.upsert_items(vec![synced_connectivity])?;
+
+        // Verify initial state
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 3);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 2);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+
+        // Run clean operation
+        sync_engine.clean().await?;
+
+        // Verify results:
+        // - complete_no_remote should NOT be cleaned (no remote ID)
+        // - complete_with_unsynced should NOT be cleaned (descendant lacks remote ID)
+        // - complete_fully_synced SHOULD be cleaned (all have remote IDs)
+        assert_eq!(
+            sync_engine.get_table_count::<SessionLocal>()?,
+            2,
+            "Should have 2 sessions remaining (2 that couldn't be cleaned)"
+        );
+        assert_eq!(
+            sync_engine.get_table_count::<EventLocal>()?,
+            1,
+            "Should have 1 event remaining (unsynced_event)"
+        );
+        assert_eq!(
+            sync_engine.get_table_count::<ConnectivityLocal>()?,
+            0,
+            "Synced connectivity should be cleaned with its session"
+        );
+
+        // Verify which sessions remain
+        let r = sync_engine.database.r_transaction()?;
+        let remaining_sessions: Vec<SessionLocal> = r
+            .scan()
+            .primary::<SessionLocal>()?
+            .all()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let remaining_ids: std::collections::HashSet<&str> = remaining_sessions
+            .iter()
+            .filter_map(|s| s.id_local.as_deref())
+            .collect();
+
+        assert!(
+            remaining_ids.contains("complete_no_remote"),
+            "Session without remote ID should not be cleaned"
+        );
+        assert!(
+            remaining_ids.contains("complete_with_unsynced"),
+            "Session with unsynced descendants should not be cleaned"
+        );
+        assert!(
+            !remaining_ids.contains("complete_fully_synced"),
+            "Fully synced session should be cleaned"
+        );
+
+        // Verify which events remain
+        let remaining_events: Vec<EventLocal> = r
+            .scan()
+            .primary::<EventLocal>()?
+            .all()?
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+
+        assert_eq!(remaining_events.len(), 1);
+        assert_eq!(
+            remaining_events[0].id_local.as_deref(),
+            Some("unsynced_event")
+        );
 
         Ok(())
     }
