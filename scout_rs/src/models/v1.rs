@@ -41,6 +41,7 @@ pub enum DeviceType {
     SentryTower,
     SmartBuoy,
     RadioMeshBaseStation,
+    RadioMeshBaseStationGateway,
     RadioMeshRepeater,
     Unknown,
 }
@@ -58,6 +59,7 @@ impl From<&str> for DeviceType {
             "smart_buoy" => DeviceType::SmartBuoy,
             "radio_mesh_base_station" => DeviceType::RadioMeshBaseStation,
             "radio_mesh_repeater" => DeviceType::RadioMeshRepeater,
+            "radio_mesh_base_station_gateway" => DeviceType::RadioMeshBaseStationGateway,
             _ => DeviceType::Unknown,
         }
     }
