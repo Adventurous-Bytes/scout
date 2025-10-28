@@ -13,12 +13,11 @@ type BroadcastPayload = {
   type: "broadcast";
   event: string;
   payload: {
-    event: "INSERT" | "UPDATE" | "DELETE";
     operation: "INSERT" | "UPDATE" | "DELETE";
     table: string;
     schema: string;
-    new?: IDevicePrettyLocation;
-    old?: IDevicePrettyLocation;
+    record?: IDevicePrettyLocation;
+    old_record?: IDevicePrettyLocation;
   };
 };
 
@@ -35,20 +34,19 @@ export function useScoutRealtimeDevices(
   // Device broadcast handler
   const handleDeviceBroadcast = useCallback(
     (payload: BroadcastPayload) => {
-      console.log("[Devices] Broadcast received:", payload.payload.event);
+      console.log("[Devices] Broadcast received:", payload.payload.operation);
 
-      const event = payload.payload.event;
       const data = payload.payload;
 
-      switch (event) {
+      switch (data.operation) {
         case "INSERT":
-          if (data.new) dispatch(addDevice(data.new));
+          if (data.record) dispatch(addDevice(data.record));
           break;
         case "UPDATE":
-          if (data.new) dispatch(updateDevice(data.new));
+          if (data.record) dispatch(updateDevice(data.record));
           break;
         case "DELETE":
-          if (data.old) dispatch(deleteDevice(data.old));
+          if (data.old_record) dispatch(deleteDevice(data.old_record));
           break;
       }
     },

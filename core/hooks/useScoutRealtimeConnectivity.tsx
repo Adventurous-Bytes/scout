@@ -17,12 +17,11 @@ type BroadcastPayload = {
   type: "broadcast";
   event: string;
   payload: {
-    event: "INSERT" | "UPDATE" | "DELETE";
     operation: "INSERT" | "UPDATE" | "DELETE";
     table: string;
     schema: string;
-    new?: IConnectivityWithCoordinates;
-    old?: IConnectivityWithCoordinates;
+    record?: IConnectivityWithCoordinates;
+    old_record?: IConnectivityWithCoordinates;
   };
 };
 
@@ -46,7 +45,7 @@ export function useScoutRealtimeConnectivity(
   const handleConnectivityBroadcast = useCallback(
     (payload: BroadcastPayload) => {
       const { event, payload: data } = payload;
-      const connectivityData = data.new || data.old;
+      const connectivityData = data.record || data.old_record;
 
       // Only process GPS tracker data (no session_id)
       if (!connectivityData?.device_id || connectivityData.session_id) {
@@ -56,7 +55,7 @@ export function useScoutRealtimeConnectivity(
       const deviceId = connectivityData.device_id;
       const updatedConnectivity = { ...connectivity };
 
-      switch (event) {
+      switch (data.operation) {
         case "INSERT":
           if (!updatedConnectivity[deviceId]) {
             updatedConnectivity[deviceId] = [];
