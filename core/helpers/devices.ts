@@ -1,6 +1,6 @@
 "use server";
 
-import { Database } from "@/types";
+import { Database } from "../types/supabase";
 import { newServerClient } from "../supabase/server";
 import { DeviceInsert, IDevice } from "../types/db";
 import { IWebResponse, IWebResponseCompatible } from "../types/requests";

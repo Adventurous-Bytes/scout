@@ -1,10 +1,10 @@
-import { newServerClient } from "@/supabase";
+import { newServerClient } from "../supabase/server";
 import {
   EnumWebResponse,
-  IConnectivityWithCoordinates,
   IWebResponse,
   IWebResponseCompatible,
-} from "@/types";
+} from "../types/requests";
+import { IConnectivityWithCoordinates } from "../types/db";
 
 // Get connectivity by session id using RPC function with coordinates
 export async function server_get_connectivity_by_session_id(

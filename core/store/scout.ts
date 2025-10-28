@@ -2,7 +2,7 @@ import { createSlice } from "@reduxjs/toolkit";
 import { IEventWithTags, IUser } from "../types/db";
 import { IHerdModule, EnumHerdModulesLoadingState } from "../types/herd_module";
 import { EnumDataSource, IDataSourceInfo } from "../types/data_source";
-import { MapDeviceIdToConnectivity } from "@/types/connectivity";
+import { MapDeviceIdToConnectivity } from "../types/connectivity";
 
 export enum EnumScoutStateStatus {
   LOADING = "LOADING",
