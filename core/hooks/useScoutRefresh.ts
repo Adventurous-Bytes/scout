@@ -444,40 +444,40 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       timingRefs.current.dataProcessingDuration = dataProcessingDuration;
       dispatch(setDataProcessingDuration(dataProcessingDuration));
 
-      // Step 5: Handle localStorage operations
+      // // Step 5: Handle localStorage operations
       const localStorageStartTime = Date.now();
 
-      try {
-        // Check local storage for a last selected herd
-        const lastSelectedHerd = localStorage.getItem("last_selected_herd");
-        if (lastSelectedHerd) {
-          const found_herd = compatible_new_herd_modules.find(
-            (hm) => hm.herd.id.toString() === lastSelectedHerd,
-          )?.herd;
+      // try {
+      //   // Check local storage for a last selected herd
+      //   const lastSelectedHerd = localStorage.getItem("last_selected_herd");
+      //   if (lastSelectedHerd) {
+      //     const found_herd = compatible_new_herd_modules.find(
+      //       (hm) => hm.herd.id.toString() === lastSelectedHerd,
+      //     )?.herd;
 
-          // If herd is found then set it
-          if (found_herd) {
-            dispatch(setActiveHerdId(found_herd.id.toString()));
-          }
-        }
-        // If there is no last selected herd then select the first one
-        else if (compatible_new_herd_modules.length > 0) {
-          const firstHerdId = compatible_new_herd_modules[0].herd.id.toString();
-          localStorage.setItem("last_selected_herd", firstHerdId);
-          dispatch(setActiveHerdId(firstHerdId));
-        }
-      } catch (localStorageError) {
-        console.warn(
-          "[useScoutRefresh] localStorage not available:",
-          localStorageError,
-        );
-        // Fallback: select first herd without localStorage
-        if (compatible_new_herd_modules.length > 0) {
-          dispatch(
-            setActiveHerdId(compatible_new_herd_modules[0].herd.id.toString()),
-          );
-        }
-      }
+      //     // If herd is found then set it
+      //     if (found_herd) {
+      //       dispatch(setActiveHerdId(found_herd.id.toString()));
+      //     }
+      //   }
+      //   // If there is no last selected herd then select the first one
+      //   else if (compatible_new_herd_modules.length > 0) {
+      //     const firstHerdId = compatible_new_herd_modules[0].herd.id.toString();
+      //     localStorage.setItem("last_selected_herd", firstHerdId);
+      //     dispatch(setActiveHerdId(firstHerdId));
+      //   }
+      // } catch (localStorageError) {
+      //   console.warn(
+      //     "[useScoutRefresh] localStorage not available:",
+      //     localStorageError,
+      //   );
+      //   // Fallback: select first herd without localStorage
+      //   if (compatible_new_herd_modules.length > 0) {
+      //     dispatch(
+      //       setActiveHerdId(compatible_new_herd_modules[0].herd.id.toString()),
+      //     );
+      //   }
+      // }
 
       const localStorageDuration = Date.now() - localStorageStartTime;
       timingRefs.current.localStorageDuration = localStorageDuration;
