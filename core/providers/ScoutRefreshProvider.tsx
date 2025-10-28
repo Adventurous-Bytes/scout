@@ -5,8 +5,8 @@ import { createContext, useContext, useMemo, ReactNode, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
-import { useScoutRealtimeConnectivity } from "@/hooks/useScoutRealtimeConnectivity";
-import { useScoutRealtimeDevices } from "@/hooks/useScoutRealtimeDevices";
+import { useScoutRealtimeConnectivity } from "../hooks/useScoutRealtimeConnectivity";
+import { useScoutRealtimeDevices } from "../hooks/useScoutRealtimeDevices";
 
 // Create context for the Supabase client
 const SupabaseContext = createContext<SupabaseClient<Database> | null>(null);
