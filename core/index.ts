@@ -12,11 +12,13 @@ export * from "./types/gps";
 export * from "./types/supabase";
 export * from "./types/bounding_boxes";
 export * from "./types/events";
+export * from "./types/connectivity";
 
 // Helpers
 export * from "./helpers/auth";
 export * from "./helpers/bounding_boxes";
 export * from "./helpers/chat";
+export * from "./helpers/connectivity";
 export * from "./helpers/db";
 export * from "./helpers/devices";
 export * from "./helpers/email";
@@ -40,7 +42,8 @@ export * from "./helpers/heartbeats";
 export * from "./helpers/providers";
 
 // Hooks
-export * from "./hooks/useScoutDbListener";
+export * from "./hooks/useScoutRealtimeConnectivity";
+export * from "./hooks/useScoutRealtimeDevices";
 export * from "./hooks/useScoutRefresh";
 
 // Providers

@@ -127,6 +127,8 @@ export type Database = {
       connectivity: {
         Row: {
           altitude: number
+          battery_percentage: number | null
+          device_id: number | null
           h11_index: string
           h12_index: string
           h13_index: string
@@ -136,12 +138,14 @@ export type Database = {
           inserted_at: string
           location: unknown
           noise: number
-          session_id: number
+          session_id: number | null
           signal: number
           timestamp_start: string
         }
         Insert: {
           altitude: number
+          battery_percentage?: number | null
+          device_id?: number | null
           h11_index: string
           h12_index: string
           h13_index: string
@@ -151,12 +155,14 @@ export type Database = {
           inserted_at?: string
           location: unknown
           noise: number
-          session_id: number
+          session_id?: number | null
           signal: number
           timestamp_start: string
         }
         Update: {
           altitude?: number
+          battery_percentage?: number | null
+          device_id?: number | null
           h11_index?: string
           h12_index?: string
           h13_index?: string
@@ -166,11 +172,18 @@ export type Database = {
           inserted_at?: string
           location?: unknown
           noise?: number
-          session_id?: number
+          session_id?: number | null
           signal?: number
           timestamp_start?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "connectivity_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "connectivity_session_id_fkey"
             columns: ["session_id"]
@@ -191,7 +204,7 @@ export type Database = {
           herd_id: number
           id: number
           inserted_at: string
-          location: unknown | null
+          location: unknown
           name: string
           video_publisher_token: string | null
           video_subscriber_token: string | null
@@ -206,7 +219,7 @@ export type Database = {
           herd_id: number
           id?: number
           inserted_at?: string
-          location?: unknown | null
+          location?: unknown
           name: string
           video_publisher_token?: string | null
           video_subscriber_token?: string | null
@@ -221,7 +234,7 @@ export type Database = {
           herd_id?: number
           id?: number
           inserted_at?: string
-          location?: unknown | null
+          location?: unknown
           name?: string
           video_publisher_token?: string | null
           video_subscriber_token?: string | null
@@ -253,7 +266,7 @@ export type Database = {
           id: number
           inserted_at: string
           is_public: boolean
-          location: unknown | null
+          location: unknown
           media_type: Database["public"]["Enums"]["media_type"]
           media_url: string | null
           message: string | null
@@ -269,7 +282,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           is_public?: boolean
-          location?: unknown | null
+          location?: unknown
           media_type?: Database["public"]["Enums"]["media_type"]
           media_url?: string | null
           message?: string | null
@@ -285,7 +298,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           is_public?: boolean
-          location?: unknown | null
+          location?: unknown
           media_type?: Database["public"]["Enums"]["media_type"]
           media_url?: string | null
           message?: string | null
@@ -417,6 +430,48 @@ export type Database = {
           },
         ]
       }
+      operators: {
+        Row: {
+          action: string | null
+          created_at: string
+          id: number
+          session_id: number | null
+          timestamp: string | null
+          user_id: string
+        }
+        Insert: {
+          action?: string | null
+          created_at?: string
+          id?: number
+          session_id?: number | null
+          timestamp?: string | null
+          user_id: string
+        }
+        Update: {
+          action?: string | null
+          created_at?: string
+          id?: number
+          session_id?: number | null
+          timestamp?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "operators_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "sessions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "operators_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plans: {
         Row: {
           herd_id: number
@@ -498,7 +553,7 @@ export type Database = {
           earthranger_url: string | null
           id: number
           inserted_at: string
-          locations: unknown | null
+          locations: unknown
           software_version: string
           timestamp_end: string | null
           timestamp_start: string
@@ -516,7 +571,7 @@ export type Database = {
           earthranger_url?: string | null
           id?: number
           inserted_at?: string
-          locations?: unknown | null
+          locations?: unknown
           software_version: string
           timestamp_end?: string | null
           timestamp_start: string
@@ -534,7 +589,7 @@ export type Database = {
           earthranger_url?: string | null
           id?: number
           inserted_at?: string
-          locations?: unknown | null
+          locations?: unknown
           software_version?: string
           timestamp_end?: string | null
           timestamp_start?: string
@@ -560,7 +615,7 @@ export type Database = {
           height: number
           id: number
           inserted_at: string
-          location: unknown | null
+          location: unknown
           observation_type: Database["public"]["Enums"]["tag_observation_type"]
           width: number
           x: number
@@ -573,7 +628,7 @@ export type Database = {
           height?: number
           id?: number
           inserted_at?: string
-          location?: unknown | null
+          location?: unknown
           observation_type: Database["public"]["Enums"]["tag_observation_type"]
           width: number
           x: number
@@ -586,7 +641,7 @@ export type Database = {
           height?: number
           id?: number
           inserted_at?: string
-          location?: unknown | null
+          location?: unknown
           observation_type?: Database["public"]["Enums"]["tag_observation_type"]
           width?: number
           x?: number
@@ -712,7 +767,7 @@ export type Database = {
           id: number | null
           inserted_at: string | null
           is_public: boolean | null
-          location: unknown | null
+          location: unknown
           media_type: Database["public"]["Enums"]["media_type"] | null
           media_url: string | null
           message: string | null
@@ -755,7 +810,7 @@ export type Database = {
           id: number | null
           inserted_at: string | null
           is_public: boolean | null
-          location: unknown | null
+          location: unknown
           media_type: Database["public"]["Enums"]["media_type"] | null
           media_url: string | null
           message: string | null
@@ -793,7 +848,7 @@ export type Database = {
           herd_id: number | null
           id: number | null
           inserted_at: string | null
-          region: unknown | null
+          region: unknown
         }
         Relationships: [
           {
@@ -810,14 +865,42 @@ export type Database = {
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "connectivity_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_connectivity_with_coordinates_by_device_and_timestamp: {
+        Args: { device_id_caller: number; timestamp_filter: string }
+        Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "connectivity_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_device_by_api_key: {
         Args: { device_api_key: string }
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
+        SetofOptions: {
+          from: "*"
+          to: "device_pretty_location"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       get_device_by_id: {
         Args: { device_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
+        SetofOptions: {
+          from: "*"
+          to: "device_pretty_location"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       get_device_id_from_key: {
         Args: { device_api_key: string }
@@ -826,14 +909,32 @@ export type Database = {
       get_devices_for_herd: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "device_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_events_and_tags_for_device: {
         Args: { device_id_caller: number; limit_caller: number }
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_events_and_tags_for_devices_batch: {
         Args: { device_ids: number[]; limit_per_device?: number }
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_events_and_tags_for_herd: {
         Args: {
@@ -842,6 +943,12 @@ export type Database = {
           offset_caller: number
         }
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_events_and_tags_for_session: {
         Args: {
@@ -850,6 +957,12 @@ export type Database = {
           session_id_caller: number
         }
         Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_events_with_tags_for_herd: {
         Args: {
@@ -858,14 +971,32 @@ export type Database = {
           offset_caller: number
         }
         Returns: Database["public"]["CompositeTypes"]["event_with_tags"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_with_tags"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_sessions_with_coordinates: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "session_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_sessions_with_coordinates_by_device: {
         Args: { device_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "session_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
       get_total_events_for_herd_with_session_filter: {
         Args: { exclude_session_events: boolean; herd_id_caller: number }
@@ -882,11 +1013,14 @@ export type Database = {
           offset_caller: number
         }
         Returns: Database["public"]["CompositeTypes"]["zones_and_actions_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "zones_and_actions_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
       }
-      load_api_keys: {
-        Args: { id_of_device: number }
-        Returns: string[]
-      }
+      load_api_keys: { Args: { id_of_device: number }; Returns: string[] }
       load_api_keys_batch: {
         Args: { device_ids: number[] }
         Returns: {
@@ -895,14 +1029,8 @@ export type Database = {
           device_id: number
         }[]
       }
-      load_api_keys_old: {
-        Args: { id_of_device: string }
-        Returns: string[]
-      }
-      remove_rls_broadcast_triggers: {
-        Args: Record<PropertyKey, never>
-        Returns: undefined
-      }
+      load_api_keys_old: { Args: { id_of_device: string }; Returns: string[] }
+      remove_rls_broadcast_triggers: { Args: never; Returns: undefined }
     }
     Enums: {
       app_permission: "herds.delete" | "events.delete"
@@ -916,6 +1044,9 @@ export type Database = {
         | "radio_mesh_base_station"
         | "radio_mesh_repeater"
         | "unknown"
+        | "gps_tracker_vehicle"
+        | "gps_tracker_person"
+        | "radio_mesh_base_station_gateway"
       media_type: "image" | "video" | "audio" | "text"
       plan_type: "mission" | "fence" | "rally" | "markov"
       role: "admin" | "viewer" | "editor" | "operator"
@@ -926,6 +1057,7 @@ export type Database = {
       connectivity_with_coordinates: {
         id: number | null
         session_id: number | null
+        device_id: number | null
         inserted_at: string | null
         timestamp_start: string | null
         signal: number | null
@@ -938,6 +1070,7 @@ export type Database = {
         h13_index: string | null
         h12_index: string | null
         h11_index: string | null
+        battery_percentage: number | null
       }
       device_pretty_location: {
         id: number | null
@@ -995,7 +1128,7 @@ export type Database = {
         inserted_at: string | null
         message: string | null
         media_url: string | null
-        location: unknown | null
+        location: unknown
         earthranger_url: string | null
         altitude: number | null
         heading: number | null
@@ -1051,7 +1184,7 @@ export type Database = {
         event_id: number | null
         class_name: string | null
         height: number | null
-        location: unknown | null
+        location: unknown
         latitude: number | null
         longitude: number | null
       }
@@ -1197,6 +1330,9 @@ export const Constants = {
         "radio_mesh_base_station",
         "radio_mesh_repeater",
         "unknown",
+        "gps_tracker_vehicle",
+        "gps_tracker_person",
+        "radio_mesh_base_station_gateway",
       ],
       media_type: ["image", "video", "audio", "text"],
       plan_type: ["mission", "fence", "rally", "markov"],

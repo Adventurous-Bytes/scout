@@ -14,6 +14,7 @@ import {
   IWebResponse,
   IWebResponseCompatible,
 } from "../types/requests";
+import { server_get_connectivity_by_session_id } from "./connectivity";
 
 // Input types for upsert operations
 export type SessionInput = Omit<ISession, "id" | "inserted_at">;
@@ -56,38 +57,6 @@ export async function server_get_sessions_by_herd_id(
     );
   });
   return IWebResponse.success(sortedSessions).to_compatible();
-}
-
-// Get connectivity by session id using RPC function with coordinates
-export async function server_get_connectivity_by_session_id(
-  sessionId: number,
-): Promise<IWebResponseCompatible<IConnectivityWithCoordinates[]>> {
-  const supabase = await newServerClient();
-
-  const { data, error } = await supabase.rpc(
-    "get_connectivity_with_coordinates",
-    { session_id_caller: sessionId },
-  );
-
-  if (error) {
-    console.warn("Error fetching connectivity by session id:", error.message);
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: error.message,
-      data: [],
-    };
-  }
-
-  // Sort by timestamp_start in ascending order
-  const sortedConnectivity = (data || []).sort((a, b) => {
-    if (!a.timestamp_start || !b.timestamp_start) return 0;
-    return (
-      new Date(a.timestamp_start).getTime() -
-      new Date(b.timestamp_start).getTime()
-    );
-  });
-
-  return IWebResponse.success(sortedConnectivity).to_compatible();
 }
 
 // Get events by session id

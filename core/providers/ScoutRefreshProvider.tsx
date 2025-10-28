@@ -1,11 +1,12 @@
 "use client";
 
 import { useScoutRefresh } from "../hooks/useScoutRefresh";
-import { useScoutDbListener } from "../hooks/useScoutDbListener";
 import { createContext, useContext, useMemo, ReactNode, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
+import { useScoutRealtimeConnectivity } from "@/hooks/useScoutRealtimeConnectivity";
+import { useScoutRealtimeDevices } from "@/hooks/useScoutRealtimeDevices";
 
 // Create context for the Supabase client
 const SupabaseContext = createContext<SupabaseClient<Database> | null>(null);
@@ -35,7 +36,7 @@ export function useConnectionStatus() {
   const connectionStatus = useContext(ConnectionStatusContext);
   if (!connectionStatus) {
     throw new Error(
-      "useConnectionStatus must be used within a ScoutRefreshProvider"
+      "useConnectionStatus must be used within a ScoutRefreshProvider",
     );
   }
   return connectionStatus;
@@ -57,7 +58,8 @@ export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
   }, []); // Empty dependency array ensures this only runs once
 
   // Use the enhanced DB listener with connection status
-  useScoutDbListener(supabaseClient);
+  useScoutRealtimeConnectivity(supabaseClient);
+  useScoutRealtimeDevices(supabaseClient);
   useScoutRefresh();
 
   // // Log connection status changes for debugging

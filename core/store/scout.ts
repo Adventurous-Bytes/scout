@@ -2,6 +2,7 @@ import { createSlice } from "@reduxjs/toolkit";
 import { IEventWithTags, IUser } from "../types/db";
 import { IHerdModule, EnumHerdModulesLoadingState } from "../types/herd_module";
 import { EnumDataSource, IDataSourceInfo } from "../types/data_source";
+import { MapDeviceIdToConnectivity } from "@/types/connectivity";
 
 export enum EnumScoutStateStatus {
   LOADING = "LOADING",
@@ -25,6 +26,7 @@ export interface ScoutState {
   // Data source tracking
   data_source: EnumDataSource;
   data_source_info: IDataSourceInfo | null;
+  active_herd_gps_trackers_connectivity: MapDeviceIdToConnectivity;
 }
 
 // Root state type for the entire application
@@ -49,6 +51,7 @@ const initialState: ScoutState = {
   // Initialize data source tracking
   data_source: EnumDataSource.UNKNOWN,
   data_source_info: null,
+  active_herd_gps_trackers_connectivity: {},
 };
 
 export const scoutSlice = createSlice({
@@ -82,6 +85,7 @@ export const scoutSlice = createSlice({
     },
     setActiveHerdId: (state, action) => {
       state.active_herd_id = action.payload;
+      state.active_herd_gps_trackers_connectivity = {};
     },
     setActiveDeviceId: (state, action) => {
       state.active_device_id = action.payload;
@@ -95,7 +99,7 @@ export const scoutSlice = createSlice({
     replaceEventsForHerdModule: (state, action) => {
       const { herd_id, events } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.events = events;
@@ -104,7 +108,7 @@ export const scoutSlice = createSlice({
     appendEventsToHerdModule: (state, action) => {
       const { herd_id, events } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.events = [...herd_module.events, ...events];
@@ -113,7 +117,7 @@ export const scoutSlice = createSlice({
     appendPlansToHerdModule: (state, action) => {
       const { herd_id, plan } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.plans = [...herd_module.plans, plan];
@@ -122,11 +126,11 @@ export const scoutSlice = createSlice({
     updateDeviceForHerdModule: (state, action) => {
       const { herd_id, device } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.devices = herd_module.devices.map((d) =>
-          d.id === device.id ? device : d
+          d.id === device.id ? device : d,
         );
       }
     },
@@ -134,7 +138,7 @@ export const scoutSlice = createSlice({
     addNewDeviceToHerdModule: (state, action) => {
       const { herd_id, device } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.devices = [...herd_module.devices, device];
@@ -163,16 +167,16 @@ export const scoutSlice = createSlice({
             continue;
           }
           console.log(
-            `[Redux] deleteTag - Checking event ${event.id}, has ${event.tags.length} tags`
+            `[Redux] deleteTag - Checking event ${event.id}, has ${event.tags.length} tags`,
           );
           for (const tag of event.tags) {
             if (tag.id === action.payload.id) {
               console.log(
-                `[Redux] deleteTag - Found tag ${tag.id} in event ${event.id}, removing it`
+                `[Redux] deleteTag - Found tag ${tag.id} in event ${event.id}, removing it`,
               );
               event.tags = event.tags.filter((t) => t.id !== tag.id);
               console.log(
-                `[Redux] deleteTag - After removal, event ${event.id} has ${event.tags.length} tags`
+                `[Redux] deleteTag - After removal, event ${event.id} has ${event.tags.length} tags`,
               );
               return;
             }
@@ -212,7 +216,7 @@ export const scoutSlice = createSlice({
     deleteDevice(state, action) {
       for (const herd_module of state.herd_modules) {
         herd_module.devices = herd_module.devices.filter(
-          (device) => device.id !== action.payload.id
+          (device) => device.id !== action.payload.id,
         );
       }
     },
@@ -243,7 +247,7 @@ export const scoutSlice = createSlice({
     deletePlan(state, action) {
       for (const herd_module of state.herd_modules) {
         herd_module.plans = herd_module.plans.filter(
-          (plan) => plan.id !== action.payload.id
+          (plan) => plan.id !== action.payload.id,
         );
       }
     },
@@ -263,12 +267,12 @@ export const scoutSlice = createSlice({
     updateEventValuesForHerdModule: (state, action) => {
       const { herd_id, events } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.events = herd_module.events.map((event) => {
           const updated_event = events.find(
-            (e: IEventWithTags) => e.id === event.id
+            (e: IEventWithTags) => e.id === event.id,
           );
           if (updated_event) {
             return updated_event;
@@ -281,7 +285,7 @@ export const scoutSlice = createSlice({
     updatePageIndexForHerdModule: (state, action) => {
       const { herd_id, new_page_index } = action.payload;
       const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id
+        (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
         herd_module.events_page_index = new_page_index;
@@ -292,7 +296,7 @@ export const scoutSlice = createSlice({
       // Find the herd module that contains the device for this session
       for (const herd_module of state.herd_modules) {
         const device = herd_module.devices.find(
-          (d) => d.id === session.device_id
+          (d) => d.id === session.device_id,
         );
         if (device) {
           herd_module.sessions = [session, ...herd_module.sessions];
@@ -304,7 +308,7 @@ export const scoutSlice = createSlice({
       const sessionId = action.payload.id;
       for (const herd_module of state.herd_modules) {
         herd_module.sessions = herd_module.sessions.filter(
-          (session) => session.id !== sessionId
+          (session) => session.id !== sessionId,
         );
       }
     },
@@ -312,7 +316,7 @@ export const scoutSlice = createSlice({
       const updatedSession = action.payload;
       for (const herd_module of state.herd_modules) {
         const sessionIndex = herd_module.sessions.findIndex(
-          (session) => session.id === updatedSession.id
+          (session) => session.id === updatedSession.id,
         );
         if (sessionIndex !== -1) {
           herd_module.sessions[sessionIndex] = updatedSession;
@@ -322,6 +326,9 @@ export const scoutSlice = createSlice({
     },
     setUser: (state, action) => {
       state.user = action.payload;
+    },
+    setActiveHerdGpsTrackersConnectivity: (state, action) => {
+      state.active_herd_gps_trackers_connectivity = action.payload;
     },
   },
 });
@@ -360,6 +367,7 @@ export const {
   addSessionToStore,
   deleteSessionFromStore,
   updateSessionInStore,
+  setActiveHerdGpsTrackersConnectivity,
 } = scoutSlice.actions;
 
 export default scoutSlice.reducer;
