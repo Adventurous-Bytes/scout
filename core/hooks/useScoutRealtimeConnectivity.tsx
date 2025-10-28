@@ -31,7 +31,6 @@ export function useScoutRealtimeConnectivity(
 ) {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
-  const [hasInitialized, setHasInitialized] = useState<string | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -101,12 +100,12 @@ export function useScoutRealtimeConnectivity(
 
       dispatch(setActiveHerdGpsTrackersConnectivity(updatedConnectivity));
     },
-    [connectivity, dispatch],
+    [connectivity],
   );
 
   // Fetch initial connectivity data
   const fetchInitialData = useCallback(async () => {
-    if (!activeHerdId || hasInitialized === activeHerdId) return;
+    if (!activeHerdId) return;
 
     const herdId = activeHerdId; // Type narrowing
     const activeHerdModule = herdModules.find(
@@ -123,7 +122,6 @@ export function useScoutRealtimeConnectivity(
     );
 
     if (gpsDevices.length === 0) {
-      setHasInitialized(herdId);
       return;
     }
 
@@ -173,12 +171,11 @@ export function useScoutRealtimeConnectivity(
     );
 
     dispatch(setActiveHerdGpsTrackersConnectivity(connectivityData));
-    setHasInitialized(herdId);
 
     console.log(
       `[Connectivity] Loaded data for ${Object.keys(connectivityData).length} devices`,
     );
-  }, [activeHerdId, herdModules, hasInitialized, dispatch]);
+  }, [activeHerdId]);
 
   useEffect(() => {
     if (!scoutSupabase || !activeHerdId) return;
@@ -186,9 +183,6 @@ export function useScoutRealtimeConnectivity(
     // Clean up existing channels
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
     channels.current = [];
-
-    // Reset initialization when herd changes
-    setHasInitialized(null);
 
     // Create connectivity channel
     const channel = scoutSupabase
@@ -213,10 +207,5 @@ export function useScoutRealtimeConnectivity(
       channels.current.forEach((ch) => scoutSupabase.removeChannel(ch));
       channels.current = [];
     };
-  }, [
-    scoutSupabase,
-    activeHerdId,
-    handleConnectivityBroadcast,
-    fetchInitialData,
-  ]);
+  }, [activeHerdId]);
 }
