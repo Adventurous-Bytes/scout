@@ -248,6 +248,16 @@ fn create_test_client() -> ScoutClient {
     ScoutClient::new(config)
 }
 
+/// Normalizes timestamp precision to handle formatting differences
+/// Converts timestamps to a consistent format with 6 decimal places for microseconds
+fn normalize_timestamp(timestamp: &str) -> String {
+    // Parse the timestamp and reformat with consistent precision
+    match chrono::DateTime::parse_from_rfc3339(timestamp) {
+        Ok(dt) => dt.to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+        Err(_) => timestamp.to_string(), // Return original if parsing fails
+    }
+}
+
 #[tokio::test]
 async fn test_client_identification() {
     // Acquire global database test lock to prevent concurrent database access
@@ -2249,7 +2259,10 @@ async fn test_heartbeat_operations() {
     let created_heartbeat1 = create_result1.data.unwrap();
     assert!(created_heartbeat1.id.is_some());
     assert_eq!(created_heartbeat1.device_id, device.id.unwrap());
-    assert_eq!(created_heartbeat1.timestamp, timestamp1);
+    assert_eq!(
+        normalize_timestamp(&created_heartbeat1.timestamp),
+        normalize_timestamp(&timestamp1)
+    );
 
     // Track for cleanup
     cleanup.track_heartbeat(created_heartbeat1.id.unwrap());
@@ -2267,7 +2280,10 @@ async fn test_heartbeat_operations() {
     assert_eq!(create_result2.status, ResponseScoutStatus::Success);
     let created_heartbeat2 = create_result2.data.unwrap();
     assert!(created_heartbeat2.id.is_some());
-    assert_eq!(created_heartbeat2.timestamp, timestamp2);
+    assert_eq!(
+        normalize_timestamp(&created_heartbeat2.timestamp),
+        normalize_timestamp(&timestamp2)
+    );
 
     // Track for cleanup
     cleanup.track_heartbeat(created_heartbeat2.id.unwrap());
