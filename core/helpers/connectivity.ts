@@ -1,3 +1,5 @@
+"use server";
+
 import { newServerClient } from "../supabase/server";
 import {
   EnumWebResponse,

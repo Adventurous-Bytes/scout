@@ -74,8 +74,6 @@ export function useScoutRealtimeDevices(
   };
 
   useEffect(() => {
-    if (!scoutSupabase) return;
-
     cleanupChannels();
 
     // Create devices channel for active herd
@@ -85,5 +83,5 @@ export function useScoutRealtimeDevices(
     }
 
     return cleanupChannels;
-  }, [scoutSupabase, activeHerdId, handleDeviceBroadcast]);
+  }, [activeHerdId]);
 }
