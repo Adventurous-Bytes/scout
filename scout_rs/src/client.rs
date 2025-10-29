@@ -968,6 +968,27 @@ impl ScoutClient {
         ))
     }
 
+    /// Upserts multiple operators in a batch (insert or update on conflict)
+    pub async fn upsert_operators_batch(
+        &mut self,
+        operators: &[data::v2::Operator],
+    ) -> Result<ResponseScout<Vec<data::v2::Operator>>> {
+        let db_client = self.get_db_client()?;
+
+        if operators.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client.upsert_bulk("operators", operators).await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
     /// Updates an event directly in the database
     pub async fn update_event(
         &mut self,

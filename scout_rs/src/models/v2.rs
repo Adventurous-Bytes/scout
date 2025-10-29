@@ -78,6 +78,9 @@ pub struct Operator {
     pub timestamp: Option<String>,
     #[secondary_key]
     pub session_id: Option<i64>,
+    #[serde(skip)]
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
     pub user_id: String,
     pub action: String,
 }
@@ -184,9 +187,20 @@ impl Default for Operator {
             created_at: None,
             timestamp: None,
             session_id: None,
+            ancestor_id_local: None,
             user_id: String::new(),
             action: String::new(),
         }
+    }
+}
+
+impl AncestorLocal for Operator {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
     }
 }
 
@@ -388,6 +402,7 @@ impl Operator {
             created_at: None,
             timestamp: Some(Utc::now().to_rfc3339()),
             session_id,
+            ancestor_id_local: None,
             user_id,
             action,
         }

@@ -188,7 +188,7 @@ impl SyncEngine {
         Ok(batch)
     }
 
-    /// Flushes all local data to remote server in proper order: sessions -> connectivity -> events -> tags
+    /// Flushes all local data to remote server in proper order: sessions -> connectivity -> events -> operators -> tags
     /// Continues with remaining operations even if one fails, but reports all errors
     pub async fn flush(&mut self) -> Result<(), Error> {
         let mut sync_errors = Vec::new();
@@ -216,6 +216,15 @@ impl SyncEngine {
             sync_errors.push(format!("Events sync failed: {}", e));
             tracing::error!(
                 "Events sync failed, continuing with other operations: {}",
+                e
+            );
+        }
+
+        // Sync operators (depends on sessions)
+        if let Err(e) = self.flush_operators().await {
+            sync_errors.push(format!("Operators sync failed: {}", e));
+            tracing::error!(
+                "Operators sync failed, continuing with other operations: {}",
                 e
             );
         }
@@ -426,7 +435,62 @@ impl SyncEngine {
             return Ok(());
         }
 
-        let connectivity_for_insert: Vec<Connectivity> = all_connectivity
+        // CRITICAL FIX: Update descendants BEFORE sending to remote server
+        // Check if any connectivity records have ancestors with remote IDs and update descendants first
+        let mut sessions_to_update = std::collections::HashSet::new();
+        for connectivity in all_connectivity.iter() {
+            if let Some(ancestor_local_id) = &connectivity.ancestor_id_local {
+                // Check if the ancestor session has a remote ID
+                if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
+                    if let Some(_remote_session_id) = session.id {
+                        // Session exists and has remote ID, mark for descendant updates
+                        sessions_to_update.insert(ancestor_local_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Update descendants for all sessions that have remote IDs
+        // This ensures connectivity records get their session_id populated BEFORE remote sync
+        for session_local_id in sessions_to_update {
+            if let Ok(Some(session)) = self.get_item::<SessionLocal>(&session_local_id) {
+                if let Some(remote_session_id) = session.id {
+                    if let Err(e) =
+                        self.update_session_descendants(&session_local_id, remote_session_id)
+                    {
+                        tracing::error!(
+                            "Failed to update descendants for session {} before connectivity sync: {}",
+                            session_local_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Updated descendants for session {} before connectivity sync",
+                            session_local_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // NOW re-fetch the connectivity records (they may have been updated with session_id)
+        // We need to get the updated versions with populated session_id values
+        let mut updated_all_connectivity = Vec::new();
+        for conn in all_connectivity.iter() {
+            if let Some(local_id) = &conn.id_local {
+                if let Ok(Some(updated_conn)) = self.get_item::<ConnectivityLocal>(local_id) {
+                    updated_all_connectivity.push(updated_conn);
+                } else {
+                    // Fallback to original if we can't find the updated version
+                    updated_all_connectivity.push(conn.clone());
+                }
+            } else {
+                updated_all_connectivity.push(conn.clone());
+            }
+        }
+
+        // Now convert the UPDATED connectivity records for remote sync
+        let connectivity_for_insert: Vec<Connectivity> = updated_all_connectivity
             .iter()
             .map(|local_connectivity| local_connectivity.clone().into())
             .collect();
@@ -437,9 +501,9 @@ impl SyncEngine {
             .await?;
 
         if let Some(inserted_connectivity) = response.data {
-            let updated_connectivity: Vec<ConnectivityLocal> = inserted_connectivity
+            let final_connectivity: Vec<ConnectivityLocal> = inserted_connectivity
                 .into_iter()
-                .zip(all_connectivity.iter())
+                .zip(updated_all_connectivity.iter())
                 .map(|(remote_connectivity, original_local)| {
                     let mut updated_local: ConnectivityLocal = remote_connectivity.into();
                     updated_local.id_local = original_local.id_local.clone();
@@ -448,36 +512,7 @@ impl SyncEngine {
                 })
                 .collect();
 
-            self.upsert_items(updated_connectivity.clone())?;
-
-            // Update descendants for connectivity records that have ancestors with remote IDs
-            // This handles the case where connectivity records are created after their parent session
-            // already has a remote ID, ensuring session_id gets populated
-            for connectivity in updated_connectivity.iter() {
-                if let Some(ancestor_local_id) = &connectivity.ancestor_id_local {
-                    // Check if the ancestor session has a remote ID
-                    if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
-                        if let Some(remote_session_id) = session.id {
-                            // Session exists and has remote ID, update all its descendants
-                            if let Err(e) = self
-                                .update_session_descendants(ancestor_local_id, remote_session_id)
-                            {
-                                tracing::error!(
-                                    "Failed to update descendants for session {} after connectivity upsert: {}",
-                                    ancestor_local_id,
-                                    e
-                                );
-                            } else {
-                                tracing::debug!(
-                                    "Updated descendants for session {} after upserting connectivity {}",
-                                    ancestor_local_id,
-                                    connectivity.id_local.as_deref().unwrap_or("unknown")
-                                );
-                            }
-                        }
-                    }
-                }
-            }
+            self.upsert_items(final_connectivity)?;
         }
 
         Ok(())
@@ -509,7 +544,62 @@ impl SyncEngine {
             return Ok(());
         }
 
-        let events_for_insert: Vec<Event> = all_events
+        // CRITICAL FIX: Update descendants BEFORE sending to remote server
+        // Check if any events have session ancestors with remote IDs and update descendants first
+        let mut sessions_to_update = std::collections::HashSet::new();
+        for event in all_events.iter() {
+            if let Some(ancestor_local_id) = &event.ancestor_id_local {
+                // Check if the ancestor session has a remote ID
+                if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
+                    if let Some(_remote_session_id) = session.id {
+                        // Session exists and has remote ID, mark for descendant updates
+                        sessions_to_update.insert(ancestor_local_id.clone());
+                    }
+                }
+            }
+        }
+
+        // Update descendants for all sessions that have remote IDs
+        // This ensures events get their session_id populated BEFORE remote sync
+        for session_local_id in sessions_to_update {
+            if let Ok(Some(session)) = self.get_item::<SessionLocal>(&session_local_id) {
+                if let Some(remote_session_id) = session.id {
+                    if let Err(e) =
+                        self.update_session_descendants(&session_local_id, remote_session_id)
+                    {
+                        tracing::error!(
+                            "Failed to update descendants for session {} before event sync: {}",
+                            session_local_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Updated descendants for session {} before event sync",
+                            session_local_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // NOW re-fetch the events (they may have been updated with session_id)
+        // We need to get the updated versions with populated session_id values
+        let mut updated_all_events = Vec::new();
+        for event in all_events.iter() {
+            if let Some(local_id) = &event.id_local {
+                if let Ok(Some(updated_event)) = self.get_item::<EventLocal>(local_id) {
+                    updated_all_events.push(updated_event);
+                } else {
+                    // Fallback to original if we can't find the updated version
+                    updated_all_events.push(event.clone());
+                }
+            } else {
+                updated_all_events.push(event.clone());
+            }
+        }
+
+        // Now convert the UPDATED events for remote sync
+        let events_for_insert: Vec<Event> = updated_all_events
             .iter()
             .map(|local_event| local_event.clone().into())
             .collect();
@@ -520,9 +610,9 @@ impl SyncEngine {
             .await?;
 
         if let Some(inserted_events) = response.data {
-            let updated_events: Vec<EventLocal> = inserted_events
+            let final_events: Vec<EventLocal> = inserted_events
                 .into_iter()
-                .zip(all_events.iter())
+                .zip(updated_all_events.iter())
                 .map(|(remote_event, original_local)| {
                     let mut updated_local: EventLocal = remote_event.into();
                     updated_local.id_local = original_local.id_local.clone();
@@ -531,10 +621,12 @@ impl SyncEngine {
                 })
                 .collect();
 
-            self.upsert_items(updated_events.clone())?;
+            self.upsert_items(final_events.clone())?;
 
             // Update tag descendants with new remote event IDs - validate parent exists first
-            for (updated_event, original_event) in updated_events.iter().zip(all_events.iter()) {
+            for (updated_event, original_event) in
+                final_events.iter().zip(updated_all_events.iter())
+            {
                 if let (Some(new_remote_id), Some(local_id)) =
                     (updated_event.id, &original_event.id_local)
                 {
@@ -557,35 +649,6 @@ impl SyncEngine {
                                 local_id,
                                 new_remote_id
                             );
-                        }
-                    }
-                }
-            }
-
-            // Update session descendants for events that have session ancestors with remote IDs
-            // This handles the case where events are created after their parent session
-            // already has a remote ID, ensuring session_id gets populated
-            for event in updated_events.iter() {
-                if let Some(ancestor_local_id) = &event.ancestor_id_local {
-                    // Check if the ancestor session has a remote ID
-                    if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
-                        if let Some(remote_session_id) = session.id {
-                            // Session exists and has remote ID, update all its descendants
-                            if let Err(e) = self
-                                .update_session_descendants(ancestor_local_id, remote_session_id)
-                            {
-                                tracing::error!(
-                                    "Failed to update descendants for session {} after event upsert: {}",
-                                    ancestor_local_id,
-                                    e
-                                );
-                            } else {
-                                tracing::debug!(
-                                    "Updated descendants for session {} after upserting event {}",
-                                    ancestor_local_id,
-                                    event.id_local.as_deref().unwrap_or("unknown")
-                                );
-                            }
                         }
                     }
                 }
@@ -621,7 +684,95 @@ impl SyncEngine {
             return Ok(());
         }
 
-        let tags_for_insert: Vec<Tag> = all_tags
+        // CRITICAL FIX: Update descendants BEFORE sending to remote server
+        // Check if any tags have event ancestors with remote IDs and update descendants first
+        let mut events_to_update = std::collections::HashSet::new();
+        let mut sessions_to_update = std::collections::HashSet::new();
+
+        for tag in all_tags.iter() {
+            if let Some(ancestor_local_id) = &tag.ancestor_id_local {
+                // Check if the ancestor event has a remote ID
+                if let Ok(Some(event)) = self.get_item::<EventLocal>(ancestor_local_id) {
+                    if let Some(_remote_event_id) = event.id {
+                        // Event exists and has remote ID, mark for descendant updates
+                        events_to_update.insert(ancestor_local_id.clone());
+
+                        // Also check if the event has a session ancestor
+                        if let Some(session_ancestor_id) = &event.ancestor_id_local {
+                            if let Ok(Some(session)) =
+                                self.get_item::<SessionLocal>(session_ancestor_id)
+                            {
+                                if let Some(_remote_session_id) = session.id {
+                                    sessions_to_update.insert(session_ancestor_id.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Update event descendants first
+        for event_local_id in events_to_update {
+            if let Ok(Some(event)) = self.get_item::<EventLocal>(&event_local_id) {
+                if let Some(remote_event_id) = event.id {
+                    if let Err(e) = self.update_event_descendants(&event_local_id, remote_event_id)
+                    {
+                        tracing::error!(
+                            "Failed to update event descendants for event {} before tag sync: {}",
+                            event_local_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Updated event descendants for event {} before tag sync",
+                            event_local_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // Update session descendants
+        for session_local_id in sessions_to_update {
+            if let Ok(Some(session)) = self.get_item::<SessionLocal>(&session_local_id) {
+                if let Some(remote_session_id) = session.id {
+                    if let Err(e) =
+                        self.update_session_descendants(&session_local_id, remote_session_id)
+                    {
+                        tracing::error!(
+                            "Failed to update session descendants for session {} before tag sync: {}",
+                            session_local_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Updated session descendants for session {} before tag sync",
+                            session_local_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // NOW re-fetch the tags (they may have been updated with event_id)
+        // We need to get the updated versions with populated event_id values
+        let mut updated_all_tags = Vec::new();
+        for tag in all_tags.iter() {
+            if let Some(local_id) = &tag.id_local {
+                if let Ok(Some(updated_tag)) = self.get_item::<TagLocal>(local_id) {
+                    updated_all_tags.push(updated_tag);
+                } else {
+                    // Fallback to original if we can't find the updated version
+                    updated_all_tags.push(tag.clone());
+                }
+            } else {
+                updated_all_tags.push(tag.clone());
+            }
+        }
+
+        // Now convert the UPDATED tags for remote sync
+        let tags_for_insert: Vec<Tag> = updated_all_tags
             .iter()
             .map(|local_tag| local_tag.clone().into())
             .collect();
@@ -632,9 +783,9 @@ impl SyncEngine {
             .await?;
 
         if let Some(inserted_tags) = response.data {
-            let updated_tags: Vec<TagLocal> = inserted_tags
+            let final_tags: Vec<TagLocal> = inserted_tags
                 .into_iter()
-                .zip(all_tags.iter())
+                .zip(updated_all_tags.iter())
                 .map(|(remote_tag, original_local)| {
                     let mut updated_local: TagLocal = remote_tag.into();
                     updated_local.id_local = original_local.id_local.clone();
@@ -643,62 +794,122 @@ impl SyncEngine {
                 })
                 .collect();
 
-            self.upsert_items(updated_tags.clone())?;
+            self.upsert_items(final_tags)?;
+        }
 
-            // Update event descendants for tags that have event ancestors with remote IDs
-            // This handles the case where tags are created after their parent event
-            // already has a remote ID, ensuring event_id gets populated
-            for tag in updated_tags.iter() {
-                if let Some(ancestor_local_id) = &tag.ancestor_id_local {
-                    // Check if the ancestor event has a remote ID
-                    if let Ok(Some(event)) = self.get_item::<EventLocal>(ancestor_local_id) {
-                        if let Some(remote_event_id) = event.id {
-                            // Event exists and has remote ID, update all its descendants
-                            if let Err(e) =
-                                self.update_event_descendants(ancestor_local_id, remote_event_id)
-                            {
-                                tracing::error!(
-                                    "Failed to update descendants for event {} after tag upsert: {}",
-                                    ancestor_local_id,
-                                    e
-                                );
-                            } else {
-                                tracing::debug!(
-                                    "Updated descendants for event {} after upserting tag {}",
-                                    ancestor_local_id,
-                                    tag.id_local.as_deref().unwrap_or("unknown")
-                                );
-                            }
+        Ok(())
+    }
 
-                            // Also check if the event has a session ancestor and update session descendants
-                            if let Some(session_ancestor_id) = &event.ancestor_id_local {
-                                if let Ok(Some(session)) =
-                                    self.get_item::<SessionLocal>(session_ancestor_id)
-                                {
-                                    if let Some(remote_session_id) = session.id {
-                                        if let Err(e) = self.update_session_descendants(
-                                            session_ancestor_id,
-                                            remote_session_id,
-                                        ) {
-                                            tracing::error!(
-                                                "Failed to update session descendants for session {} after tag upsert: {}",
-                                                session_ancestor_id,
-                                                e
-                                            );
-                                        } else {
-                                            tracing::debug!(
-                                                "Updated session descendants for session {} after upserting tag {}",
-                                                session_ancestor_id,
-                                                tag.id_local.as_deref().unwrap_or("unknown")
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
+    /// Syncs operators to remote server
+    async fn flush_operators(&mut self) -> Result<(), Error> {
+        // For operators, we only process items without remote IDs (new items to insert)
+        let operators_batch: BatchSync<data::v2::Operator> = self.get_batch::<data::v2::Operator>(
+            EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
+            EnumSyncAction::Insert, // Process items without remote IDs
+        )?;
+
+        // Only process items without remote IDs (the insert batch)
+        let mut all_operators = operators_batch.insert;
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_operators.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting operators sync from {} to {} items",
+                    all_operators.len(),
+                    max_items
+                );
+                all_operators.truncate(max_items as usize);
+            }
+        }
+
+        if all_operators.is_empty() {
+            return Ok(());
+        }
+
+        // CRITICAL FIX: Update descendants BEFORE sending to remote server
+        // Check if any operators have session ancestors with remote IDs and update descendants first
+        let mut sessions_to_update = std::collections::HashSet::new();
+        for operator in all_operators.iter() {
+            if let Some(ancestor_local_id) = &operator.ancestor_id_local {
+                // Check if the ancestor session has a remote ID
+                if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
+                    if let Some(_remote_session_id) = session.id {
+                        // Session exists and has remote ID, mark for descendant updates
+                        sessions_to_update.insert(ancestor_local_id.clone());
                     }
                 }
             }
+        }
+
+        // Update descendants for all sessions that have remote IDs
+        // This ensures operators get their session_id populated BEFORE remote sync
+        for session_local_id in sessions_to_update {
+            if let Ok(Some(session)) = self.get_item::<SessionLocal>(&session_local_id) {
+                if let Some(remote_session_id) = session.id {
+                    if let Err(e) =
+                        self.update_session_descendants(&session_local_id, remote_session_id)
+                    {
+                        tracing::error!(
+                            "Failed to update descendants for session {} before operator sync: {}",
+                            session_local_id,
+                            e
+                        );
+                    } else {
+                        tracing::debug!(
+                            "Updated descendants for session {} before operator sync",
+                            session_local_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // NOW re-fetch the operators (they may have been updated with session_id)
+        // We need to get the updated versions with populated session_id values
+        let mut updated_all_operators = Vec::new();
+        for operator in all_operators.iter() {
+            if let Some(local_id) = &operator.id_local {
+                if let Ok(Some(updated_operator)) = self.get_item::<data::v2::Operator>(local_id) {
+                    updated_all_operators.push(updated_operator);
+                } else {
+                    // Fallback to original if we can't find the updated version
+                    updated_all_operators.push(operator.clone());
+                }
+            } else {
+                updated_all_operators.push(operator.clone());
+            }
+        }
+
+        // Now convert the UPDATED operators for remote sync
+        let operators_for_insert: Vec<data::v2::Operator> = updated_all_operators
+            .iter()
+            .map(|local_operator| {
+                let mut remote_operator = local_operator.clone();
+                // Clear local-only fields for remote sync
+                remote_operator.id_local = None;
+                remote_operator.ancestor_id_local = None;
+                remote_operator
+            })
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_operators_batch(&operators_for_insert)
+            .await?;
+
+        if let Some(inserted_operators) = response.data {
+            let final_operators: Vec<data::v2::Operator> = inserted_operators
+                .into_iter()
+                .zip(updated_all_operators.iter())
+                .map(|(remote_operator, original_local)| {
+                    let mut updated_local = remote_operator;
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(final_operators)?;
         }
 
         Ok(())
@@ -1222,22 +1433,28 @@ impl SyncEngine {
     ) -> Result<(), Error> {
         let r = self.database.r_transaction()?;
 
-        // Find all operators that should reference this session
+        // Find all operators that reference this session's local ID
         let mut operators_to_update = Vec::new();
         for raw_operator in r.scan().primary::<data::v2::Operator>()?.all()? {
             if let Ok(mut operator) = raw_operator {
-                // Check if this operator should be linked to the session
-                // This could be based on timing, user actions, or explicit local references
-                if operator.session_id.is_none()
-                    && operator.id_local.as_deref().is_some()
-                    && session_local_id.contains("flush_test")
-                    && operator.id_local.as_deref().unwrap().contains("flush_test")
-                {
-                    // For test scenarios, link operators to sessions based on naming
+                if operator.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    // Validate: if session_id is already set, ensure it matches
+                    if let Some(existing_session_id) = operator.session_id {
+                        if existing_session_id != new_remote_session_id {
+                            tracing::warn!(
+                                "Operator {} has conflicting session_id {} vs expected {}",
+                                operator.id_local.as_deref().unwrap_or("unknown"),
+                                existing_session_id,
+                                new_remote_session_id
+                            );
+                            continue; // Skip this entry to prevent wrong linkage
+                        }
+                    }
+
                     operator.session_id = Some(new_remote_session_id);
+                    // Keep ancestor_id_local as metadata showing original relationship
                     operators_to_update.push(operator);
                 }
-                // Add more sophisticated linking logic here as needed
             }
         }
 
@@ -1984,6 +2201,7 @@ mod tests {
         let mut operator = data::v2::Operator::default();
         operator.set_id_local("flush_test_operator".to_string());
         operator.session_id = None; // Will be updated after session sync
+        operator.set_ancestor_id_local("flush_test_session".to_string());
         operator.user_id = "test-user-id".to_string();
         operator.action = "test_flush_action".to_string();
         operator.timestamp = Some("2023-01-01T10:15:00Z".to_string());
@@ -2939,6 +3157,35 @@ mod tests {
                         event.session_id,
                         Some(session_id),
                         "Event must have session_id populated after our fix"
+                    );
+                }
+            }
+        }
+        drop(r);
+
+        // Step 6: Test the same scenario with operators
+        let mut operator = data::v2::Operator::default();
+        operator.set_id_local("late_operator_1".to_string());
+        operator.session_id = None; // Should get populated by our fix
+        operator.set_ancestor_id_local("session_synced_first".to_string());
+        operator.user_id = "test-user-id".to_string();
+        operator.action = "late_test_action".to_string();
+        operator.timestamp = Some("2023-01-01T10:20:00Z".to_string());
+
+        sync_engine.upsert_items(vec![operator])?;
+
+        // Flush operators - should populate session_id due to our fix
+        sync_engine.flush_operators().await?;
+
+        // Verify operator got session_id populated
+        let r = sync_engine.database.r_transaction()?;
+        for raw_operator in r.scan().primary::<data::v2::Operator>()?.all()? {
+            if let Ok(operator) = raw_operator {
+                if operator.ancestor_id_local.as_deref() == Some("session_synced_first") {
+                    assert_eq!(
+                        operator.session_id,
+                        Some(session_id),
+                        "Operator must have session_id populated after our fix"
                     );
                 }
             }
