@@ -11,7 +11,7 @@ import { MapDeviceIdToConnectivity } from "../types/connectivity";
 import { RootState } from "../store/scout";
 import { server_get_connectivity_by_device_id } from "../helpers/connectivity";
 import { EnumWebResponse } from "../types/requests";
-import { getDaysAgoTimestamp } from "../helpers/time";
+import { getHoursAgoTimestamp } from "../helpers/time";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -81,6 +81,9 @@ export function useScoutRealtimeConnectivity(
 
       switch (data.operation) {
         case "INSERT":
+          console.log(
+            `[CONNECTIVITY] INSERT for ${deviceId}, ${JSON.stringify(connectivityData)}`,
+          );
           if (!updatedConnectivity[deviceId]) {
             updatedConnectivity[deviceId] = {
               most_recent: connectivityData,
@@ -165,7 +168,7 @@ export function useScoutRealtimeConnectivity(
       return;
     }
 
-    const timestampFilter = getDaysAgoTimestamp(1);
+    const timestampFilter = getHoursAgoTimestamp(1);
     const connectivityData: MapDeviceIdToConnectivity = {};
 
     await Promise.all(
