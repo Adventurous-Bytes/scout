@@ -1,7 +1,6 @@
+import { HistoricalData } from "./data";
 import { IConnectivityWithCoordinates } from "./db";
 
 export type MapDeviceIdToConnectivity = {
-  [deviceId: number]: IConnectivityWithCoordinates[];
+  [deviceId: number]: HistoricalData<IConnectivityWithCoordinates>;
 };
-
-
