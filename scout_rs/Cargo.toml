@@ -1,6 +1,6 @@
 [package]
 name = "scout_rs"
-version = "0.7.2"
+version = "0.7.3"
 edition = "2021"
 description = "A Rust client for the Scout API that allows uploading events and images to the Scout database"
 license = "GPL-3.0"
