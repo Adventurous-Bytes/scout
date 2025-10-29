@@ -645,21 +645,24 @@ impl SyncEngine {
         }
     }
 
-    /// Runs a single flush operation respecting max items per sync.
-    /// This is equivalent to calling `flush()` directly.
-    pub async fn flush_once(&mut self) -> Result<(), Error> {
-        self.flush().await
-    }
+    /// Gets an item from the database by local ID and returns a clone
+    pub fn get_item<T: ToInput + Syncable + Clone>(
+        &self,
+        local_id: &str,
+    ) -> Result<Option<T>, Error> {
+        let r = self.database.r_transaction()?;
 
-    /// Performs flush followed by clean operation
-    pub async fn flush_and_clean(&mut self) -> Result<(), Error> {
-        // First flush to ensure all data is synchronized
-        self.flush().await?;
+        for raw_item in r.scan().primary::<T>()?.all()? {
+            if let Ok(item) = raw_item {
+                if let Some(item_local_id) = item.id_local() {
+                    if item_local_id == local_id {
+                        return Ok(Some(item));
+                    }
+                }
+            }
+        }
 
-        // Then clean completed sessions
-        self.clean().await?;
-
-        Ok(())
+        Ok(None)
     }
 
     /// Cleans completed sessions and their descendants from local database
@@ -669,9 +672,6 @@ impl SyncEngine {
 
         let r = self.database.r_transaction()?;
         let mut sessions_to_clean = Vec::new();
-
-        // Get current time for safety check
-        let now = chrono::Utc::now();
 
         // Find completed sessions with remote IDs
         for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
