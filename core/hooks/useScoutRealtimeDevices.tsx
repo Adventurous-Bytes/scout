@@ -66,7 +66,7 @@ export function useScoutRealtimeDevices(
         if (status === "SUBSCRIBED") {
           console.log(`[Devices] ✅ Connected to herd ${herdId}`);
         } else if (status === "CHANNEL_ERROR") {
-          console.error(`[Devices] ❌ Failed to connect to herd ${herdId}`);
+          console.warn(`[Devices] 🟡 Failed to connect to herd ${herdId}`);
         }
       });
   };
