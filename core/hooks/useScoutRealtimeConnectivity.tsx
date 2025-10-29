@@ -84,84 +84,72 @@ export function useScoutRealtimeConnectivity(
           if (!updatedConnectivity[deviceId]) {
             updatedConnectivity[deviceId] = {
               most_recent: connectivityData,
-              history: [connectivityData],
+              history: [],
             };
           } else {
-            // Create a copy of the existing historical data
             const newHistory = [
+              updatedConnectivity[deviceId].most_recent,
               ...updatedConnectivity[deviceId].history,
-              connectivityData,
-            ];
-
-            // Keep only recent 100 entries
-            const sortedHistory = newHistory
-              .sort(
-                (a, b) =>
-                  new Date(b.timestamp_start || 0).getTime() -
-                  new Date(a.timestamp_start || 0).getTime(),
-              )
-              .slice(0, 100);
+            ].slice(0, 99);
 
             updatedConnectivity[deviceId] = {
-              most_recent: sortedHistory[0],
-              history: sortedHistory,
+              most_recent: connectivityData,
+              history: newHistory,
             };
           }
           break;
 
         case "UPDATE":
           if (updatedConnectivity[deviceId]) {
-            // Create a copy of the history array before modifying
-            const newHistory = [...updatedConnectivity[deviceId].history];
-
-            const index = newHistory.findIndex(
-              (c) => c.id === connectivityData.id,
-            );
-            if (index >= 0) {
-              newHistory[index] = connectivityData;
-
-              // Update most_recent if this was the most recent item
-              const sortedHistory = newHistory.sort(
-                (a, b) =>
-                  new Date(b.timestamp_start || 0).getTime() -
-                  new Date(a.timestamp_start || 0).getTime(),
-              );
-
+            if (
+              updatedConnectivity[deviceId].most_recent.id ===
+              connectivityData.id
+            ) {
               updatedConnectivity[deviceId] = {
-                most_recent: sortedHistory[0],
-                history: sortedHistory,
+                ...updatedConnectivity[deviceId],
+                most_recent: connectivityData,
               };
+            } else {
+              const historyIndex = updatedConnectivity[
+                deviceId
+              ].history.findIndex((c) => c.id === connectivityData.id);
+              if (historyIndex >= 0) {
+                const newHistory = [...updatedConnectivity[deviceId].history];
+                newHistory[historyIndex] = connectivityData;
+                updatedConnectivity[deviceId] = {
+                  ...updatedConnectivity[deviceId],
+                  history: newHistory,
+                };
+              }
             }
           }
           break;
 
         case "DELETE":
           if (updatedConnectivity[deviceId]) {
-            // Filter creates a new array, so this is safe
-            const newHistory = updatedConnectivity[deviceId].history.filter(
-              (c) => c.id !== connectivityData.id,
-            );
-
-            if (newHistory.length === 0) {
-              delete updatedConnectivity[deviceId];
+            if (
+              updatedConnectivity[deviceId].most_recent.id ===
+              connectivityData.id
+            ) {
+              if (updatedConnectivity[deviceId].history.length === 0) {
+                delete updatedConnectivity[deviceId];
+              } else {
+                updatedConnectivity[deviceId] = {
+                  most_recent: updatedConnectivity[deviceId].history[0],
+                  history: updatedConnectivity[deviceId].history.slice(1),
+                };
+              }
             } else {
-              const sortedHistory = newHistory.sort(
-                (a, b) =>
-                  new Date(b.timestamp_start || 0).getTime() -
-                  new Date(a.timestamp_start || 0).getTime(),
-              );
-
               updatedConnectivity[deviceId] = {
-                most_recent: sortedHistory[0],
-                history: sortedHistory,
+                ...updatedConnectivity[deviceId],
+                history: updatedConnectivity[deviceId].history.filter(
+                  (c) => c.id !== connectivityData.id,
+                ),
               };
             }
           }
           break;
       }
-      console.log(
-        "[Connectivity] updating tracker connectivity in response to broadcast",
-      );
       dispatch(setActiveHerdGpsTrackersConnectivity(updatedConnectivity));
     },
     [connectivity, dispatch],
@@ -176,10 +164,6 @@ export function useScoutRealtimeConnectivity(
     if (deviceIds.length === 0) {
       return;
     }
-
-    console.log(
-      `[Connectivity] Loading data for ${deviceIds.length} GPS trackers`,
-    );
 
     const timestampFilter = getDaysAgoTimestamp(1);
     const connectivityData: MapDeviceIdToConnectivity = {};
@@ -207,35 +191,21 @@ export function useScoutRealtimeConnectivity(
 
               connectivityData[deviceId] = {
                 most_recent: sortedData[0],
-                history: sortedData,
+                history: sortedData.slice(1), // Exclude the most recent item
               };
             }
-          } else {
-            console.warn(
-              `[Connectivity] API error for device ${deviceId}:`,
-              response.msg || "Unknown error",
-            );
           }
         } catch (error) {
-          console.warn(
-            `[Connectivity] Failed to fetch data for device ${deviceId}:`,
-            error,
-          );
+          // Silent error handling
         }
       }),
     );
 
     dispatch(setActiveHerdGpsTrackersConnectivity(connectivityData));
-
-    console.log(
-      `[Connectivity] Loaded data for ${Object.keys(connectivityData).length} devices`,
-    );
   }, [gpsDeviceIds, dispatch]);
 
   useEffect(() => {
     if (!scoutSupabase || gpsDeviceIds === "") return;
-
-    console.log(`[Connectivity Hook] Loading data for ${gpsDeviceIds}`);
 
     // Clean up existing channels
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
@@ -245,15 +215,7 @@ export function useScoutRealtimeConnectivity(
     const channel = scoutSupabase
       .channel(`${activeHerdId}-connectivity`, { config: { private: true } })
       .on("broadcast", { event: "*" }, handleConnectivityBroadcast)
-      .subscribe((status) => {
-        if (status === "SUBSCRIBED") {
-          console.log(`[Connectivity] ✅ Connected to herd ${activeHerdId}`);
-        } else if (status === "CHANNEL_ERROR") {
-          console.warn(
-            `[Connectivity] 🟡 Failed to connect to herd ${activeHerdId}`,
-          );
-        }
-      });
+      .subscribe();
 
     channels.current.push(channel);
 
@@ -264,11 +226,5 @@ export function useScoutRealtimeConnectivity(
       channels.current.forEach((ch) => scoutSupabase.removeChannel(ch));
       channels.current = [];
     };
-  }, [
-    scoutSupabase,
-    gpsDeviceIds,
-    activeHerdId,
-    handleConnectivityBroadcast,
-    fetchInitialData,
-  ]);
+  }, [scoutSupabase, gpsDeviceIds, activeHerdId, handleConnectivityBroadcast]);
 }
