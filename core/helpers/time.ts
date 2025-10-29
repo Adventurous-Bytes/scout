@@ -15,7 +15,9 @@ export function convertDateToTimeString(date: Date): string {
 }
 
 // Format a Date object as a PostgreSQL-compatible timestamp string
-// Returns format: "YYYY-MM-DDTHH:MM:SS.SSSZ" (ISO 8601 with timezone)
+// Returns ISO 8601 format: "YYYY-MM-DDTHH:MM:SS.SSSZ"
+// PostgreSQL automatically converts this to its internal format: "YYYY-MM-DD HH:MM:SS.SSSSSS+00"
+// This ensures compatibility with both PostgreSQL storage and RPC function expectations
 export function formatTimestampForDatabase(date: Date): string {
   return date.toISOString();
 }
