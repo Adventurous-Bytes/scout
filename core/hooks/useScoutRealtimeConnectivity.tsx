@@ -2,7 +2,7 @@
 
 import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { setActiveHerdGpsTrackersConnectivity } from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
@@ -41,6 +41,30 @@ export function useScoutRealtimeConnectivity(
     (state: RootState) => state.scout.herd_modules,
   );
 
+  // Create stable reference for GPS device IDs to prevent unnecessary refetching
+  const gpsDeviceIds = useMemo(() => {
+    if (!activeHerdId) return "";
+
+    const activeHerdModule = herdModules.find(
+      (hm) => hm.herd.id.toString() === activeHerdId,
+    );
+    if (!activeHerdModule) return "";
+
+    const gpsDevices = activeHerdModule.devices.filter(
+      (device) =>
+        device.device_type &&
+        ["gps_tracker", "gps_tracker_vehicle", "gps_tracker_person"].includes(
+          device.device_type,
+        ),
+    );
+
+    return gpsDevices
+      .map((d) => d.id)
+      .filter(Boolean)
+      .sort()
+      .join(",");
+  }, [activeHerdId, herdModules]);
+
   // Handle connectivity broadcasts
   const handleConnectivityBroadcast = useCallback(
     (payload: BroadcastPayload) => {
@@ -59,7 +83,11 @@ export function useScoutRealtimeConnectivity(
         case "INSERT":
           if (!updatedConnectivity[deviceId]) {
             updatedConnectivity[deviceId] = [];
+          } else {
+            // Create a copy of the existing array to avoid mutating immutable state
+            updatedConnectivity[deviceId] = [...updatedConnectivity[deviceId]];
           }
+
           updatedConnectivity[deviceId].push(connectivityData);
 
           // Keep only recent 100 entries
@@ -76,6 +104,9 @@ export function useScoutRealtimeConnectivity(
 
         case "UPDATE":
           if (updatedConnectivity[deviceId]) {
+            // Create a copy of the array before modifying
+            updatedConnectivity[deviceId] = [...updatedConnectivity[deviceId]];
+
             const index = updatedConnectivity[deviceId].findIndex(
               (c) => c.id === connectivityData.id,
             );
@@ -87,9 +118,11 @@ export function useScoutRealtimeConnectivity(
 
         case "DELETE":
           if (updatedConnectivity[deviceId]) {
+            // Filter creates a new array, so this is safe
             updatedConnectivity[deviceId] = updatedConnectivity[
               deviceId
             ].filter((c) => c.id !== connectivityData.id);
+
             if (updatedConnectivity[deviceId].length === 0) {
               delete updatedConnectivity[deviceId];
             }
@@ -101,45 +134,31 @@ export function useScoutRealtimeConnectivity(
       );
       dispatch(setActiveHerdGpsTrackersConnectivity(updatedConnectivity));
     },
-    [connectivity],
+    [connectivity, dispatch],
   );
 
   // Fetch initial connectivity data
   const fetchInitialData = useCallback(async () => {
-    if (!activeHerdId) return;
+    if (!activeHerdId || !gpsDeviceIds) return;
 
-    const herdId = activeHerdId; // Type narrowing
-    const activeHerdModule = herdModules.find(
-      (hm) => hm.herd.id.toString() === herdId,
-    );
-    if (!activeHerdModule) return;
+    const deviceIds = gpsDeviceIds.split(",").filter(Boolean).map(Number);
 
-    const gpsDevices = activeHerdModule.devices.filter(
-      (device) =>
-        device.device_type &&
-        ["gps_tracker", "gps_tracker_vehicle", "gps_tracker_person"].includes(
-          device.device_type,
-        ),
-    );
-
-    if (gpsDevices.length === 0) {
+    if (deviceIds.length === 0) {
       return;
     }
 
     console.log(
-      `[Connectivity] Loading data for ${gpsDevices.length} GPS trackers`,
+      `[Connectivity] Loading data for ${deviceIds.length} GPS trackers`,
     );
 
     const timestampFilter = getDaysAgoTimestamp(1);
     const connectivityData: MapDeviceIdToConnectivity = {};
 
     await Promise.all(
-      gpsDevices.map(async (device) => {
-        if (!device.id) return;
-
+      deviceIds.map(async (deviceId) => {
         try {
           const response = await server_get_connectivity_by_device_id(
-            device.id,
+            deviceId,
             timestampFilter,
           );
 
@@ -148,7 +167,7 @@ export function useScoutRealtimeConnectivity(
               (conn) => !conn.session_id,
             );
             if (trackerData.length > 0) {
-              connectivityData[device.id] = trackerData
+              connectivityData[deviceId] = trackerData
                 .sort(
                   (a, b) =>
                     new Date(b.timestamp_start || 0).getTime() -
@@ -157,14 +176,14 @@ export function useScoutRealtimeConnectivity(
                 .slice(0, 100);
             }
           } else {
-            console.error(
-              `[Connectivity] API error for device ${device.id}:`,
+            console.warn(
+              `[Connectivity] API error for device ${deviceId}:`,
               response.msg || "Unknown error",
             );
           }
         } catch (error) {
-          console.error(
-            `[Connectivity] Failed to fetch data for device ${device.id}:`,
+          console.warn(
+            `[Connectivity] Failed to fetch data for device ${deviceId}:`,
             error,
           );
         }
@@ -176,10 +195,10 @@ export function useScoutRealtimeConnectivity(
     console.log(
       `[Connectivity] Loaded data for ${Object.keys(connectivityData).length} devices`,
     );
-  }, [activeHerdId, herdModules]);
+  }, [activeHerdId, gpsDeviceIds, dispatch]);
 
   useEffect(() => {
-    if (!scoutSupabase || !activeHerdId || herdModules.length == 0) return;
+    if (!scoutSupabase || !gpsDeviceIds) return;
 
     // Clean up existing channels
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
@@ -193,8 +212,8 @@ export function useScoutRealtimeConnectivity(
         if (status === "SUBSCRIBED") {
           console.log(`[Connectivity] ✅ Connected to herd ${activeHerdId}`);
         } else if (status === "CHANNEL_ERROR") {
-          console.error(
-            `[Connectivity] ❌ Failed to connect to herd ${activeHerdId}`,
+          console.warn(
+            `[Connectivity] 🟡 Failed to connect to herd ${activeHerdId}`,
           );
         }
       });
@@ -208,5 +227,5 @@ export function useScoutRealtimeConnectivity(
       channels.current.forEach((ch) => scoutSupabase.removeChannel(ch));
       channels.current = [];
     };
-  }, [activeHerdId, herdModules]);
+  }, [gpsDeviceIds]);
 }
