@@ -35,7 +35,7 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
 
     // Define new Operator model
     models
-        .define::<data::v2::Operator>()
+        .define::<data::v2::OperatorLocal>()
         .expect("Failed to define Operator model");
 
     models
@@ -803,10 +803,11 @@ impl SyncEngine {
     /// Syncs operators to remote server
     async fn flush_operators(&mut self) -> Result<(), Error> {
         // For operators, we only process items without remote IDs (new items to insert)
-        let operators_batch: BatchSync<data::v2::Operator> = self.get_batch::<data::v2::Operator>(
-            EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
-            EnumSyncAction::Insert, // Process items without remote IDs
-        )?;
+        let operators_batch: BatchSync<data::v2::OperatorLocal> = self
+            .get_batch::<data::v2::OperatorLocal>(
+                EnumSyncAction::Skip,   // Skip items with remote IDs - they're already synced
+                EnumSyncAction::Insert, // Process items without remote IDs
+            )?;
 
         // Only process items without remote IDs (the insert batch)
         let mut all_operators = operators_batch.insert;
@@ -869,7 +870,9 @@ impl SyncEngine {
         let mut updated_all_operators = Vec::new();
         for operator in all_operators.iter() {
             if let Some(local_id) = &operator.id_local {
-                if let Ok(Some(updated_operator)) = self.get_item::<data::v2::Operator>(local_id) {
+                if let Ok(Some(updated_operator)) =
+                    self.get_item::<data::v2::OperatorLocal>(local_id)
+                {
                     updated_all_operators.push(updated_operator);
                 } else {
                     // Fallback to original if we can't find the updated version
@@ -884,11 +887,8 @@ impl SyncEngine {
         let operators_for_insert: Vec<data::v2::Operator> = updated_all_operators
             .iter()
             .map(|local_operator| {
-                let mut remote_operator = local_operator.clone();
-                // Clear local-only fields for remote sync
-                remote_operator.id_local = None;
-                remote_operator.ancestor_id_local = None;
-                remote_operator
+                // Convert OperatorLocal to Operator (removes local-only fields)
+                data::v2::Operator::from(local_operator.clone())
             })
             .collect();
 
@@ -898,11 +898,11 @@ impl SyncEngine {
             .await?;
 
         if let Some(inserted_operators) = response.data {
-            let final_operators: Vec<data::v2::Operator> = inserted_operators
+            let final_operators: Vec<data::v2::OperatorLocal> = inserted_operators
                 .into_iter()
                 .zip(updated_all_operators.iter())
                 .map(|(remote_operator, original_local)| {
-                    let mut updated_local = remote_operator;
+                    let mut updated_local = data::v2::OperatorLocal::from(remote_operator);
                     updated_local.id_local = original_local.id_local.clone();
                     updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
                     updated_local
@@ -1435,7 +1435,7 @@ impl SyncEngine {
 
         // Find all operators that reference this session's local ID
         let mut operators_to_update = Vec::new();
-        for raw_operator in r.scan().primary::<data::v2::Operator>()?.all()? {
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
             if let Ok(mut operator) = raw_operator {
                 if operator.ancestor_id_local.as_deref() == Some(session_local_id) {
                     // Validate: if session_id is already set, ensure it matches
@@ -1524,7 +1524,7 @@ impl SyncEngine {
         self.log_table::<data::v2::ConnectivityLocal>("ConnectivityLocal (v2)")?;
 
         // Log Operator table
-        self.log_table::<data::v2::Operator>("Operator")?;
+        self.log_table::<data::v2::OperatorLocal>("OperatorLocal")?;
 
         println!("=== End Database Tables Log ===");
         Ok(())
@@ -2198,11 +2198,11 @@ mod tests {
         tag.conf = 0.95;
         tag.observation_type = TagObservationType::Manual;
 
-        let mut operator = data::v2::Operator::default();
+        let mut operator = data::v2::OperatorLocal::default();
         operator.set_id_local("flush_test_operator".to_string());
         operator.session_id = None; // Will be updated after session sync
         operator.set_ancestor_id_local("flush_test_session".to_string());
-        operator.user_id = "test-user-id".to_string();
+        operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string(); // Valid UUID format
         operator.action = "test_flush_action".to_string();
         operator.timestamp = Some("2023-01-01T10:15:00Z".to_string());
 
@@ -2218,7 +2218,7 @@ mod tests {
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
-        assert_eq!(sync_engine.get_table_count::<data::v2::Operator>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 1);
 
         // Perform full database flush to remote - MUST succeed
         println!("🚀 Starting full database flush...");
@@ -2246,7 +2246,7 @@ mod tests {
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
-        assert_eq!(sync_engine.get_table_count::<data::v2::Operator>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 1);
 
         // Verify the hierarchical sync worked correctly
         let r = sync_engine.database.r_transaction()?;
@@ -2320,7 +2320,7 @@ mod tests {
         }
 
         // Verify operator references session remote ID and has remote ID
-        for raw_operator in r.scan().primary::<data::v2::Operator>()?.all()? {
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
             if let Ok(operator) = raw_operator {
                 if operator.id_local.as_deref() == Some("flush_test_operator") {
                     assert_eq!(
@@ -3164,11 +3164,11 @@ mod tests {
         drop(r);
 
         // Step 6: Test the same scenario with operators
-        let mut operator = data::v2::Operator::default();
+        let mut operator = data::v2::OperatorLocal::default();
         operator.set_id_local("late_operator_1".to_string());
         operator.session_id = None; // Should get populated by our fix
         operator.set_ancestor_id_local("session_synced_first".to_string());
-        operator.user_id = "test-user-id".to_string();
+        operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string(); // Valid UUID format
         operator.action = "late_test_action".to_string();
         operator.timestamp = Some("2023-01-01T10:20:00Z".to_string());
 
@@ -3179,7 +3179,7 @@ mod tests {
 
         // Verify operator got session_id populated
         let r = sync_engine.database.r_transaction()?;
-        for raw_operator in r.scan().primary::<data::v2::Operator>()?.all()? {
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
             if let Ok(operator) = raw_operator {
                 if operator.ancestor_id_local.as_deref() == Some("session_synced_first") {
                     assert_eq!(

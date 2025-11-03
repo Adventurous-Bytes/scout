@@ -67,20 +67,29 @@ pub struct Connectivity {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 18, version = 1)]
 #[native_db]
-pub struct Operator {
-    #[serde(skip_serializing_if = "Option::is_none")]
+pub struct OperatorLocal {
     pub id: Option<i64>,
-    #[serde(skip)]
     #[primary_key]
     pub id_local: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub timestamp: Option<String>,
     #[secondary_key]
     pub session_id: Option<i64>,
-    #[serde(skip)]
     #[secondary_key]
     pub ancestor_id_local: Option<String>,
+    pub user_id: String,
+    pub action: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Operator {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    pub timestamp: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<i64>,
     pub user_id: String,
     pub action: String,
 }
@@ -179,7 +188,7 @@ impl Default for Connectivity {
     }
 }
 
-impl Default for Operator {
+impl Default for OperatorLocal {
     fn default() -> Self {
         Self {
             id: None,
@@ -194,7 +203,20 @@ impl Default for Operator {
     }
 }
 
-impl AncestorLocal for Operator {
+impl Default for Operator {
+    fn default() -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            timestamp: None,
+            session_id: None,
+            user_id: String::new(),
+            action: String::new(),
+        }
+    }
+}
+
+impl AncestorLocal for OperatorLocal {
     fn ancestor_id_local(&self) -> Option<String> {
         self.ancestor_id_local.clone()
     }
@@ -238,7 +260,7 @@ impl Syncable for Connectivity {
     fn set_id_local(&mut self, _id_local: String) {}
 }
 
-impl Syncable for Operator {
+impl Syncable for OperatorLocal {
     fn id(&self) -> Option<i64> {
         self.id
     }
@@ -253,6 +275,24 @@ impl Syncable for Operator {
 
     fn set_id_local(&mut self, id_local: String) {
         self.id_local = Some(id_local);
+    }
+}
+
+impl Syncable for Operator {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        None // API struct doesn't have id_local
+    }
+
+    fn set_id_local(&mut self, _id_local: String) {
+        // API struct doesn't have id_local, so this is a no-op
     }
 }
 
@@ -394,7 +434,35 @@ impl ConnectivityLocal {
     }
 }
 
-impl Operator {
+impl From<OperatorLocal> for Operator {
+    fn from(local: OperatorLocal) -> Self {
+        Operator {
+            id: local.id,
+            created_at: local.created_at,
+            timestamp: local.timestamp,
+            session_id: local.session_id,
+            user_id: local.user_id,
+            action: local.action,
+        }
+    }
+}
+
+impl From<Operator> for OperatorLocal {
+    fn from(operator: Operator) -> Self {
+        OperatorLocal {
+            id: operator.id,
+            id_local: None, // API structs don't have id_local
+            created_at: operator.created_at,
+            timestamp: operator.timestamp,
+            session_id: operator.session_id,
+            ancestor_id_local: None, // API structs don't have ancestor_id_local
+            user_id: operator.user_id,
+            action: operator.action,
+        }
+    }
+}
+
+impl OperatorLocal {
     pub fn new(user_id: String, action: String, session_id: Option<i64>) -> Self {
         Self {
             id: None,
@@ -403,6 +471,19 @@ impl Operator {
             timestamp: Some(Utc::now().to_rfc3339()),
             session_id,
             ancestor_id_local: None,
+            user_id,
+            action,
+        }
+    }
+}
+
+impl Operator {
+    pub fn new(user_id: String, action: String, session_id: Option<i64>) -> Self {
+        Self {
+            id: None,
+            created_at: None,
+            timestamp: Some(Utc::now().to_rfc3339()),
+            session_id,
             user_id,
             action,
         }

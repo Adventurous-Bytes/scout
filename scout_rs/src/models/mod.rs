@@ -9,6 +9,7 @@ pub mod data {
     // Type aliases pointing to the latest versions
     pub type ConnectivityLocal = super::v2::ConnectivityLocal;
     pub type Connectivity = super::v2::Connectivity;
+    pub type OperatorLocal = super::v2::OperatorLocal; // New model in v2
     pub type Operator = super::v2::Operator; // New model in v2
 
     // Other models that haven't changed stay at v1

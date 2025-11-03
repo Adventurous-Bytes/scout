@@ -1,8 +1,8 @@
 use scout_rs::client::*;
 use scout_rs::db_client::DatabaseConfig;
 use scout_rs::models::{
-    data, Connectivity, Event, Heartbeat, MediaType, Plan, PlanType, ResponseScoutStatus, Session,
-    Syncable, Tag, TagObservationType,
+    data, AncestorLocal, Connectivity, Event, Heartbeat, MediaType, Plan, PlanType,
+    ResponseScoutStatus, Session, Syncable, Tag, TagObservationType,
 };
 use std::env;
 
@@ -2512,7 +2512,7 @@ fn test_operator_model() {
 
 #[test]
 fn test_operator_syncable_trait() {
-    let mut operator = data::v2::Operator::default();
+    let mut operator = data::v2::OperatorLocal::default();
 
     // Test Syncable trait implementation
     assert_eq!(operator.id(), None);
@@ -2526,7 +2526,7 @@ fn test_operator_syncable_trait() {
 
 #[test]
 fn test_operator_default() {
-    let operator = data::v2::Operator::default();
+    let operator = data::v2::OperatorLocal::default();
 
     assert_eq!(operator.id, None);
     assert_eq!(operator.id_local, None);
@@ -2535,6 +2535,67 @@ fn test_operator_default() {
     assert_eq!(operator.session_id, None);
     assert_eq!(operator.user_id, String::new());
     assert_eq!(operator.action, String::new());
+}
+
+#[test]
+fn test_operator_local_to_remote_conversion() {
+    // Test conversion from OperatorLocal to Operator (for remote sync)
+    let mut operator_local = data::v2::OperatorLocal::default();
+    operator_local.set_id(42);
+    operator_local.set_id_local("local_123".to_string());
+    operator_local.set_ancestor_id_local("session_456".to_string());
+    operator_local.created_at = Some("2023-01-01T10:00:00Z".to_string());
+    operator_local.timestamp = Some("2023-01-01T10:15:00Z".to_string());
+    operator_local.session_id = Some(789);
+    operator_local.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string();
+    operator_local.action = "test_action".to_string();
+
+    // Convert to remote format
+    let operator_remote = data::v2::Operator::from(operator_local.clone());
+
+    // Remote should have same core data but no local-only fields
+    assert_eq!(operator_remote.id, Some(42));
+    assert_eq!(
+        operator_remote.created_at,
+        Some("2023-01-01T10:00:00Z".to_string())
+    );
+    assert_eq!(
+        operator_remote.timestamp,
+        Some("2023-01-01T10:15:00Z".to_string())
+    );
+    assert_eq!(operator_remote.session_id, Some(789));
+    assert_eq!(
+        operator_remote.user_id,
+        "123e4567-e89b-12d3-a456-426614174000"
+    );
+    assert_eq!(operator_remote.action, "test_action");
+
+    // Remote should NOT have local-only fields (they're not in the struct)
+    // This is enforced by the type system - Operator doesn't have these fields
+
+    // Test conversion back from remote to local
+    let operator_local_converted = data::v2::OperatorLocal::from(operator_remote);
+
+    // Should have same core data
+    assert_eq!(operator_local_converted.id, Some(42));
+    assert_eq!(
+        operator_local_converted.created_at,
+        Some("2023-01-01T10:00:00Z".to_string())
+    );
+    assert_eq!(
+        operator_local_converted.timestamp,
+        Some("2023-01-01T10:15:00Z".to_string())
+    );
+    assert_eq!(operator_local_converted.session_id, Some(789));
+    assert_eq!(
+        operator_local_converted.user_id,
+        "123e4567-e89b-12d3-a456-426614174000"
+    );
+    assert_eq!(operator_local_converted.action, "test_action");
+
+    // Local-only fields should be None after conversion from remote
+    assert_eq!(operator_local_converted.id_local, None);
+    assert_eq!(operator_local_converted.ancestor_id_local, None);
 }
 
 #[test]
