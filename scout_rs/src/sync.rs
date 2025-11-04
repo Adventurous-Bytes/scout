@@ -2125,7 +2125,7 @@ mod tests {
         completed_operator.id = Some(67890); // Has remote ID
         completed_operator.session_id = Some(12345);
         completed_operator.set_ancestor_id_local("completed_session".to_string());
-        completed_operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string();
+        completed_operator.user_id = "2205a997-c2b5-469a-8efb-6348f67b86e6".to_string();
         completed_operator.action = "test_clean_action".to_string();
         completed_operator.timestamp = Some("2023-01-01T10:20:00Z".to_string());
 
@@ -2246,7 +2246,7 @@ mod tests {
         operator.set_id_local("flush_test_operator".to_string());
         operator.session_id = None; // Will be updated after session sync
         operator.set_ancestor_id_local("flush_test_session".to_string());
-        operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string(); // Valid UUID format
+        operator.user_id = "2205a997-c2b5-469a-8efb-6348f67b86e6".to_string(); // Real user ID
         operator.action = "test_flush_action".to_string();
         operator.timestamp = Some("2023-01-01T10:15:00Z".to_string());
 
@@ -3212,7 +3212,7 @@ mod tests {
         operator.set_id_local("late_operator_1".to_string());
         operator.session_id = None; // Should get populated by our fix
         operator.set_ancestor_id_local("session_synced_first".to_string());
-        operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string(); // Valid UUID format
+        operator.user_id = "2205a997-c2b5-469a-8efb-6348f67b86e6".to_string(); // Real user ID
         operator.action = "late_test_action".to_string();
         operator.timestamp = Some("2023-01-01T10:20:00Z".to_string());
 
