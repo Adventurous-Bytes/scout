@@ -1059,6 +1059,21 @@ impl SyncEngine {
             }
         }
 
+        // Check operators entries
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
+            if let Ok(operator) = raw_operator {
+                if operator.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    if operator.id.is_none() {
+                        tracing::debug!(
+                            "Session {} has operator without remote ID",
+                            session_local_id
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+
         // Check events and their tags
         for raw_event in r.scan().primary::<EventLocal>()?.all()? {
             if let Ok(event) = raw_event {
@@ -1107,6 +1122,7 @@ impl SyncEngine {
         let mut tags_to_remove = Vec::new();
         let mut events_to_remove = Vec::new();
         let mut connectivity_to_remove = Vec::new();
+        let mut operators_to_remove = Vec::new();
 
         // Collect events for this session
         for raw_event in r.scan().primary::<EventLocal>()?.all()? {
@@ -1139,6 +1155,15 @@ impl SyncEngine {
             }
         }
 
+        // Collect operators entries
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
+            if let Ok(operator) = raw_operator {
+                if operator.ancestor_id_local.as_deref() == Some(&session_local_id) {
+                    operators_to_remove.push(operator);
+                }
+            }
+        }
+
         drop(r); // Close read transaction
 
         // Now remove all items using write transaction
@@ -1162,17 +1187,24 @@ impl SyncEngine {
             rw.remove(connectivity)?;
         }
 
+        // Remove operators entries
+        let operators_count = operators_to_remove.len();
+        for operator in operators_to_remove {
+            rw.remove(operator)?;
+        }
+
         // Remove the session itself
         rw.remove(session.clone())?;
 
         rw.commit()?;
 
         tracing::info!(
-            "Cleaned session {}: removed {} tags, {} events, {} connectivity entries, and 1 session",
+            "Cleaned session {}: removed {} tags, {} events, {} connectivity entries, {} operators, and 1 session",
             session_local_id,
             tags_count,
             events_count,
-            connectivity_count
+            connectivity_count,
+            operators_count
         );
 
         Ok(())
@@ -2088,17 +2120,28 @@ mod tests {
         completed_tag.set_ancestor_id_local("completed_event".to_string());
         completed_tag.class_name = "test_animal".to_string();
 
+        let mut completed_operator = data::v2::OperatorLocal::default();
+        completed_operator.set_id_local("completed_operator".to_string());
+        completed_operator.id = Some(67890); // Has remote ID
+        completed_operator.session_id = Some(12345);
+        completed_operator.set_ancestor_id_local("completed_session".to_string());
+        completed_operator.user_id = "123e4567-e89b-12d3-a456-426614174000".to_string();
+        completed_operator.action = "test_clean_action".to_string();
+        completed_operator.timestamp = Some("2023-01-01T10:20:00Z".to_string());
+
         // Insert all entities
         sync_engine.upsert_items(vec![completed_session, incomplete_session])?;
         sync_engine.upsert_items(vec![completed_connectivity])?;
         sync_engine.upsert_items(vec![completed_event])?;
         sync_engine.upsert_items(vec![completed_tag])?;
+        sync_engine.upsert_items(vec![completed_operator])?;
 
         // Verify initial state
         assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
         assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 1);
 
         // Run clean operation
         sync_engine.clean().await?;
@@ -2108,6 +2151,7 @@ mod tests {
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 0); // Removed
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 0); // Removed
         assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 0); // Removed
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 0); // Removed
 
         // Verify the remaining session is the incomplete one
         let r = sync_engine.database.r_transaction()?;
