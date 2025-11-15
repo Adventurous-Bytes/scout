@@ -2,12 +2,13 @@
 
 import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { addDevice, deleteDevice, updateDevice } from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { IDevicePrettyLocation } from "../types/db";
 import { RootState } from "../store/scout";
+import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -23,9 +24,12 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeDevices(
   scoutSupabase: SupabaseClient<Database>,
-) {
+): RealtimeData<IDevicePrettyLocation>[] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
+  const [newDeviceItems, setNewDeviceItems] = useState<
+    RealtimeData<IDevicePrettyLocation>[]
+  >([]);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -38,20 +42,48 @@ export function useScoutRealtimeDevices(
 
       const data = payload.payload;
 
+      const deviceData = data.record || data.old_record;
+      if (!deviceData) return;
+
+      let operation: EnumRealtimeOperation;
       switch (data.operation) {
         case "INSERT":
-          if (data.record) dispatch(addDevice(data.record));
+          operation = EnumRealtimeOperation.INSERT;
+          if (data.record) {
+            console.log("[Devices] New device received:", data.record);
+            dispatch(addDevice(data.record));
+          }
           break;
         case "UPDATE":
-          if (data.record) dispatch(updateDevice(data.record));
+          operation = EnumRealtimeOperation.UPDATE;
+          if (data.record) {
+            dispatch(updateDevice(data.record));
+          }
           break;
         case "DELETE":
-          if (data.old_record) dispatch(deleteDevice(data.old_record));
+          operation = EnumRealtimeOperation.DELETE;
+          if (data.old_record) {
+            dispatch(deleteDevice(data.old_record));
+          }
           break;
+        default:
+          return;
       }
+
+      const realtimeData: RealtimeData<IDevicePrettyLocation> = {
+        data: deviceData,
+        operation,
+      };
+
+      setNewDeviceItems((prev) => [realtimeData, ...prev]);
     },
     [dispatch],
   );
+
+  // Clear new items when herd changes
+  const clearNewItems = useCallback(() => {
+    setNewDeviceItems([]);
+  }, []);
 
   const cleanupChannels = () => {
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
@@ -74,6 +106,9 @@ export function useScoutRealtimeDevices(
   useEffect(() => {
     cleanupChannels();
 
+    // Clear previous items when switching herds
+    clearNewItems();
+
     // Create devices channel for active herd
     if (activeHerdId) {
       const channel = createDevicesChannel(activeHerdId);
@@ -81,5 +116,7 @@ export function useScoutRealtimeDevices(
     }
 
     return cleanupChannels;
-  }, [activeHerdId]);
+  }, [activeHerdId, clearNewItems]);
+
+  return newDeviceItems;
 }

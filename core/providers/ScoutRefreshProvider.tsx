@@ -56,10 +56,6 @@ export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
     console.log("[ScoutRefreshProvider] Creating Supabase client");
     return createBrowserClient<Database>(urlRef.current, anonKeyRef.current);
   }, []); // Empty dependency array ensures this only runs once
-
-  // Use the enhanced DB listener with connection status
-  useScoutRealtimeConnectivity(supabaseClient);
-  useScoutRealtimeDevices(supabaseClient);
   useScoutRefresh();
 
   // // Log connection status changes for debugging
