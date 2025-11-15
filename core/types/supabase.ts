@@ -862,6 +862,45 @@ export type Database = {
       }
     }
     Functions: {
+      analyze_device_heartbeats: {
+        Args: {
+          p_device_id: number
+          p_lookback_minutes?: number
+          p_window_minutes?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["device_heartbeat_analysis"]
+        SetofOptions: {
+          from: "*"
+          to: "device_heartbeat_analysis"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      analyze_herd_device_heartbeats: {
+        Args: {
+          p_device_types?: Database["public"]["Enums"]["device_type"][]
+          p_herd_id: number
+          p_lookback_minutes?: number
+          p_window_minutes?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["device_heartbeat_analysis"][]
+        SetofOptions: {
+          from: "*"
+          to: "device_heartbeat_analysis"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      check_realtime_schema_status: {
+        Args: never
+        Returns: {
+          check_type: string
+          details: string
+          schema_name: string
+          status: string
+          table_name: string
+        }[]
+      }
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
@@ -978,6 +1017,22 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_herd_uptime_summary: {
+        Args: {
+          p_device_types?: Database["public"]["Enums"]["device_type"][]
+          p_herd_id: number
+          p_lookback_minutes?: number
+          p_window_minutes?: number
+        }
+        Returns: {
+          average_heartbeat_interval: number
+          offline_devices: number
+          online_devices: number
+          overall_uptime_percentage: number
+          total_devices: number
+          total_heartbeats: number
+        }[]
+      }
       get_sessions_with_coordinates: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
@@ -1071,6 +1126,19 @@ export type Database = {
         h12_index: string | null
         h11_index: string | null
         battery_percentage: number | null
+      }
+      device_heartbeat_analysis: {
+        device_id: number | null
+        is_online: boolean | null
+        last_heartbeat_time: string | null
+        minutes_since_last_heartbeat: number | null
+        heartbeat_history: boolean[] | null
+        uptime_percentage: number | null
+        heartbeat_intervals: number[] | null
+        average_heartbeat_interval: number | null
+        total_heartbeats: number | null
+        analysis_window_start: string | null
+        analysis_window_end: string | null
       }
       device_pretty_location: {
         id: number | null

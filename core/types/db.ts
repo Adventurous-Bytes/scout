@@ -53,6 +53,12 @@ export type ISessionWithCoordinates =
 export type IConnectivityWithCoordinates =
   Database["public"]["CompositeTypes"]["connectivity_with_coordinates"];
 
+// Heartbeat analysis function return types
+export type IDeviceHeartbeatAnalysis =
+  Database["public"]["CompositeTypes"]["device_heartbeat_analysis"];
+export type IHerdUptimeSummary =
+  Database["public"]["Functions"]["get_herd_uptime_summary"]["Returns"][0];
+
 // Custom types that extend Supabase types
 export interface IZoneWithActions extends IZone {
   actions: IAction[];
