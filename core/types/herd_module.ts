@@ -104,60 +104,8 @@ export class HerdModule {
     const startTime = Date.now();
 
     try {
-      // load devices
-      let response_new_devices = await get_devices_by_herd(herd.id, client);
-      if (
-        response_new_devices.status == EnumWebResponse.ERROR ||
-        !response_new_devices.data
-      ) {
-        console.warn(`[HerdModule] No devices found for herd ${herd.id}`);
-        return new HerdModule(herd, [], [], Date.now());
-      }
-      const new_devices = response_new_devices.data;
-
-      // get api keys and events for all devices in batch
-      let recent_events_batch: {
-        [device_id: number]: IEventAndTagsPrettyLocation[];
-      } = {};
-      if (new_devices.length > 0) {
-        try {
-          const device_ids = new_devices.map((device) => device.id ?? 0);
-
-          // Load API keys and events in parallel
-          const [api_keys_batch, events_response] = await Promise.all([
-            server_list_api_keys_batch(device_ids),
-            server_get_events_and_tags_for_devices_batch(device_ids, 1),
-          ]);
-
-          // Assign API keys to devices
-          for (let i = 0; i < new_devices.length; i++) {
-            const device_id = new_devices[i].id ?? 0;
-            new_devices[i].api_keys_scout = api_keys_batch[device_id] || [];
-          }
-
-          // Process events response
-          if (
-            events_response.status === EnumWebResponse.SUCCESS &&
-            events_response.data
-          ) {
-            recent_events_batch = events_response.data;
-          }
-        } catch (error) {
-          console.error(`[HerdModule] Batch load error:`, error);
-          // Continue without API keys and events
-        }
-      }
-
-      // Run all remaining requests in parallel with individual error handling
-      const [
-        res_zones,
-        res_user_roles,
-        total_event_count,
-        res_plans,
-        res_sessions,
-        res_layers,
-        res_providers,
-      ] = await Promise.allSettled([
+      // Start loading herd-level data in parallel with devices
+      const herdLevelPromises = Promise.allSettled([
         server_get_more_zones_and_actions_for_herd(herd.id, 0, 10).catch(
           (error) => {
             console.warn(
@@ -200,23 +148,53 @@ export class HerdModule {
         }),
       ]);
 
-      // Assign recent events to devices from batch results
-      for (let i = 0; i < new_devices.length; i++) {
+      // Load devices
+      const devicesPromise = get_devices_by_herd(herd.id, client);
+
+      // Wait for both devices and herd-level data
+      const [deviceResponse, herdLevelResults] = await Promise.all([
+        devicesPromise,
+        herdLevelPromises,
+      ]);
+
+      // Check devices response
+      if (
+        deviceResponse.status == EnumWebResponse.ERROR ||
+        !deviceResponse.data
+      ) {
+        console.warn(`[HerdModule] No devices found for herd ${herd.id}`);
+        return new HerdModule(herd, [], [], Date.now());
+      }
+      const new_devices = deviceResponse.data;
+
+      // Load API keys for devices if we have any
+      if (new_devices.length > 0) {
         try {
-          const device_id = new_devices[i].id ?? 0;
-          const events = recent_events_batch[device_id];
-          if (events) {
-            new_devices[i].recent_events = events;
+          const device_ids = new_devices.map((device) => device.id ?? 0);
+          const api_keys_batch = await server_list_api_keys_batch(device_ids);
+
+          // Assign API keys to devices
+          for (let i = 0; i < new_devices.length; i++) {
+            const device_id = new_devices[i].id ?? 0;
+            new_devices[i].api_keys_scout = api_keys_batch[device_id] || [];
           }
         } catch (error) {
-          console.warn(
-            `Failed to process events for device ${new_devices[i].id}:`,
-            error,
-          );
+          console.error(`[HerdModule] Failed to load API keys:`, error);
+          // Continue without API keys
         }
       }
 
-      // Extract data with safe fallbacks
+      // Extract herd-level data with safe fallbacks
+      const [
+        res_zones,
+        res_user_roles,
+        total_event_count,
+        res_plans,
+        res_sessions,
+        res_layers,
+        res_providers,
+      ] = herdLevelResults;
+
       const zones =
         res_zones.status === "fulfilled" && res_zones.value?.data
           ? res_zones.value.data
