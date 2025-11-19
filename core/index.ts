@@ -40,6 +40,7 @@ export * from "./helpers/eventUtils";
 export * from "./helpers/cache";
 export * from "./helpers/heartbeats";
 export * from "./helpers/providers";
+export * from "./helpers/operators";
 
 // Hooks
 export * from "./hooks/useScoutRealtimeConnectivity";
