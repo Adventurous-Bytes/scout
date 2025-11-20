@@ -33,6 +33,11 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
         .define::<data::v2::ConnectivityLocal>()
         .expect("Failed to define v2 ConnectivityLocal model");
 
+    // Define v3 connectivity model (new data with frequency_hz, bandwidth_hz, associated_station)
+    models
+        .define::<data::v3::ConnectivityLocal>()
+        .expect("Failed to define v3 ConnectivityLocal model");
+
     // Define new Operator model
     models
         .define::<data::v2::OperatorLocal>()

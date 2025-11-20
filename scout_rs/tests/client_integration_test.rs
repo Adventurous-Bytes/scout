@@ -1469,6 +1469,9 @@ async fn test_complete_data_collection_workflow() {
                     "H12_INDEX".to_string(),
                     "H11_INDEX".to_string(),
                     Some(85.0), // battery_percentage
+                    None,       // frequency_hz
+                    None,       // bandwidth_hz
+                    None,       // associated_station
                 );
 
                 let connectivity_result = client.create_connectivity(&connectivity).await;
@@ -1935,6 +1938,9 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             "h12index1".to_string(),
             "h11index1".to_string(),
             Some(90.0), // battery_percentage
+            None,       // frequency_hz
+            None,       // bandwidth_hz
+            None,       // associated_station
         ),
         Connectivity::new(
             Some(session_id),
@@ -1950,6 +1956,9 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             "h12index2".to_string(),
             "h11index2".to_string(),
             Some(88.5), // battery_percentage
+            None,       // frequency_hz
+            None,       // bandwidth_hz
+            None,       // associated_station
         ),
     ];
 

@@ -1,5 +1,6 @@
 pub mod v1;
 pub mod v2;
+pub mod v3;
 
 // ===== VERSIONED MODELS FOLLOWING NATIVE_DB PATTERN =====
 // Following the pattern from the native_db documentation:
@@ -7,8 +8,8 @@ pub mod v2;
 
 pub mod data {
     // Type aliases pointing to the latest versions
-    pub type ConnectivityLocal = super::v2::ConnectivityLocal;
-    pub type Connectivity = super::v2::Connectivity;
+    pub type ConnectivityLocal = super::v3::ConnectivityLocal;
+    pub type Connectivity = super::v3::Connectivity;
     pub type OperatorLocal = super::v2::OperatorLocal; // New model in v2
     pub type Operator = super::v2::Operator; // New model in v2
 
@@ -31,7 +32,7 @@ pub mod data {
     pub type Heartbeat = super::v1::Heartbeat;
 
     // Re-export versioned modules for direct access
-    pub use super::{v1, v2};
+    pub use super::{v1, v2, v3};
 }
 
 // Re-export for backward compatibility at the top level
