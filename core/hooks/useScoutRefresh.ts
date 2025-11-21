@@ -156,6 +156,81 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     [],
   );
 
+  // Helper function to find what specifically changed for debugging
+  const findBusinessDataChanges = useCallback(
+    (newData: any[], currentData: any[]) => {
+      if (!Array.isArray(newData) || !Array.isArray(currentData)) {
+        return `Array type mismatch: new=${Array.isArray(newData)}, current=${Array.isArray(currentData)}`;
+      }
+
+      if (newData.length !== currentData.length) {
+        return `Array length: ${currentData.length} → ${newData.length}`;
+      }
+
+      // Sort and normalize both for consistent comparison
+      const sortedNew = normalizeHerdModulesForComparison(
+        sortHerdModulesById(newData),
+      );
+      const sortedCurrent = normalizeHerdModulesForComparison(
+        sortHerdModulesById(currentData),
+      );
+
+      const changes: string[] = [];
+
+      for (let i = 0; i < sortedNew.length; i++) {
+        const newHerd = sortedNew[i];
+        const currentHerd = sortedCurrent[i];
+
+        if (!newHerd || !currentHerd) continue;
+
+        const herdName =
+          newHerd.herd?.name || newHerd.name || `herd-${newHerd.herd?.id || i}`;
+
+        // Check key business fields
+        const businessFields = [
+          "total_events",
+          "total_events_with_filters",
+          "events_page_index",
+        ];
+
+        businessFields.forEach((field) => {
+          if (newHerd[field] !== currentHerd[field]) {
+            changes.push(
+              `${herdName}.${field}: ${currentHerd[field]} → ${newHerd[field]}`,
+            );
+          }
+        });
+
+        // Check array lengths
+        const arrayFields = [
+          "devices",
+          "events",
+          "plans",
+          "zones",
+          "sessions",
+          "layers",
+          "providers",
+        ];
+        arrayFields.forEach((field) => {
+          const newArray = newHerd[field];
+          const currentArray = currentHerd[field];
+          if (Array.isArray(newArray) && Array.isArray(currentArray)) {
+            if (newArray.length !== currentArray.length) {
+              changes.push(
+                `${herdName}.${field}[]: ${currentArray.length} → ${newArray.length}`,
+              );
+            }
+          }
+        });
+      }
+
+      return changes.length > 0
+        ? changes.join(", ")
+        : "No specific changes identified";
+    },
+    [normalizeHerdModulesForComparison, sortHerdModulesById],
+  );
+
   // Helper function to conditionally dispatch only if business data has changed
   const conditionalDispatch = useCallback(
     (
@@ -185,6 +260,13 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         console.log(
           `[useScoutRefresh] ${dataType} business data changed, updating store`,
         );
+
+        // Add debugging for unexpected business changes
+        if (skipTimestampOnlyUpdates && dataType.includes("Herd modules")) {
+          const changes = findBusinessDataChanges(newData, currentData);
+          console.log(`[useScoutRefresh] ${dataType} changes: ${changes}`);
+        }
+
         dispatch(actionCreator(newData)); // Always dispatch original unsorted data
         return true;
       } else {
@@ -199,6 +281,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       deepEqual,
       sortHerdModulesById,
       normalizeHerdModulesForComparison,
+      findBusinessDataChanges,
     ],
   );
 
