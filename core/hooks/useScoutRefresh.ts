@@ -129,6 +129,17 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     [],
   );
 
+  // Helper function to sort herd modules consistently by ID
+  const sortHerdModulesById = useCallback((herdModules: any[]) => {
+    if (!Array.isArray(herdModules)) return herdModules;
+
+    return [...herdModules].sort((a, b) => {
+      const aId = a?.herd?.id || 0;
+      const bId = b?.herd?.id || 0;
+      return aId - bId;
+    });
+  }, []);
+
   // Helper function to find differences between herd modules for debugging
   const findHerdModulesDifferences = useCallback(
     (newData: any[], currentData: any[]) => {
@@ -140,15 +151,32 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         return `Array length mismatch: new=${newData.length}, current=${currentData.length}`;
       }
 
+      // Sort both arrays by herd ID for consistent comparison
+      const sortedNew = sortHerdModulesById(newData);
+      const sortedCurrent = sortHerdModulesById(currentData);
+
       const differences: string[] = [];
 
-      for (let i = 0; i < newData.length; i++) {
-        const newHerd = newData[i];
-        const currentHerd = currentData[i];
+      for (let i = 0; i < sortedNew.length; i++) {
+        const newHerd = sortedNew[i];
+        const currentHerd = sortedCurrent[i];
 
         if (!newHerd || !currentHerd) {
           differences.push(`Herd ${i}: null/undefined mismatch`);
           continue;
+        }
+
+        // Get herd identifiers for better debugging
+        const newHerdId = newHerd.herd?.id || "unknown";
+        const currentHerdId = currentHerd.herd?.id || "unknown";
+        const newHerdName = newHerd.herd?.name || "unknown";
+        const currentHerdName = currentHerd.herd?.name || "unknown";
+
+        // Check if herd IDs match (data shuffling detection)
+        if (newHerdId !== currentHerdId) {
+          differences.push(
+            `Herd ${i}: ID mismatch - expected ${currentHerdId}(${currentHerdName}) got ${newHerdId}(${newHerdName})`,
+          );
         }
 
         // Check top-level fields
@@ -162,7 +190,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         fieldsToCheck.forEach((field) => {
           if (newHerd[field] !== currentHerd[field]) {
             differences.push(
-              `Herd ${i}.${field}: ${currentHerd[field]} → ${newHerd[field]}`,
+              `Herd ${i}(${newHerdName}).${field}: ${currentHerd[field]} → ${newHerd[field]}`,
             );
           }
         });
@@ -183,7 +211,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
           if (Array.isArray(newArray) && Array.isArray(currentArray)) {
             if (newArray.length !== currentArray.length) {
               differences.push(
-                `Herd ${i}.${field}[]: length ${currentArray.length} → ${newArray.length}`,
+                `Herd ${i}(${newHerdName}).${field}[]: length ${currentArray.length} → ${newArray.length}`,
               );
             }
           }
@@ -206,7 +234,16 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       dataType: string,
       enableDebugging: boolean = false,
     ) => {
-      if (!deepEqual(newData, currentData)) {
+      // For herd modules, sort both datasets by ID before comparison
+      let dataToCompare = newData;
+      let currentToCompare = currentData;
+
+      if (dataType.includes("Herd modules")) {
+        dataToCompare = sortHerdModulesById(newData);
+        currentToCompare = sortHerdModulesById(currentData);
+      }
+
+      if (!deepEqual(dataToCompare, currentToCompare)) {
         console.log(
           `[useScoutRefresh] ${dataType} data changed, updating store`,
         );
@@ -219,7 +256,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
           );
         }
 
-        dispatch(actionCreator(newData));
+        dispatch(actionCreator(newData)); // Always dispatch original unsorted data
         return true;
       } else {
         console.log(
@@ -228,7 +265,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         return false;
       }
     },
-    [dispatch, deepEqual, findHerdModulesDifferences],
+    [dispatch, deepEqual, findHerdModulesDifferences, sortHerdModulesById],
   );
 
   // Helper function to handle IndexedDB errors - memoized for stability
