@@ -1,5 +1,7 @@
 import { useEffect, useCallback, useRef } from "react";
-import { useAppDispatch, useHerdModules, useUser } from "../store/hooks";
+import { useAppDispatch } from "../store/hooks";
+import { useStore } from "react-redux";
+import { RootState } from "../store/scout";
 import {
   EnumScoutStateStatus,
   setHerdModules,
@@ -57,8 +59,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     cacheTtlMs = 24 * 60 * 60 * 1000, // 24 hours default (1 day)
   } = options;
   const dispatch = useAppDispatch();
-  const currentHerdModules = useHerdModules();
-  const currentUser = useUser();
+  const store = useStore<RootState>();
   const refreshInProgressRef = useRef(false);
 
   // Refs to store timing measurements
@@ -72,37 +73,51 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   });
 
   // Helper function for deep comparison of objects
-  const deepEqual = useCallback((obj1: any, obj2: any): boolean => {
-    if (obj1 === obj2) return true;
+  const deepEqual = useCallback(
+    (obj1: any, obj2: any, visited = new WeakMap()): boolean => {
+      if (obj1 === obj2) return true;
 
-    if (obj1 == null || obj2 == null) return obj1 === obj2;
+      if (obj1 == null || obj2 == null) return obj1 === obj2;
 
-    if (typeof obj1 !== typeof obj2) return false;
+      if (typeof obj1 !== typeof obj2) return false;
 
-    if (typeof obj1 !== "object") return obj1 === obj2;
+      if (typeof obj1 !== "object") return obj1 === obj2;
 
-    if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
-
-    if (Array.isArray(obj1)) {
-      if (obj1.length !== obj2.length) return false;
-      for (let i = 0; i < obj1.length; i++) {
-        if (!deepEqual(obj1[i], obj2[i])) return false;
+      // Handle circular references
+      if (visited.has(obj1)) {
+        return visited.get(obj1) === obj2;
       }
+      visited.set(obj1, obj2);
+
+      // Handle Date objects
+      if (obj1 instanceof Date && obj2 instanceof Date) {
+        return obj1.getTime() === obj2.getTime();
+      }
+
+      if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
+
+      if (Array.isArray(obj1)) {
+        if (obj1.length !== obj2.length) return false;
+        for (let i = 0; i < obj1.length; i++) {
+          if (!deepEqual(obj1[i], obj2[i], visited)) return false;
+        }
+        return true;
+      }
+
+      const keys1 = Object.keys(obj1);
+      const keys2 = Object.keys(obj2);
+
+      if (keys1.length !== keys2.length) return false;
+
+      for (const key of keys1) {
+        if (!keys2.includes(key)) return false;
+        if (!deepEqual(obj1[key], obj2[key], visited)) return false;
+      }
+
       return true;
-    }
-
-    const keys1 = Object.keys(obj1);
-    const keys2 = Object.keys(obj2);
-
-    if (keys1.length !== keys2.length) return false;
-
-    for (const key of keys1) {
-      if (!keys2.includes(key)) return false;
-      if (!deepEqual(obj1[key], obj2[key])) return false;
-    }
-
-    return true;
-  }, []);
+    },
+    [],
+  );
 
   // Helper function to conditionally dispatch only if data has changed
   const conditionalDispatch = useCallback(
@@ -128,37 +143,40 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     [dispatch, deepEqual],
   );
 
-  // Helper function to handle IndexedDB errors
-  const handleIndexedDbError = async (
-    error: unknown,
-    operation: string,
-    retryFn?: () => Promise<void>,
-  ) => {
-    if (
-      error instanceof Error &&
-      (error.message.includes("object store") ||
-        error.message.includes("NotFoundError"))
-    ) {
-      console.log(
-        `[useScoutRefresh] Attempting database reset due to ${operation} error...`,
-      );
-      try {
-        await scoutCache.resetDatabase();
-        console.log("[useScoutRefresh] Database reset successful");
-        if (retryFn) {
-          await retryFn();
-          console.log(
-            `[useScoutRefresh] ${operation} successful after database reset`,
+  // Helper function to handle IndexedDB errors - memoized for stability
+  const handleIndexedDbError = useCallback(
+    async (
+      error: unknown,
+      operation: string,
+      retryFn?: () => Promise<void>,
+    ) => {
+      if (
+        error instanceof Error &&
+        (error.message.includes("object store") ||
+          error.message.includes("NotFoundError"))
+      ) {
+        console.log(
+          `[useScoutRefresh] Attempting database reset due to ${operation} error...`,
+        );
+        try {
+          await scoutCache.resetDatabase();
+          console.log("[useScoutRefresh] Database reset successful");
+          if (retryFn) {
+            await retryFn();
+            console.log(
+              `[useScoutRefresh] ${operation} successful after database reset`,
+            );
+          }
+        } catch (resetError) {
+          console.error(
+            `[useScoutRefresh] Database reset and retry failed:`,
+            resetError,
           );
         }
-      } catch (resetError) {
-        console.error(
-          `[useScoutRefresh] Database reset and retry failed:`,
-          resetError,
-        );
       }
-    }
-  };
+    },
+    [],
+  );
 
   const handleRefresh = useCallback(async () => {
     // Prevent concurrent refresh calls
@@ -209,6 +227,8 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             );
 
             // Conditionally update the store with cached data if different
+            // Get current state at execution time to avoid dependency issues
+            const currentHerdModules = store.getState().scout.herd_modules;
             const herdModulesChanged = conditionalDispatch(
               cachedHerdModules,
               currentHerdModules,
@@ -232,6 +252,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             dispatch(setUserApiDuration(userApiDuration));
 
             if (res_new_user && res_new_user.data) {
+              const currentUser = store.getState().scout.user;
               conditionalDispatch(
                 res_new_user.data,
                 currentUser,
@@ -301,6 +322,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                     }
 
                     // Conditionally update store with fresh background data
+                    const currentHerdModules =
+                      store.getState().scout.herd_modules;
+                    const currentUser = store.getState().scout.user;
                     conditionalDispatch(
                       backgroundHerdModulesResult.data,
                       currentHerdModules,
@@ -471,6 +495,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Step 4: Conditionally update store with fresh data if different
       const dataProcessingStartTime = Date.now();
 
+      const currentHerdModules = store.getState().scout.herd_modules;
+      const currentUser = store.getState().scout.user;
+
       const herdModulesChanged = conditionalDispatch(
         compatible_new_herd_modules,
         currentHerdModules,
@@ -542,18 +569,20 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         `  - Herd modules: ${timingRefs.current.herdModulesDuration}ms`,
       );
       console.log(`  - User API: ${timingRefs.current.userApiDuration}ms`);
+
+      // Call completion callback even on error for consistency
+      onRefreshComplete?.();
     } finally {
       refreshInProgressRef.current = false;
     }
   }, [
     dispatch,
+    store,
     onRefreshComplete,
     cacheFirst,
     cacheTtlMs,
-    handleIndexedDbError,
-    currentHerdModules,
-    currentUser,
     conditionalDispatch,
+    handleIndexedDbError,
   ]);
 
   useEffect(() => {

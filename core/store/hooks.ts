@@ -1,19 +1,8 @@
 import { useDispatch, useSelector } from "react-redux";
 import { EnumHerdModulesLoadingState } from "../types/herd_module";
-import { RootState } from "./scout";
 
 // Simple wrapper for useDispatch to maintain compatibility
 export const useAppDispatch = useDispatch;
-
-// Selector hook for current herd modules
-export const useHerdModules = () => {
-  return useSelector((state: RootState) => state.scout.herd_modules);
-};
-
-// Selector hook for current user
-export const useUser = () => {
-  return useSelector((state: RootState) => state.scout.user);
-};
 
 // Selector hook for herd modules loading state
 export const useHerdModulesLoadingState = () => {
