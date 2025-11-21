@@ -140,99 +140,30 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     });
   }, []);
 
-  // Helper function to find differences between herd modules for debugging
-  const findHerdModulesDifferences = useCallback(
-    (newData: any[], currentData: any[]) => {
-      if (!Array.isArray(newData) || !Array.isArray(currentData)) {
-        return `Array type mismatch: new=${Array.isArray(newData)}, current=${Array.isArray(currentData)}`;
-      }
+  // Helper function to normalize herd modules for comparison (excludes timestamp metadata)
+  const normalizeHerdModulesForComparison = useCallback(
+    (herdModules: any[]) => {
+      if (!Array.isArray(herdModules)) return herdModules;
 
-      if (newData.length !== currentData.length) {
-        return `Array length mismatch: new=${newData.length}, current=${currentData.length}`;
-      }
+      return herdModules.map((hm) => {
+        if (!hm || typeof hm !== "object") return hm;
 
-      // Sort both arrays by herd ID for consistent comparison
-      const sortedNew = sortHerdModulesById(newData);
-      const sortedCurrent = sortHerdModulesById(currentData);
-
-      const differences: string[] = [];
-
-      for (let i = 0; i < sortedNew.length; i++) {
-        const newHerd = sortedNew[i];
-        const currentHerd = sortedCurrent[i];
-
-        if (!newHerd || !currentHerd) {
-          differences.push(`Herd ${i}: null/undefined mismatch`);
-          continue;
-        }
-
-        // Get herd identifiers for better debugging
-        const newHerdId = newHerd.herd?.id || "unknown";
-        const currentHerdId = currentHerd.herd?.id || "unknown";
-        const newHerdName = newHerd.herd?.name || "unknown";
-        const currentHerdName = currentHerd.herd?.name || "unknown";
-
-        // Check if herd IDs match (data shuffling detection)
-        if (newHerdId !== currentHerdId) {
-          differences.push(
-            `Herd ${i}: ID mismatch - expected ${currentHerdId}(${currentHerdName}) got ${newHerdId}(${newHerdName})`,
-          );
-        }
-
-        // Check top-level fields
-        const fieldsToCheck = [
-          "timestamp_last_refreshed",
-          "total_events",
-          "total_events_with_filters",
-          "events_page_index",
-        ];
-
-        fieldsToCheck.forEach((field) => {
-          if (newHerd[field] !== currentHerd[field]) {
-            differences.push(
-              `Herd ${i}(${newHerdName}).${field}: ${currentHerd[field]} → ${newHerd[field]}`,
-            );
-          }
-        });
-
-        // Check array lengths for nested data
-        const arrayFields = [
-          "devices",
-          "events",
-          "plans",
-          "zones",
-          "sessions",
-          "layers",
-          "providers",
-        ];
-        arrayFields.forEach((field) => {
-          const newArray = newHerd[field];
-          const currentArray = currentHerd[field];
-          if (Array.isArray(newArray) && Array.isArray(currentArray)) {
-            if (newArray.length !== currentArray.length) {
-              differences.push(
-                `Herd ${i}(${newHerdName}).${field}[]: length ${currentArray.length} → ${newArray.length}`,
-              );
-            }
-          }
-        });
-      }
-
-      return differences.length > 0
-        ? differences.join(", ")
-        : "No significant differences found";
+        // Create a copy without timestamp metadata that doesn't represent business data changes
+        const { timestamp_last_refreshed, ...businessData } = hm;
+        return businessData;
+      });
     },
     [],
   );
 
-  // Helper function to conditionally dispatch only if data has changed
+  // Helper function to conditionally dispatch only if business data has changed
   const conditionalDispatch = useCallback(
     (
       newData: any,
       currentData: any,
       actionCreator: (data: any) => any,
       dataType: string,
-      enableDebugging: boolean = false,
+      skipTimestampOnlyUpdates: boolean = false,
     ) => {
       // For herd modules, sort both datasets by ID before comparison
       let dataToCompare = newData;
@@ -241,31 +172,34 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       if (dataType.includes("Herd modules")) {
         dataToCompare = sortHerdModulesById(newData);
         currentToCompare = sortHerdModulesById(currentData);
+
+        // If we want to skip timestamp-only updates, normalize the data for comparison
+        if (skipTimestampOnlyUpdates) {
+          dataToCompare = normalizeHerdModulesForComparison(dataToCompare);
+          currentToCompare =
+            normalizeHerdModulesForComparison(currentToCompare);
+        }
       }
 
       if (!deepEqual(dataToCompare, currentToCompare)) {
         console.log(
-          `[useScoutRefresh] ${dataType} data changed, updating store`,
+          `[useScoutRefresh] ${dataType} business data changed, updating store`,
         );
-
-        // Add debugging for herd modules to see what actually changed
-        if (enableDebugging && dataType.includes("Herd modules")) {
-          const differences = findHerdModulesDifferences(newData, currentData);
-          console.log(
-            `[useScoutRefresh] ${dataType} differences: ${differences}`,
-          );
-        }
-
         dispatch(actionCreator(newData)); // Always dispatch original unsorted data
         return true;
       } else {
         console.log(
-          `[useScoutRefresh] ${dataType} data unchanged, skipping store update`,
+          `[useScoutRefresh] ${dataType} business data unchanged, skipping store update`,
         );
         return false;
       }
     },
-    [dispatch, deepEqual, findHerdModulesDifferences, sortHerdModulesById],
+    [
+      dispatch,
+      deepEqual,
+      sortHerdModulesById,
+      normalizeHerdModulesForComparison,
+    ],
   );
 
   // Helper function to handle IndexedDB errors - memoized for stability
@@ -360,7 +294,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               currentHerdModules,
               setHerdModules,
               "Herd modules (cache)",
-              true, // Enable debugging for herd modules
+              true, // Skip timestamp-only updates
             );
 
             if (herdModulesChanged) {
@@ -445,16 +379,17 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       );
                     }
 
-                    // Conditionally update store with fresh background data using normalized comparison
+                    // Conditionally update store with fresh background data, skip timestamp-only changes
                     const currentHerdModules =
                       store.getState().scout.herd_modules;
                     const currentUser = store.getState().scout.user;
+
                     conditionalDispatch(
                       backgroundHerdModulesResult.data,
                       currentHerdModules,
                       setHerdModules,
                       "Herd modules (background)",
-                      true, // Enable debugging for herd modules
+                      true, // Skip timestamp-only updates
                     );
 
                     if (backgroundUserResult && backgroundUserResult.data) {
@@ -624,7 +559,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         });
       }
 
-      // Step 4: Conditionally update store with fresh data using normalized comparison
+      // Step 4: Conditionally update store with fresh data, skip timestamp-only changes
       const dataProcessingStartTime = Date.now();
 
       const currentHerdModules = store.getState().scout.herd_modules;
@@ -635,7 +570,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         currentHerdModules,
         setHerdModules,
         "Herd modules (fresh API)",
-        true, // Enable debugging for herd modules
+        true, // Skip timestamp-only updates
       );
 
       const userChanged = conditionalDispatch(
