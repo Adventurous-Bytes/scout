@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from "react";
-import { useAppDispatch } from "../store/hooks";
+import { useAppDispatch, useHerdModules, useUser } from "../store/hooks";
 import {
   EnumScoutStateStatus,
   setHerdModules,
@@ -9,7 +9,6 @@ import {
   setHerdModulesApiDuration,
   setUserApiDuration,
   setDataProcessingDuration,
-  setLocalStorageDuration,
   setUser,
   setDataSource,
   setDataSourceInfo,
@@ -58,6 +57,8 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     cacheTtlMs = 24 * 60 * 60 * 1000, // 24 hours default (1 day)
   } = options;
   const dispatch = useAppDispatch();
+  const currentHerdModules = useHerdModules();
+  const currentUser = useUser();
   const refreshInProgressRef = useRef(false);
 
   // Refs to store timing measurements
@@ -66,10 +67,66 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     herdModulesDuration: 0,
     userApiDuration: 0,
     dataProcessingDuration: 0,
-    localStorageDuration: 0,
     cacheLoadDuration: 0,
     cacheSaveDuration: 0,
   });
+
+  // Helper function for deep comparison of objects
+  const deepEqual = useCallback((obj1: any, obj2: any): boolean => {
+    if (obj1 === obj2) return true;
+
+    if (obj1 == null || obj2 == null) return obj1 === obj2;
+
+    if (typeof obj1 !== typeof obj2) return false;
+
+    if (typeof obj1 !== "object") return obj1 === obj2;
+
+    if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
+
+    if (Array.isArray(obj1)) {
+      if (obj1.length !== obj2.length) return false;
+      for (let i = 0; i < obj1.length; i++) {
+        if (!deepEqual(obj1[i], obj2[i])) return false;
+      }
+      return true;
+    }
+
+    const keys1 = Object.keys(obj1);
+    const keys2 = Object.keys(obj2);
+
+    if (keys1.length !== keys2.length) return false;
+
+    for (const key of keys1) {
+      if (!keys2.includes(key)) return false;
+      if (!deepEqual(obj1[key], obj2[key])) return false;
+    }
+
+    return true;
+  }, []);
+
+  // Helper function to conditionally dispatch only if data has changed
+  const conditionalDispatch = useCallback(
+    (
+      newData: any,
+      currentData: any,
+      actionCreator: (data: any) => any,
+      dataType: string,
+    ) => {
+      if (!deepEqual(newData, currentData)) {
+        console.log(
+          `[useScoutRefresh] ${dataType} data changed, updating store`,
+        );
+        dispatch(actionCreator(newData));
+        return true;
+      } else {
+        console.log(
+          `[useScoutRefresh] ${dataType} data unchanged, skipping store update`,
+        );
+        return false;
+      }
+    },
+    [dispatch, deepEqual],
+  );
 
   // Helper function to handle IndexedDB errors
   const handleIndexedDbError = async (
@@ -151,13 +208,21 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               }),
             );
 
-            // Immediately update the store with cached data
-            dispatch(setHerdModules(cachedHerdModules));
-            dispatch(
-              setHerdModulesLoadingState(
-                EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
-              ),
+            // Conditionally update the store with cached data if different
+            const herdModulesChanged = conditionalDispatch(
+              cachedHerdModules,
+              currentHerdModules,
+              setHerdModules,
+              "Herd modules (cache)",
             );
+
+            if (herdModulesChanged) {
+              dispatch(
+                setHerdModulesLoadingState(
+                  EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
+                ),
+              );
+            }
 
             // Always load user data from API
             const userStartTime = Date.now();
@@ -167,7 +232,12 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             dispatch(setUserApiDuration(userApiDuration));
 
             if (res_new_user && res_new_user.data) {
-              dispatch(setUser(res_new_user.data));
+              conditionalDispatch(
+                res_new_user.data,
+                currentUser,
+                setUser,
+                "User (initial)",
+              );
             }
 
             // If cache is fresh, we still background fetch but don't wait
@@ -230,9 +300,19 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       );
                     }
 
-                    // Update store with fresh data
-                    dispatch(setHerdModules(backgroundHerdModulesResult.data));
-                    dispatch(setUser(backgroundUserResult.data));
+                    // Conditionally update store with fresh background data
+                    conditionalDispatch(
+                      backgroundHerdModulesResult.data,
+                      currentHerdModules,
+                      setHerdModules,
+                      "Herd modules (background)",
+                    );
+                    conditionalDispatch(
+                      backgroundUserResult.data,
+                      currentUser,
+                      setUser,
+                      "User (background)",
+                    );
 
                     // Update data source to DATABASE
                     dispatch(setDataSource(EnumDataSource.DATABASE));
@@ -388,26 +468,34 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         });
       }
 
-      // Step 4: Update store with fresh data
+      // Step 4: Conditionally update store with fresh data if different
       const dataProcessingStartTime = Date.now();
 
-      dispatch(setHerdModules(compatible_new_herd_modules));
-      dispatch(setUser(res_new_user.data));
-      dispatch(
-        setHerdModulesLoadingState(
-          EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
-        ),
+      const herdModulesChanged = conditionalDispatch(
+        compatible_new_herd_modules,
+        currentHerdModules,
+        setHerdModules,
+        "Herd modules (fresh API)",
       );
+
+      const userChanged = conditionalDispatch(
+        res_new_user.data,
+        currentUser,
+        setUser,
+        "User (fresh API)",
+      );
+
+      if (herdModulesChanged) {
+        dispatch(
+          setHerdModulesLoadingState(
+            EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
+          ),
+        );
+      }
 
       const dataProcessingDuration = Date.now() - dataProcessingStartTime;
       timingRefs.current.dataProcessingDuration = dataProcessingDuration;
       dispatch(setDataProcessingDuration(dataProcessingDuration));
-
-      // Step 5: Record localStorage timing (no actual localStorage operations)
-      const localStorageStartTime = Date.now();
-      const localStorageDuration = Date.now() - localStorageStartTime;
-      timingRefs.current.localStorageDuration = localStorageDuration;
-      dispatch(setLocalStorageDuration(localStorageDuration));
 
       const loadingDuration = Date.now() - startTime;
       dispatch(setHerdModulesLoadedInMs(loadingDuration));
@@ -422,7 +510,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       console.log(`  - User API: ${userApiDuration}ms`);
       console.log(`  - Cache save: ${timingRefs.current.cacheSaveDuration}ms`);
       console.log(`  - Data processing: ${dataProcessingDuration}ms`);
-      console.log(`  - LocalStorage: ${localStorageDuration}ms`);
       console.log(`  - Cache TTL: ${Math.round(cacheTtlMs / 1000)}s`);
 
       onRefreshComplete?.();
@@ -464,6 +551,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     cacheFirst,
     cacheTtlMs,
     handleIndexedDbError,
+    currentHerdModules,
+    currentUser,
+    conditionalDispatch,
   ]);
 
   useEffect(() => {
