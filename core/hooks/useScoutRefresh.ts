@@ -8,7 +8,8 @@ import {
   setStatus,
   setHerdModulesLoadingState,
   setHerdModulesLoadedInMs,
-  setHerdModulesApiDuration,
+  setHerdModulesApiServerProcessingDuration,
+  setHerdModulesApiTotalRequestDuration,
   setUserApiDuration,
   setDataProcessingDuration,
   setCacheLoadDuration,
@@ -402,9 +403,29 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       (async () => {
                         const start = Date.now();
                         const result = await server_load_herd_modules();
-                        const duration = Date.now() - start;
-                        timingRefs.current.herdModulesDuration = duration;
-                        dispatch(setHerdModulesApiDuration(duration));
+                        const totalDuration = Date.now() - start;
+                        const serverDuration =
+                          result.server_processing_time_ms || totalDuration;
+                        const clientOverhead = totalDuration - serverDuration;
+
+                        console.log(
+                          `[useScoutRefresh] Background API timing breakdown:`,
+                        );
+                        console.log(
+                          `  - Server processing: ${serverDuration}ms`,
+                        );
+                        console.log(`  - Client overhead: ${clientOverhead}ms`);
+                        console.log(`  - Total request: ${totalDuration}ms`);
+
+                        timingRefs.current.herdModulesDuration = serverDuration;
+                        dispatch(
+                          setHerdModulesApiServerProcessingDuration(
+                            serverDuration,
+                          ),
+                        );
+                        dispatch(
+                          setHerdModulesApiTotalRequestDuration(totalDuration),
+                        );
                         return result;
                       })(),
                       (async () => {
@@ -518,9 +539,11 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
           const start = Date.now();
 
           const result = await server_load_herd_modules();
-          const duration = Date.now() - start;
+          const totalDuration = Date.now() - start;
+          const serverDuration =
+            result.server_processing_time_ms || totalDuration;
 
-          return { result, duration, start };
+          return { result, totalDuration, serverDuration, start };
         })(),
         (async () => {
           const start = Date.now();
@@ -544,15 +567,26 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Extract results and timing
       const herdModulesResponse = herdModulesResult.result;
       const res_new_user = userResult.result;
-      const herdModulesDuration = herdModulesResult.duration;
+      const herdModulesServerDuration = herdModulesResult.serverDuration;
+      const herdModulesTotalDuration = herdModulesResult.totalDuration;
       const userApiDuration = userResult.duration;
+      const clientOverhead =
+        herdModulesTotalDuration - herdModulesServerDuration;
+
+      console.log(`[useScoutRefresh] Fresh API timing breakdown:`);
+      console.log(`  - Server processing: ${herdModulesServerDuration}ms`);
+      console.log(`  - Client overhead: ${clientOverhead}ms`);
+      console.log(`  - Total request: ${herdModulesTotalDuration}ms`);
 
       // Store timing values
-      timingRefs.current.herdModulesDuration = herdModulesDuration;
+      timingRefs.current.herdModulesDuration = herdModulesServerDuration;
       timingRefs.current.userApiDuration = userApiDuration;
 
       // Dispatch timing actions
-      dispatch(setHerdModulesApiDuration(herdModulesDuration));
+      dispatch(
+        setHerdModulesApiServerProcessingDuration(herdModulesServerDuration),
+      );
+      dispatch(setHerdModulesApiTotalRequestDuration(herdModulesTotalDuration));
       dispatch(setUserApiDuration(userApiDuration));
 
       // Validate API responses
@@ -648,7 +682,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
 
       // Log concise completion summary
       console.log(
-        `[useScoutRefresh] Refresh completed in ${loadingDuration}ms (API: ${herdModulesDuration}ms)`,
+        `[useScoutRefresh] Refresh completed in ${loadingDuration}ms (Server: ${herdModulesServerDuration}ms, Total API: ${herdModulesTotalDuration}ms)`,
       );
 
       onRefreshComplete?.();

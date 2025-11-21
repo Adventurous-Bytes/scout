@@ -15,7 +15,8 @@ export interface ScoutState {
   herd_modules_loading_state: EnumHerdModulesLoadingState;
   herd_modules_loaded_in_ms: number | null;
   // Detailed timing measurements for each portion of the loading process
-  herd_modules_api_duration_ms: number | null;
+  herd_modules_api_server_processing_ms: number | null;
+  herd_modules_api_total_request_ms: number | null;
   user_api_duration_ms: number | null;
   data_processing_duration_ms: number | null;
   cache_load_duration_ms: number | null;
@@ -40,7 +41,8 @@ const initialState: ScoutState = {
   herd_modules_loading_state: EnumHerdModulesLoadingState.NOT_LOADING,
   herd_modules_loaded_in_ms: null,
   // Initialize timing variables
-  herd_modules_api_duration_ms: null,
+  herd_modules_api_server_processing_ms: null,
+  herd_modules_api_total_request_ms: null,
   user_api_duration_ms: null,
   data_processing_duration_ms: null,
   cache_load_duration_ms: null,
@@ -71,8 +73,11 @@ export const scoutSlice = createSlice({
     setHerdModulesLoadedInMs: (state, action) => {
       state.herd_modules_loaded_in_ms = action.payload;
     },
-    setHerdModulesApiDuration: (state, action) => {
-      state.herd_modules_api_duration_ms = action.payload;
+    setHerdModulesApiServerProcessingDuration: (state, action) => {
+      state.herd_modules_api_server_processing_ms = action.payload;
+    },
+    setHerdModulesApiTotalRequestDuration: (state, action) => {
+      state.herd_modules_api_total_request_ms = action.payload;
     },
     setUserApiDuration: (state, action) => {
       state.user_api_duration_ms = action.payload;
@@ -339,7 +344,8 @@ export const {
   setStatus,
   setHerdModulesLoadingState,
   setHerdModulesLoadedInMs,
-  setHerdModulesApiDuration,
+  setHerdModulesApiServerProcessingDuration,
+  setHerdModulesApiTotalRequestDuration,
   setUserApiDuration,
   setDataProcessingDuration,
   setCacheLoadDuration,
