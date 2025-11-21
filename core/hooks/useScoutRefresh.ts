@@ -345,7 +345,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       if (cacheFirst) {
         const cacheStartTime = Date.now();
         try {
-          console.log("[useScoutRefresh] Loading from cache...");
           const cacheResult = await scoutCache.getHerdModules();
           cacheLoadDuration = Date.now() - cacheStartTime;
           timingRefs.current.cacheLoadDuration = cacheLoadDuration;
@@ -393,14 +392,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
 
             // If cache is fresh, we still background fetch but don't wait
             if (!cacheResult.isStale) {
-              console.log(
-                "[useScoutRefresh] Cache is fresh, background fetching fresh data...",
-              );
-
               // Background fetch fresh data without blocking
               (async () => {
                 try {
-                  console.log("[useScoutRefresh] Starting background fetch...");
                   const backgroundStartTime = Date.now();
 
                   const [backgroundHerdModulesResult, backgroundUserResult] =
@@ -424,9 +418,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                     ]);
 
                   const backgroundDuration = Date.now() - backgroundStartTime;
-                  console.log(
-                    `[useScoutRefresh] Background fetch completed in ${backgroundDuration}ms`,
-                  );
 
                   // Validate background responses
                   if (
@@ -440,11 +431,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       await scoutCache.setHerdModules(
                         backgroundHerdModulesResult.data,
                         cacheTtlMs,
-                      );
-                      console.log(
-                        `[useScoutRefresh] Background cache updated with TTL: ${Math.round(
-                          cacheTtlMs / 1000,
-                        )}s`,
                       );
                     } catch (cacheError) {
                       console.warn(
@@ -495,10 +481,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                         timestamp: Date.now(),
                       }),
                     );
-
-                    console.log(
-                      "[useScoutRefresh] Background fetch completed and store updated",
-                    );
                   } else {
                     console.warn(
                       "[useScoutRefresh] Background fetch returned invalid data",
@@ -516,14 +498,10 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               dispatch(setHerdModulesLoadedInMs(totalDuration));
               dispatch(setStatus(EnumScoutStateStatus.DONE_LOADING));
 
-              console.log(
-                `[useScoutRefresh] Cache-first refresh completed in ${totalDuration}ms (background fetch in progress)`,
-              );
               onRefreshComplete?.();
               return;
             }
           } else {
-            console.log("[useScoutRefresh] No cached data found");
           }
         } catch (cacheError) {
           console.warn("[useScoutRefresh] Cache load failed:", cacheError);
@@ -533,38 +511,23 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       }
 
       // Step 2: Load fresh data from API
-      console.log("[useScoutRefresh] Loading fresh data from API...");
       const parallelStartTime = Date.now();
 
       const [herdModulesResult, userResult] = await Promise.all([
         (async () => {
           const start = Date.now();
-          console.log(
-            `[useScoutRefresh] Starting herd modules request at ${new Date(
-              start,
-            ).toISOString()}`,
-          );
 
           const result = await server_load_herd_modules();
           const duration = Date.now() - start;
-          console.log(
-            `[useScoutRefresh] Herd modules request completed in ${duration}ms`,
-          );
+
           return { result, duration, start };
         })(),
         (async () => {
           const start = Date.now();
-          console.log(
-            `[useScoutRefresh] Starting user request at ${new Date(
-              start,
-            ).toISOString()}`,
-          );
 
           const { data } = await supabase.auth.getUser();
           const duration = Date.now() - start;
-          console.log(
-            `[useScoutRefresh] User request completed in ${duration}ms`,
-          );
+
           return {
             result: { data: data.user, status: "success" },
             duration,
@@ -683,15 +646,10 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
 
       dispatch(setStatus(EnumScoutStateStatus.DONE_LOADING));
 
-      // Log essential performance metrics
-      console.log(`[useScoutRefresh] Refresh completed successfully:`);
-      console.log(`  - Total duration: ${loadingDuration}ms`);
-      console.log(`  - Cache load: ${cacheLoadDuration}ms`);
-      console.log(`  - Herd modules API: ${herdModulesDuration}ms`);
-      console.log(`  - User API: ${userApiDuration}ms`);
-      console.log(`  - Cache save: ${timingRefs.current.cacheSaveDuration}ms`);
-      console.log(`  - Data processing: ${dataProcessingDuration}ms`);
-      console.log(`  - Cache TTL: ${Math.round(cacheTtlMs / 1000)}s`);
+      // Log concise completion summary
+      console.log(
+        `[useScoutRefresh] Refresh completed in ${loadingDuration}ms (API: ${herdModulesDuration}ms)`,
+      );
 
       onRefreshComplete?.();
     } catch (error) {
@@ -717,12 +675,9 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       dispatch(setStatus(EnumScoutStateStatus.DONE_LOADING));
 
       // Log essential error metrics
-      console.log(`[useScoutRefresh] Refresh failed:`);
-      console.log(`  - Total duration: ${loadingDuration}ms`);
       console.log(
-        `  - Herd modules: ${timingRefs.current.herdModulesDuration}ms`,
+        `[useScoutRefresh] Refresh failed after ${loadingDuration}ms`,
       );
-      console.log(`  - User API: ${timingRefs.current.userApiDuration}ms`);
 
       // Call completion callback even on error for consistency
       onRefreshComplete?.();
@@ -750,7 +705,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   const clearCache = useCallback(async () => {
     try {
       await scoutCache.clearHerdModules();
-      console.log("[useScoutRefresh] Cache cleared successfully");
     } catch (error) {
       console.error("[useScoutRefresh] Failed to clear cache:", error);
     }
