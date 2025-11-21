@@ -2,7 +2,6 @@ import { useEffect, useCallback, useRef } from "react";
 import { useAppDispatch } from "../store/hooks";
 import {
   EnumScoutStateStatus,
-  setActiveHerdId,
   setHerdModules,
   setStatus,
   setHerdModulesLoadingState,
@@ -18,12 +17,7 @@ import {
 import { EnumHerdModulesLoadingState } from "../types/herd_module";
 import { server_load_herd_modules } from "../helpers/herds";
 import { server_get_user } from "../helpers/users";
-import {
-  scoutCache,
-  CacheStats,
-  TimingStats,
-  DatabaseHealth,
-} from "../helpers/cache";
+import { scoutCache } from "../helpers/cache";
 import { EnumDataSource } from "../types/data_source";
 
 export interface UseScoutRefreshOptions {
@@ -44,24 +38,16 @@ export interface UseScoutRefreshOptions {
  *
  * @returns Object containing:
  * - handleRefresh: Function to manually trigger a refresh
- * - getTimingStats: Function to get detailed timing statistics for the last refresh
  * - clearCache: Function to clear the cache
- * - getCacheStats: Function to get cache statistics
  *
  * @example
  * ```tsx
- * const { handleRefresh, getTimingStats, clearCache, getCacheStats } = useScoutRefresh({
+ * const { handleRefresh, clearCache } = useScoutRefresh({
  *   cacheFirst: true,
  *   cacheTtlMs: 10 * 60 * 1000 // 10 minutes
  * });
  *
- * // Get timing stats after a refresh
- * const stats = getTimingStats();
- * console.log('Herd modules API took:', stats.herdModulesApi, 'ms');
- * console.log('User API took:', stats.userApi, 'ms');
- * console.log('Data processing took:', stats.dataProcessing, 'ms');
- * console.log('LocalStorage operations took:', stats.localStorage, 'ms');
- * console.log('Total duration:', stats.totalDuration, 'ms');
+ * // Timing stats are available in Redux store via selectors
  * ```
  */
 export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
@@ -84,6 +70,38 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     cacheLoadDuration: 0,
     cacheSaveDuration: 0,
   });
+
+  // Helper function to handle IndexedDB errors
+  const handleIndexedDbError = async (
+    error: unknown,
+    operation: string,
+    retryFn?: () => Promise<void>,
+  ) => {
+    if (
+      error instanceof Error &&
+      (error.message.includes("object store") ||
+        error.message.includes("NotFoundError"))
+    ) {
+      console.log(
+        `[useScoutRefresh] Attempting database reset due to ${operation} error...`,
+      );
+      try {
+        await scoutCache.resetDatabase();
+        console.log("[useScoutRefresh] Database reset successful");
+        if (retryFn) {
+          await retryFn();
+          console.log(
+            `[useScoutRefresh] ${operation} successful after database reset`,
+          );
+        }
+      } catch (resetError) {
+        console.error(
+          `[useScoutRefresh] Database reset and retry failed:`,
+          resetError,
+        );
+      }
+    }
+  };
 
   const handleRefresh = useCallback(async () => {
     // Prevent concurrent refresh calls
@@ -198,35 +216,18 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                         "[useScoutRefresh] Background cache save failed:",
                         cacheError,
                       );
-
-                      // If it's an IndexedDB object store error, try to reset the database
-                      if (
-                        cacheError instanceof Error &&
-                        (cacheError.message.includes("object store") ||
-                          cacheError.message.includes("NotFoundError"))
-                      ) {
-                        console.log(
-                          "[useScoutRefresh] Attempting database reset due to schema error...",
-                        );
-                        try {
-                          await scoutCache.resetDatabase();
-                          console.log(
-                            "[useScoutRefresh] Database reset successful, retrying cache save...",
-                          );
-                          await scoutCache.setHerdModules(
-                            backgroundHerdModulesResult.data,
-                            cacheTtlMs,
-                          );
-                          console.log(
-                            "[useScoutRefresh] Cache save successful after database reset",
-                          );
-                        } catch (resetError) {
-                          console.error(
-                            "[useScoutRefresh] Database reset and retry failed:",
-                            resetError,
-                          );
-                        }
-                      }
+                      await handleIndexedDbError(
+                        cacheError,
+                        "background cache save",
+                        async () => {
+                          if (backgroundHerdModulesResult.data) {
+                            await scoutCache.setHerdModules(
+                              backgroundHerdModulesResult.data,
+                              cacheTtlMs,
+                            );
+                          }
+                        },
+                      );
                     }
 
                     // Update store with fresh data
@@ -273,26 +274,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
           }
         } catch (cacheError) {
           console.warn("[useScoutRefresh] Cache load failed:", cacheError);
-
-          // If it's an IndexedDB object store error, try to reset the database
-          if (
-            cacheError instanceof Error &&
-            (cacheError.message.includes("object store") ||
-              cacheError.message.includes("NotFoundError"))
-          ) {
-            console.log(
-              "[useScoutRefresh] Attempting database reset due to cache load error...",
-            );
-            try {
-              await scoutCache.resetDatabase();
-              console.log("[useScoutRefresh] Database reset successful");
-            } catch (resetError) {
-              console.error(
-                "[useScoutRefresh] Database reset failed:",
-                resetError,
-              );
-            }
-          }
+          await handleIndexedDbError(cacheError, "cache load");
           // Continue with API call
         }
       }
@@ -398,35 +380,12 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         );
       } catch (cacheError) {
         console.warn("[useScoutRefresh] Cache save failed:", cacheError);
-
-        // If it's an IndexedDB object store error, try to reset the database
-        if (
-          cacheError instanceof Error &&
-          (cacheError.message.includes("object store") ||
-            cacheError.message.includes("NotFoundError"))
-        ) {
-          console.log(
-            "[useScoutRefresh] Attempting database reset due to cache save error...",
+        await handleIndexedDbError(cacheError, "cache save", async () => {
+          await scoutCache.setHerdModules(
+            compatible_new_herd_modules,
+            cacheTtlMs,
           );
-          try {
-            await scoutCache.resetDatabase();
-            console.log(
-              "[useScoutRefresh] Database reset successful, retrying cache save...",
-            );
-            await scoutCache.setHerdModules(
-              compatible_new_herd_modules,
-              cacheTtlMs,
-            );
-            console.log(
-              "[useScoutRefresh] Cache save successful after database reset",
-            );
-          } catch (resetError) {
-            console.error(
-              "[useScoutRefresh] Database reset and retry failed:",
-              resetError,
-            );
-          }
-        }
+        });
       }
 
       // Step 4: Update store with fresh data
@@ -444,41 +403,8 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       timingRefs.current.dataProcessingDuration = dataProcessingDuration;
       dispatch(setDataProcessingDuration(dataProcessingDuration));
 
-      // // Step 5: Handle localStorage operations
+      // Step 5: Record localStorage timing (no actual localStorage operations)
       const localStorageStartTime = Date.now();
-
-      // try {
-      //   // Check local storage for a last selected herd
-      //   const lastSelectedHerd = localStorage.getItem("last_selected_herd");
-      //   if (lastSelectedHerd) {
-      //     const found_herd = compatible_new_herd_modules.find(
-      //       (hm) => hm.herd.id.toString() === lastSelectedHerd,
-      //     )?.herd;
-
-      //     // If herd is found then set it
-      //     if (found_herd) {
-      //       dispatch(setActiveHerdId(found_herd.id.toString()));
-      //     }
-      //   }
-      //   // If there is no last selected herd then select the first one
-      //   else if (compatible_new_herd_modules.length > 0) {
-      //     const firstHerdId = compatible_new_herd_modules[0].herd.id.toString();
-      //     localStorage.setItem("last_selected_herd", firstHerdId);
-      //     dispatch(setActiveHerdId(firstHerdId));
-      //   }
-      // } catch (localStorageError) {
-      //   console.warn(
-      //     "[useScoutRefresh] localStorage not available:",
-      //     localStorageError,
-      //   );
-      //   // Fallback: select first herd without localStorage
-      //   if (compatible_new_herd_modules.length > 0) {
-      //     dispatch(
-      //       setActiveHerdId(compatible_new_herd_modules[0].herd.id.toString()),
-      //     );
-      //   }
-      // }
-
       const localStorageDuration = Date.now() - localStorageStartTime;
       timingRefs.current.localStorageDuration = localStorageDuration;
       dispatch(setLocalStorageDuration(localStorageDuration));
@@ -532,28 +458,19 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     } finally {
       refreshInProgressRef.current = false;
     }
-  }, [dispatch, onRefreshComplete, cacheFirst, cacheTtlMs]);
+  }, [
+    dispatch,
+    onRefreshComplete,
+    cacheFirst,
+    cacheTtlMs,
+    handleIndexedDbError,
+  ]);
 
   useEffect(() => {
     if (autoRefresh) {
       handleRefresh();
     }
   }, [autoRefresh, handleRefresh]);
-
-  // Utility function to get timing statistics
-  const getTimingStats = useCallback((): TimingStats => {
-    const now = Date.now();
-    const startTime = timingRefs.current.startTime;
-    return {
-      totalDuration: startTime > 0 ? now - startTime : 0,
-      cacheLoad: timingRefs.current.cacheLoadDuration,
-      herdModulesApi: timingRefs.current.herdModulesDuration,
-      userApi: timingRefs.current.userApiDuration,
-      cacheSave: timingRefs.current.cacheSaveDuration,
-      dataProcessing: timingRefs.current.dataProcessingDuration,
-      localStorage: timingRefs.current.localStorageDuration,
-    };
-  }, []);
 
   // Utility function to clear cache
   const clearCache = useCallback(async () => {
@@ -565,76 +482,8 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     }
   }, []);
 
-  // Utility function to get cache statistics
-  const getCacheStats = useCallback(async (): Promise<CacheStats> => {
-    try {
-      return await scoutCache.getCacheStats();
-    } catch (error) {
-      console.error("[useScoutRefresh] Failed to get cache stats:", error);
-      return {
-        size: 0,
-        lastUpdated: 0,
-        isStale: true,
-        hitRate: 0,
-        totalHits: 0,
-        totalMisses: 0,
-      };
-    }
-  }, []);
-
-  // Utility function to check database health
-  const checkDatabaseHealth = useCallback(async () => {
-    try {
-      return await scoutCache.checkDatabaseHealth();
-    } catch (error) {
-      console.error(
-        "[useScoutRefresh] Failed to check database health:",
-        error,
-      );
-      return {
-        healthy: false,
-        issues: [`Health check failed: ${error}`],
-      };
-    }
-  }, []);
-
-  // Utility function to reset database
-  const resetDatabase = useCallback(async () => {
-    try {
-      await scoutCache.resetDatabase();
-      console.log("[useScoutRefresh] Database reset successfully");
-    } catch (error) {
-      console.error("[useScoutRefresh] Failed to reset database:", error);
-      throw error;
-    }
-  }, []);
-
-  // Utility function to check cache version compatibility
-  const isCacheVersionCompatible = useCallback(async () => {
-    try {
-      return await scoutCache.isCacheVersionCompatible();
-    } catch (error) {
-      console.error(
-        "[useScoutRefresh] Failed to check cache version compatibility:",
-        error,
-      );
-      return false;
-    }
-  }, []);
-
-  // Utility function to get current DB version
-  const getCurrentDbVersion = useCallback(() => {
-    return scoutCache.getCurrentDbVersion();
-  }, []);
-
   return {
     handleRefresh,
-    getTimingStats,
     clearCache,
-    getCacheStats,
-    checkDatabaseHealth,
-    resetDatabase,
-    isCacheVersionCompatible,
-    getCurrentDbVersion,
   };
 }
