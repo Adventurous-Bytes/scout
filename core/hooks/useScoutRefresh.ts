@@ -129,54 +129,106 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     [],
   );
 
-  // Helper function to normalize herd modules for comparison (excludes metadata)
-  const normalizeHerdModulesForComparison = useCallback(
-    (herdModules: any[]) => {
-      if (!Array.isArray(herdModules)) return herdModules;
+  // Helper function to find differences between herd modules for debugging
+  const findHerdModulesDifferences = useCallback(
+    (newData: any[], currentData: any[]) => {
+      if (!Array.isArray(newData) || !Array.isArray(currentData)) {
+        return `Array type mismatch: new=${Array.isArray(newData)}, current=${Array.isArray(currentData)}`;
+      }
 
-      return herdModules.map((hm) => {
-        if (!hm || typeof hm !== "object") return hm;
+      if (newData.length !== currentData.length) {
+        return `Array length mismatch: new=${newData.length}, current=${currentData.length}`;
+      }
 
-        // Create a copy without metadata fields that don't represent business data changes
-        const { timestamp_last_refreshed, ...businessData } = hm;
-        return businessData;
-      });
+      const differences: string[] = [];
+
+      for (let i = 0; i < newData.length; i++) {
+        const newHerd = newData[i];
+        const currentHerd = currentData[i];
+
+        if (!newHerd || !currentHerd) {
+          differences.push(`Herd ${i}: null/undefined mismatch`);
+          continue;
+        }
+
+        // Check top-level fields
+        const fieldsToCheck = [
+          "timestamp_last_refreshed",
+          "total_events",
+          "total_events_with_filters",
+          "events_page_index",
+        ];
+
+        fieldsToCheck.forEach((field) => {
+          if (newHerd[field] !== currentHerd[field]) {
+            differences.push(
+              `Herd ${i}.${field}: ${currentHerd[field]} → ${newHerd[field]}`,
+            );
+          }
+        });
+
+        // Check array lengths for nested data
+        const arrayFields = [
+          "devices",
+          "events",
+          "plans",
+          "zones",
+          "sessions",
+          "layers",
+          "providers",
+        ];
+        arrayFields.forEach((field) => {
+          const newArray = newHerd[field];
+          const currentArray = currentHerd[field];
+          if (Array.isArray(newArray) && Array.isArray(currentArray)) {
+            if (newArray.length !== currentArray.length) {
+              differences.push(
+                `Herd ${i}.${field}[]: length ${currentArray.length} → ${newArray.length}`,
+              );
+            }
+          }
+        });
+      }
+
+      return differences.length > 0
+        ? differences.join(", ")
+        : "No significant differences found";
     },
     [],
   );
 
-  // Helper function to conditionally dispatch only if business data has changed
+  // Helper function to conditionally dispatch only if data has changed
   const conditionalDispatch = useCallback(
     (
       newData: any,
       currentData: any,
       actionCreator: (data: any) => any,
       dataType: string,
-      useNormalizedComparison: boolean = false,
+      enableDebugging: boolean = false,
     ) => {
-      let dataToCompare = newData;
-      let currentToCompare = currentData;
-
-      // For herd modules, use normalized comparison that ignores metadata
-      if (useNormalizedComparison && dataType.includes("Herd modules")) {
-        dataToCompare = normalizeHerdModulesForComparison(newData);
-        currentToCompare = normalizeHerdModulesForComparison(currentData);
-      }
-
-      if (!deepEqual(dataToCompare, currentToCompare)) {
+      if (!deepEqual(newData, currentData)) {
         console.log(
-          `[useScoutRefresh] ${dataType} business data changed, updating store`,
+          `[useScoutRefresh] ${dataType} data changed, updating store`,
         );
-        dispatch(actionCreator(newData)); // Always dispatch the full data including timestamps
+
+        // Add debugging for herd modules to see what actually changed
+        if (enableDebugging && dataType.includes("Herd modules")) {
+          const differences = findHerdModulesDifferences(newData, currentData);
+          console.log(
+            `[useScoutRefresh] ${dataType} differences: ${differences}`,
+          );
+        }
+
+        dispatch(actionCreator(newData));
         return true;
       } else {
         console.log(
-          `[useScoutRefresh] ${dataType} business data unchanged, skipping store update`,
+          `[useScoutRefresh] ${dataType} data unchanged, skipping store update`,
         );
         return false;
       }
     },
-    [dispatch, deepEqual, normalizeHerdModulesForComparison],
+    [dispatch, deepEqual, findHerdModulesDifferences],
   );
 
   // Helper function to handle IndexedDB errors - memoized for stability
@@ -271,7 +323,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               currentHerdModules,
               setHerdModules,
               "Herd modules (cache)",
-              true, // Use normalized comparison for herd modules
+              true, // Enable debugging for herd modules
             );
 
             if (herdModulesChanged) {
@@ -365,7 +417,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       currentHerdModules,
                       setHerdModules,
                       "Herd modules (background)",
-                      true, // Use normalized comparison for herd modules
+                      true, // Enable debugging for herd modules
                     );
 
                     if (backgroundUserResult && backgroundUserResult.data) {
@@ -546,7 +598,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         currentHerdModules,
         setHerdModules,
         "Herd modules (fresh API)",
-        true, // Use normalized comparison for herd modules
+        true, // Enable debugging for herd modules
       );
 
       const userChanged = conditionalDispatch(
