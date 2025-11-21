@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useMemo } from "react";
 import { useAppDispatch } from "../store/hooks";
 import { useStore } from "react-redux";
 import { RootState } from "../store/scout";
@@ -17,9 +17,10 @@ import {
 } from "../store/scout";
 import { EnumHerdModulesLoadingState } from "../types/herd_module";
 import { server_load_herd_modules } from "../helpers/herds";
-import { server_get_user } from "../helpers/users";
 import { scoutCache } from "../helpers/cache";
 import { EnumDataSource } from "../types/data_source";
+import { createBrowserClient } from "@supabase/ssr";
+import { Database } from "../types/supabase";
 
 export interface UseScoutRefreshOptions {
   autoRefresh?: boolean;
@@ -61,6 +62,14 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   const dispatch = useAppDispatch();
   const store = useStore<RootState>();
   const refreshInProgressRef = useRef(false);
+
+  // Create Supabase client directly to avoid circular dependency
+  const supabase = useMemo(() => {
+    return createBrowserClient<Database>(
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+    );
+  }, []);
 
   // Refs to store timing measurements
   const timingRefs = useRef({
@@ -119,28 +128,54 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     [],
   );
 
-  // Helper function to conditionally dispatch only if data has changed
+  // Helper function to normalize herd modules for comparison (excludes metadata)
+  const normalizeHerdModulesForComparison = useCallback(
+    (herdModules: any[]) => {
+      if (!Array.isArray(herdModules)) return herdModules;
+
+      return herdModules.map((hm) => {
+        if (!hm || typeof hm !== "object") return hm;
+
+        // Create a copy without metadata fields that don't represent business data changes
+        const { timestamp_last_refreshed, ...businessData } = hm;
+        return businessData;
+      });
+    },
+    [],
+  );
+
+  // Helper function to conditionally dispatch only if business data has changed
   const conditionalDispatch = useCallback(
     (
       newData: any,
       currentData: any,
       actionCreator: (data: any) => any,
       dataType: string,
+      useNormalizedComparison: boolean = false,
     ) => {
-      if (!deepEqual(newData, currentData)) {
+      let dataToCompare = newData;
+      let currentToCompare = currentData;
+
+      // For herd modules, use normalized comparison that ignores metadata
+      if (useNormalizedComparison && dataType.includes("Herd modules")) {
+        dataToCompare = normalizeHerdModulesForComparison(newData);
+        currentToCompare = normalizeHerdModulesForComparison(currentData);
+      }
+
+      if (!deepEqual(dataToCompare, currentToCompare)) {
         console.log(
-          `[useScoutRefresh] ${dataType} data changed, updating store`,
+          `[useScoutRefresh] ${dataType} business data changed, updating store`,
         );
-        dispatch(actionCreator(newData));
+        dispatch(actionCreator(newData)); // Always dispatch the full data including timestamps
         return true;
       } else {
         console.log(
-          `[useScoutRefresh] ${dataType} data unchanged, skipping store update`,
+          `[useScoutRefresh] ${dataType} business data unchanged, skipping store update`,
         );
         return false;
       }
     },
-    [dispatch, deepEqual],
+    [dispatch, deepEqual, normalizeHerdModulesForComparison],
   );
 
   // Helper function to handle IndexedDB errors - memoized for stability
@@ -226,7 +261,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               }),
             );
 
-            // Conditionally update the store with cached data if different
+            // Conditionally update the store with cached data if business data is different
             // Get current state at execution time to avoid dependency issues
             const currentHerdModules = store.getState().scout.herd_modules;
             const herdModulesChanged = conditionalDispatch(
@@ -234,6 +269,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               currentHerdModules,
               setHerdModules,
               "Herd modules (cache)",
+              true, // Use normalized comparison for herd modules
             );
 
             if (herdModulesChanged) {
@@ -241,23 +277,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                 setHerdModulesLoadingState(
                   EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
                 ),
-              );
-            }
-
-            // Always load user data from API
-            const userStartTime = Date.now();
-            const res_new_user = await server_get_user();
-            const userApiDuration = Date.now() - userStartTime;
-            timingRefs.current.userApiDuration = userApiDuration;
-            dispatch(setUserApiDuration(userApiDuration));
-
-            if (res_new_user && res_new_user.data) {
-              const currentUser = store.getState().scout.user;
-              conditionalDispatch(
-                res_new_user.data,
-                currentUser,
-                setUser,
-                "User (initial)",
               );
             }
 
@@ -275,8 +294,22 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
 
                   const [backgroundHerdModulesResult, backgroundUserResult] =
                     await Promise.all([
-                      server_load_herd_modules(),
-                      server_get_user(),
+                      (async () => {
+                        const start = Date.now();
+                        const result = await server_load_herd_modules();
+                        const duration = Date.now() - start;
+                        timingRefs.current.herdModulesDuration = duration;
+                        dispatch(setHerdModulesApiDuration(duration));
+                        return result;
+                      })(),
+                      (async () => {
+                        const start = Date.now();
+                        const { data } = await supabase.auth.getUser();
+                        const duration = Date.now() - start;
+                        timingRefs.current.userApiDuration = duration;
+                        dispatch(setUserApiDuration(duration));
+                        return { data: data.user, status: "success" };
+                      })(),
                     ]);
 
                   const backgroundDuration = Date.now() - backgroundStartTime;
@@ -321,7 +354,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       );
                     }
 
-                    // Conditionally update store with fresh background data
+                    // Conditionally update store with fresh background data using normalized comparison
                     const currentHerdModules =
                       store.getState().scout.herd_modules;
                     const currentUser = store.getState().scout.user;
@@ -330,13 +363,17 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       currentHerdModules,
                       setHerdModules,
                       "Herd modules (background)",
+                      true, // Use normalized comparison for herd modules
                     );
-                    conditionalDispatch(
-                      backgroundUserResult.data,
-                      currentUser,
-                      setUser,
-                      "User (background)",
-                    );
+
+                    if (backgroundUserResult && backgroundUserResult.data) {
+                      conditionalDispatch(
+                        backgroundUserResult.data,
+                        currentUser,
+                        setUser,
+                        "User (background)",
+                      );
+                    }
 
                     // Update data source to DATABASE
                     dispatch(setDataSource(EnumDataSource.DATABASE));
@@ -411,12 +448,16 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
             ).toISOString()}`,
           );
 
-          const result = await server_get_user();
+          const { data } = await supabase.auth.getUser();
           const duration = Date.now() - start;
           console.log(
             `[useScoutRefresh] User request completed in ${duration}ms`,
           );
-          return { result, duration, start };
+          return {
+            result: { data: data.user, status: "success" },
+            duration,
+            start,
+          };
         })(),
       ]);
 
@@ -492,7 +533,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         });
       }
 
-      // Step 4: Conditionally update store with fresh data if different
+      // Step 4: Conditionally update store with fresh data using normalized comparison
       const dataProcessingStartTime = Date.now();
 
       const currentHerdModules = store.getState().scout.herd_modules;
@@ -503,6 +544,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
         currentHerdModules,
         setHerdModules,
         "Herd modules (fresh API)",
+        true, // Use normalized comparison for herd modules
       );
 
       const userChanged = conditionalDispatch(
@@ -578,6 +620,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   }, [
     dispatch,
     store,
+    supabase,
     onRefreshComplete,
     cacheFirst,
     cacheTtlMs,
