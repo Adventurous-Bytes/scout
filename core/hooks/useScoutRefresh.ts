@@ -238,7 +238,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       currentData: any,
       actionCreator: (data: any) => any,
       dataType: string,
-      skipTimestampOnlyUpdates: boolean = false,
+      skipTimestampOnlyUpdates: boolean = true,
     ) => {
       // For herd modules, sort both datasets by ID before comparison
       let dataToCompare = newData;
@@ -263,7 +263,10 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
 
         // Add debugging for unexpected business changes
         if (skipTimestampOnlyUpdates && dataType.includes("Herd modules")) {
-          const changes = findBusinessDataChanges(newData, currentData);
+          const changes = findBusinessDataChanges(
+            dataToCompare,
+            currentToCompare,
+          );
           console.log(`[useScoutRefresh] ${dataType} changes: ${changes}`);
         }
 
