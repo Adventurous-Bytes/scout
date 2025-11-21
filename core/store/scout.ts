@@ -18,6 +18,7 @@ export interface ScoutState {
   herd_modules_api_duration_ms: number | null;
   user_api_duration_ms: number | null;
   data_processing_duration_ms: number | null;
+  cache_load_duration_ms: number | null;
   active_herd_id: string | null;
   active_device_id: string | null;
   lastRefreshed: number;
@@ -42,6 +43,7 @@ const initialState: ScoutState = {
   herd_modules_api_duration_ms: null,
   user_api_duration_ms: null,
   data_processing_duration_ms: null,
+  cache_load_duration_ms: null,
   lastRefreshed: 0,
   active_herd_id: null,
   active_device_id: null,
@@ -77,6 +79,9 @@ export const scoutSlice = createSlice({
     },
     setDataProcessingDuration: (state, action) => {
       state.data_processing_duration_ms = action.payload;
+    },
+    setCacheLoadDuration: (state, action) => {
+      state.cache_load_duration_ms = action.payload;
     },
     setActiveHerdId: (state, action) => {
       state.active_herd_id = action.payload;
@@ -337,6 +342,7 @@ export const {
   setHerdModulesApiDuration,
   setUserApiDuration,
   setDataProcessingDuration,
+  setCacheLoadDuration,
   setActiveHerdId,
   setActiveDeviceId,
   setDataSource,

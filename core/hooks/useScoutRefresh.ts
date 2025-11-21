@@ -11,6 +11,7 @@ import {
   setHerdModulesApiDuration,
   setUserApiDuration,
   setDataProcessingDuration,
+  setCacheLoadDuration,
   setUser,
   setDataSource,
   setDataSourceInfo,
@@ -239,6 +240,7 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
           const cacheResult = await scoutCache.getHerdModules();
           cacheLoadDuration = Date.now() - cacheStartTime;
           timingRefs.current.cacheLoadDuration = cacheLoadDuration;
+          dispatch(setCacheLoadDuration(cacheLoadDuration));
 
           if (cacheResult.data && cacheResult.data.length > 0) {
             cachedHerdModules = cacheResult.data;
