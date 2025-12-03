@@ -36,12 +36,20 @@ export type IProvider = Database["public"]["Tables"]["providers"]["Row"];
 export type IComponent = Database["public"]["Tables"]["components"]["Row"];
 export type IVersionsSoftware =
   Database["public"]["Tables"]["versions_software"]["Row"];
+export type IArtifact = Database["public"]["Tables"]["artifacts"]["Row"];
+
+// Compound type for artifacts with signed media URL
+export type IArtifactWithMediaUrl = IArtifact & {
+  media_url?: string | null;
+};
 
 // Insert types
 export type ComponentInsert =
   Database["public"]["Tables"]["components"]["Insert"];
 export type VersionsSoftwareInsert =
   Database["public"]["Tables"]["versions_software"]["Insert"];
+export type ArtifactInsert =
+  Database["public"]["Tables"]["artifacts"]["Insert"];
 
 // Re-export composite types
 export type IEventWithTags =

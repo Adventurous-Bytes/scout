@@ -1091,6 +1091,71 @@ export type Database = {
           status: string
         }[]
       }
+      get_artifacts_for_device: {
+        Args: {
+          device_id_caller: number
+          limit_caller?: number
+          offset_caller?: number
+        }
+        Returns: {
+          created_at: string
+          device_id: number
+          file_path: string
+          id: number
+          modality: string | null
+          session_id: number | null
+          timestamp_observation: string | null
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "artifacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_artifacts_for_devices_batch: {
+        Args: { device_ids: number[]; limit_per_device?: number }
+        Returns: {
+          created_at: string
+          device_id: number
+          file_path: string
+          id: number
+          modality: string | null
+          session_id: number | null
+          timestamp_observation: string | null
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "artifacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_artifacts_for_herd: {
+        Args: {
+          herd_id_caller: number
+          limit_caller?: number
+          offset_caller?: number
+        }
+        Returns: {
+          created_at: string
+          device_id: number
+          file_path: string
+          id: number
+          modality: string | null
+          session_id: number | null
+          timestamp_observation: string | null
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "artifacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
@@ -1242,6 +1307,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      get_total_artifacts_for_herd: {
+        Args: { herd_id_caller: number }
+        Returns: number
       }
       get_total_events_for_herd_with_session_filter: {
         Args: { exclude_session_events: boolean; herd_id_caller: number }

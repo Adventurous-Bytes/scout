@@ -20,12 +20,17 @@ import {
   IUserAndRole,
   IZoneWithActions,
   ISessionWithCoordinates,
+  IArtifactWithMediaUrl,
 } from "../types/db";
 
 import { EnumWebResponse } from "./requests";
 import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
 import { server_list_api_keys_batch } from "../api_keys/actions";
 import { server_get_sessions_by_herd_id } from "../helpers/sessions";
+import {
+  server_get_artifacts_by_herd,
+  server_get_total_artifacts_by_herd,
+} from "../helpers/artifacts";
 export enum EnumHerdModulesLoadingState {
   NOT_LOADING = "NOT_LOADING",
   LOADING = "LOADING",
@@ -39,11 +44,13 @@ export class HerdModule {
   events: IEventWithTags[];
   zones: IZoneWithActions[];
   sessions: ISessionWithCoordinates[];
+  artifacts: IArtifactWithMediaUrl[];
   timestamp_last_refreshed: number;
   user_roles: IUserAndRole[] | null = null;
   events_page_index: number = 0;
   total_events: number = 0;
   total_events_with_filters: number = 0;
+  total_artifacts: number = 0;
   labels: string[] = [];
   plans: IPlan[] = [];
   layers: ILayer[] = [];
@@ -63,6 +70,8 @@ export class HerdModule {
     sessions: ISessionWithCoordinates[] = [],
     layers: ILayer[] = [],
     providers: IProvider[] = [],
+    artifacts: IArtifactWithMediaUrl[] = [],
+    total_artifacts: number = 0,
   ) {
     this.herd = herd;
     this.devices = devices;
@@ -78,6 +87,8 @@ export class HerdModule {
     this.sessions = sessions;
     this.layers = layers;
     this.providers = providers;
+    this.artifacts = artifacts;
+    this.total_artifacts = total_artifacts;
   }
   to_serializable(): IHerdModule {
     return {
@@ -95,6 +106,8 @@ export class HerdModule {
       sessions: this.sessions,
       layers: this.layers,
       providers: this.providers,
+      artifacts: this.artifacts,
+      total_artifacts: this.total_artifacts,
     };
   }
   static async from_herd(
@@ -146,6 +159,17 @@ export class HerdModule {
           console.warn(`[HerdModule] Failed to get providers:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
+        server_get_artifacts_by_herd(herd.id, 50, 0).catch((error) => {
+          console.warn(`[HerdModule] Failed to get artifacts:`, error);
+          return { status: EnumWebResponse.ERROR, data: null };
+        }),
+        server_get_total_artifacts_by_herd(herd.id).catch((error) => {
+          console.warn(
+            `[HerdModule] Failed to get total artifacts count:`,
+            error,
+          );
+          return { status: EnumWebResponse.ERROR, data: null };
+        }),
       ]);
 
       // Load devices
@@ -193,6 +217,8 @@ export class HerdModule {
         res_sessions,
         res_layers,
         res_providers,
+        res_artifacts,
+        total_artifact_count,
       ] = herdLevelResults;
 
       const zones =
@@ -224,6 +250,15 @@ export class HerdModule {
         res_providers.status === "fulfilled" && res_providers.value?.data
           ? res_providers.value.data
           : [];
+      const artifacts =
+        res_artifacts.status === "fulfilled" && res_artifacts.value?.data
+          ? res_artifacts.value.data
+          : [];
+      const total_artifacts =
+        total_artifact_count.status === "fulfilled" &&
+        total_artifact_count.value?.data
+          ? total_artifact_count.value.data
+          : 0;
 
       // TODO: store in DB and retrieve on load?
       const newLabels = LABELS;
@@ -249,6 +284,8 @@ export class HerdModule {
         sessions,
         layers,
         providers,
+        artifacts,
+        total_artifacts,
       );
     } catch (error) {
       const endTime = Date.now();
@@ -273,6 +310,8 @@ export class HerdModule {
         [],
         [],
         [],
+        [],
+        0,
       );
     }
   }
@@ -293,6 +332,8 @@ export interface IHerdModule {
   sessions: ISessionWithCoordinates[];
   layers: ILayer[];
   providers: IProvider[];
+  artifacts: IArtifactWithMediaUrl[];
+  total_artifacts: number;
 }
 
 export interface IHerdModulesResponse {

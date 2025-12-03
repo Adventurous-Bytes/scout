@@ -21,3 +21,4 @@ export * from "./cache";
 export * from "./operators";
 export * from "./components";
 export * from "./versions_software";
+export * from "./artifacts";

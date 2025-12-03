@@ -119,6 +119,24 @@ export const scoutSlice = createSlice({
         herd_module.events = [...herd_module.events, ...events];
       }
     },
+    replaceArtifactsForHerdModule: (state, action) => {
+      const { herd_id, artifacts } = action.payload;
+      const herd_module = state.herd_modules.find(
+        (hm) => hm.herd.id.toString() === herd_id,
+      );
+      if (herd_module) {
+        herd_module.artifacts = artifacts;
+      }
+    },
+    appendArtifactsToHerdModule: (state, action) => {
+      const { herd_id, artifacts } = action.payload;
+      const herd_module = state.herd_modules.find(
+        (hm) => hm.herd.id.toString() === herd_id,
+      );
+      if (herd_module) {
+        herd_module.artifacts = [...herd_module.artifacts, ...artifacts];
+      }
+    },
     appendPlansToHerdModule: (state, action) => {
       const { herd_id, plan } = action.payload;
       const herd_module = state.herd_modules.find(
@@ -355,6 +373,8 @@ export const {
   setDataSourceInfo,
   appendEventsToHerdModule,
   replaceEventsForHerdModule,
+  appendArtifactsToHerdModule,
+  replaceArtifactsForHerdModule,
   updateEventValuesForHerdModule,
   updatePageIndexForHerdModule,
   appendPlansToHerdModule,

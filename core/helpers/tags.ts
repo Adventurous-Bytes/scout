@@ -14,7 +14,7 @@ import {
   IWebResponse,
   IWebResponseCompatible,
 } from "../types/requests";
-import { addSignedUrlsToEvents, addSignedUrlToEvent } from "./storage";
+import { generateSignedUrlsBatch, generateSignedUrl } from "./storage";
 
 // Helper functions to extract coordinates from location field
 function extractLatitude(location: any): number | null {
@@ -71,37 +71,37 @@ function extractLongitude(location: any): number | null {
 export async function test_event_loading(device_id: number): Promise<boolean> {
   try {
     console.log(
-      `[Event Test] Testing individual event loading for device ${device_id}`
+      `[Event Test] Testing individual event loading for device ${device_id}`,
     );
     const events_response = await server_get_events_and_tags_for_device(
       device_id,
-      1
+      1,
     );
     if (events_response.status === EnumWebResponse.SUCCESS) {
       console.log(
         `[Event Test] Successfully loaded ${
           events_response.data?.length || 0
-        } events for device ${device_id}`
+        } events for device ${device_id}`,
       );
       return true;
     } else {
       console.error(
         `[Event Test] Failed to load events for device ${device_id}:`,
-        events_response.msg
+        events_response.msg,
       );
       return false;
     }
   } catch (error) {
     console.error(
       `[Event Test] Failed to load events for device ${device_id}:`,
-      error
+      error,
     );
     return false;
   }
 }
 
 export async function server_create_tags(
-  tags: ITag[]
+  tags: ITag[],
 ): Promise<IWebResponseCompatible<ITag[]>> {
   const supabase = await newServerClient();
   // remove id key from tags
@@ -129,7 +129,7 @@ export async function server_create_tags(
 }
 
 export async function server_delete_tags_by_ids(
-  tag_ids: number[]
+  tag_ids: number[],
 ): Promise<IWebResponseCompatible<boolean>> {
   const supabase = await newServerClient();
   const { error } = await supabase.from("tags").delete().in("id", tag_ids);
@@ -145,7 +145,7 @@ export async function server_delete_tags_by_ids(
 }
 
 export async function server_update_tags(
-  tags: ITag[]
+  tags: ITag[],
 ): Promise<IWebResponseCompatible<ITag[]>> {
   const supabase = await newServerClient();
 
@@ -188,7 +188,7 @@ export async function server_update_tags(
 export async function server_get_more_events_with_tags_by_herd(
   herd_id: number,
   offset: number,
-  page_count: number = 10
+  page_count: number = 10,
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const from = offset * page_count;
   const supabase = await newServerClient();
@@ -212,24 +212,43 @@ export async function server_get_more_events_with_tags_by_herd(
     (event: IEventAndTagsPrettyLocation) => {
       if (!event.tags) return event;
       event.tags = event.tags.filter(
-        (tag: ITagPrettyLocation | null) => tag !== null
+        (tag: ITagPrettyLocation | null) => tag !== null,
       );
       return event;
-    }
+    },
   );
 
-  // Add signed URLs to events using the same client
-  const eventsWithSignedUrls = await addSignedUrlsToEvents(
-    filtered_data,
-    supabase
-  );
+  // Generate signed URLs for events
+  const filePaths = filtered_data
+    .map((event) => event.file_path)
+    .filter((path): path is string => !!path);
+
+  let eventsWithSignedUrls = filtered_data;
+
+  if (filePaths.length > 0) {
+    const signedUrls = await generateSignedUrlsBatch(
+      filePaths,
+      undefined,
+      supabase,
+    );
+    const urlMap = new Map<string, string | null>();
+
+    filePaths.forEach((path, index) => {
+      urlMap.set(path, signedUrls[index]);
+    });
+
+    eventsWithSignedUrls = filtered_data.map((event) => ({
+      ...event,
+      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+    }));
+  }
 
   return IWebResponse.success(eventsWithSignedUrls).to_compatible();
 }
 
 export async function server_get_events_and_tags_for_device(
   device_id: number,
-  limit: number = 3
+  limit: number = 3,
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
   const supabase = await newServerClient();
   // make rpc call to get_events_and_tags_for_device(device_id, limit)
@@ -240,7 +259,7 @@ export async function server_get_events_and_tags_for_device(
   if (error) {
     console.warn(
       "Error fetching recent events with tags by device:",
-      error.message
+      error.message,
     );
     return {
       status: EnumWebResponse.ERROR,
@@ -249,18 +268,38 @@ export async function server_get_events_and_tags_for_device(
     };
   }
 
-  // Add signed URLs to events using the same client
-  const eventsWithSignedUrls = await addSignedUrlsToEvents(
-    data || [],
-    supabase
-  );
+  // Generate signed URLs for events
+  const eventData = data || [];
+  const filePaths = eventData
+    .map((event) => event.file_path)
+    .filter((path): path is string => !!path);
+
+  let eventsWithSignedUrls = eventData;
+
+  if (filePaths.length > 0) {
+    const signedUrls = await generateSignedUrlsBatch(
+      filePaths,
+      undefined,
+      supabase,
+    );
+    const urlMap = new Map<string, string | null>();
+
+    filePaths.forEach((path, index) => {
+      urlMap.set(path, signedUrls[index]);
+    });
+
+    eventsWithSignedUrls = eventData.map((event) => ({
+      ...event,
+      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+    }));
+  }
 
   return IWebResponse.success(eventsWithSignedUrls).to_compatible();
 }
 
 export async function server_get_events_and_tags_for_devices_batch(
   device_ids: number[],
-  limit: number = 1
+  limit: number = 1,
 ): Promise<
   IWebResponseCompatible<{ [device_id: number]: IEventAndTagsPrettyLocation[] }>
 > {
@@ -272,7 +311,7 @@ export async function server_get_events_and_tags_for_devices_batch(
     {
       device_ids: device_ids,
       limit_per_device: limit,
-    }
+    },
   );
 
   if (error) {
@@ -285,7 +324,7 @@ export async function server_get_events_and_tags_for_devices_batch(
       try {
         const events_response = await server_get_events_and_tags_for_device(
           device_id,
-          limit
+          limit,
         );
         if (
           events_response.status === EnumWebResponse.SUCCESS &&
@@ -344,9 +383,35 @@ export async function server_get_events_and_tags_for_devices_batch(
   // Add signed URLs to all events
   const result: { [device_id: number]: IEventAndTagsPrettyLocation[] } = {};
 
+  // Get all file paths for batch URL generation
+  const allFilePaths: string[] = [];
   for (const device_id in eventsByDevice) {
     const events = eventsByDevice[device_id];
-    const eventsWithSignedUrls = await addSignedUrlsToEvents(events, supabase);
+    events.forEach((event) => {
+      if (event.file_path && !allFilePaths.includes(event.file_path)) {
+        allFilePaths.push(event.file_path);
+      }
+    });
+  }
+
+  // Generate all signed URLs at once
+  const signedUrls =
+    allFilePaths.length > 0
+      ? await generateSignedUrlsBatch(allFilePaths, undefined, supabase)
+      : [];
+
+  const urlMap = new Map<string, string | null>();
+  allFilePaths.forEach((path, index) => {
+    urlMap.set(path, signedUrls[index]);
+  });
+
+  // Apply signed URLs to events
+  for (const device_id in eventsByDevice) {
+    const events = eventsByDevice[device_id];
+    const eventsWithSignedUrls = events.map((event) => ({
+      ...event,
+      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+    }));
     result[parseInt(device_id)] = eventsWithSignedUrls;
   }
 
@@ -354,7 +419,7 @@ export async function server_get_events_and_tags_for_devices_batch(
 }
 
 export async function get_event_and_tags_by_event_id(
-  event_id: number
+  event_id: number,
 ): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation>> {
   const supabase = await newServerClient();
 
@@ -365,7 +430,7 @@ export async function get_event_and_tags_by_event_id(
       `
       *,
       tags: tags (*)
-    `
+    `,
     )
     .eq("id", event_id);
 
@@ -473,11 +538,20 @@ export async function get_event_and_tags_by_event_id(
     file_path: data[0].file_path,
   };
 
-  // Add signed URL to event using the same client
-  const eventWithSignedUrl = await addSignedUrlToEvent(
-    transformedData,
-    supabase
-  );
+  // Generate signed URL for event
+  let eventWithSignedUrl = transformedData;
+
+  if (transformedData.file_path) {
+    const signedUrl = await generateSignedUrl(
+      transformedData.file_path,
+      undefined,
+      supabase,
+    );
+    eventWithSignedUrl = {
+      ...transformedData,
+      media_url: signedUrl,
+    };
+  }
 
   return IWebResponse.success(eventWithSignedUrl).to_compatible();
 }
