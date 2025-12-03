@@ -19,3 +19,5 @@ export * from "./web";
 export * from "./zones";
 export * from "./cache";
 export * from "./operators";
+export * from "./components";
+export * from "./versions_software";

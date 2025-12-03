@@ -1123,10 +1123,10 @@ export type Database = {
       }
       get_device_by_id: {
         Args: { device_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
+        Returns: Database["public"]["CompositeTypes"]["device_with_components"]
         SetofOptions: {
           from: "*"
-          to: "device_pretty_location"
+          to: "device_with_components"
           isOneToOne: true
           isSetofReturn: false
         }

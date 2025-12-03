@@ -33,6 +33,15 @@ export type IHeartbeat = Database["public"]["Tables"]["heartbeats"]["Row"];
 export type IOperator = Database["public"]["Tables"]["operators"]["Row"];
 
 export type IProvider = Database["public"]["Tables"]["providers"]["Row"];
+export type IComponent = Database["public"]["Tables"]["components"]["Row"];
+export type IVersionsSoftware =
+  Database["public"]["Tables"]["versions_software"]["Row"];
+
+// Insert types
+export type ComponentInsert =
+  Database["public"]["Tables"]["components"]["Insert"];
+export type VersionsSoftwareInsert =
+  Database["public"]["Tables"]["versions_software"]["Insert"];
 
 // Re-export composite types
 export type IEventWithTags =
