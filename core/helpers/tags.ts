@@ -239,7 +239,7 @@ export async function server_get_more_events_with_tags_by_herd(
 
     eventsWithSignedUrls = filtered_data.map((event) => ({
       ...event,
-      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+      media_url: event.file_path ? urlMap.get(event.file_path) || null : null,
     }));
   }
 
@@ -290,7 +290,7 @@ export async function server_get_events_and_tags_for_device(
 
     eventsWithSignedUrls = eventData.map((event) => ({
       ...event,
-      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+      media_url: event.file_path ? urlMap.get(event.file_path) || null : null,
     }));
   }
 
@@ -410,7 +410,7 @@ export async function server_get_events_and_tags_for_devices_batch(
     const events = eventsByDevice[device_id];
     const eventsWithSignedUrls = events.map((event) => ({
       ...event,
-      media_url: event.file_path ? urlMap.get(event.file_path) : null,
+      media_url: event.file_path ? urlMap.get(event.file_path) || null : null,
     }));
     result[parseInt(device_id)] = eventsWithSignedUrls;
   }

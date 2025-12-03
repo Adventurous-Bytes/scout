@@ -42,7 +42,7 @@ export async function generateSignedUrlsBatch(
   filePaths: string[],
   expiresIn: number = SIGNED_URL_EXPIRATION_SECONDS,
   supabaseClient?: SupabaseClient<Database>,
-): Promise<string[]> {
+): Promise<(string | null)[]> {
   try {
     const supabase = supabaseClient || (await newServerClient());
 
