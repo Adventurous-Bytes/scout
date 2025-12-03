@@ -56,26 +56,42 @@ export type Database = {
       artifacts: {
         Row: {
           created_at: string
+          device_id: number
           file_path: string
           id: number
+          modality: string | null
           session_id: number | null
           timestamp_observation: string | null
+          updated_at: string | null
         }
         Insert: {
           created_at?: string
+          device_id: number
           file_path: string
           id?: number
+          modality?: string | null
           session_id?: number | null
           timestamp_observation?: string | null
+          updated_at?: string | null
         }
         Update: {
           created_at?: string
+          device_id?: number
           file_path?: string
           id?: number
+          modality?: string | null
           session_id?: number | null
           timestamp_observation?: string | null
+          updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "artifacts_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "artifacts_session_id_fkey"
             columns: ["session_id"]
@@ -84,6 +100,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      certificates: {
+        Row: {
+          created_at: string
+          expiration: string | null
+          id: number
+          issuer: string
+          tracking_number: string | null
+          type: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string
+          expiration?: string | null
+          id?: number
+          issuer: string
+          tracking_number?: string | null
+          type: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string
+          expiration?: string | null
+          id?: number
+          issuer?: string
+          tracking_number?: string | null
+          type?: string
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       chat: {
         Row: {
@@ -120,6 +166,54 @@ export type Database = {
             columns: ["sender"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      components: {
+        Row: {
+          certificate_id: number | null
+          created_at: string
+          device_id: number
+          id: number
+          product_number: string | null
+          serial_number: string
+          status: Database["public"]["Enums"]["component_status"]
+          updated_at: string | null
+        }
+        Insert: {
+          certificate_id?: number | null
+          created_at?: string
+          device_id: number
+          id?: number
+          product_number?: string | null
+          serial_number: string
+          status?: Database["public"]["Enums"]["component_status"]
+          updated_at?: string | null
+        }
+        Update: {
+          certificate_id?: number | null
+          created_at?: string
+          device_id?: number
+          id?: number
+          product_number?: string | null
+          serial_number?: string
+          status?: Database["public"]["Enums"]["component_status"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "components_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "components_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
             referencedColumns: ["id"]
           },
         ]
@@ -734,6 +828,53 @@ export type Database = {
           },
         ]
       }
+      versions_software: {
+        Row: {
+          commit_hash: string | null
+          created_at: string
+          created_by: string | null
+          description: string
+          hyperlink: string | null
+          id: number
+          system: string
+          title: string | null
+          updated_at: string | null
+          version: string
+        }
+        Insert: {
+          commit_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          description: string
+          hyperlink?: string | null
+          id?: number
+          system: string
+          title?: string | null
+          updated_at?: string | null
+          version: string
+        }
+        Update: {
+          commit_hash?: string | null
+          created_at?: string
+          created_by?: string | null
+          description?: string
+          hyperlink?: string | null
+          id?: number
+          system?: string
+          title?: string | null
+          updated_at?: string | null
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "versions_software_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       zones: {
         Row: {
           herd_id: number
@@ -910,6 +1051,46 @@ export type Database = {
           table_name: string
         }[]
       }
+      delete_all_orphaned_sessions: {
+        Args: { min_age_seconds?: number }
+        Returns: {
+          age_seconds: number
+          device_id: number
+          session_id: number
+          status: string
+          timestamp_start: string
+        }[]
+      }
+      delete_orphaned_session: {
+        Args: { min_age_seconds?: number; session_id_param: number }
+        Returns: {
+          age_seconds: number
+          connectivity_count: number
+          device_id: number
+          session_id: number
+          status: string
+          timestamp_start: string
+        }[]
+      }
+      fix_all_sessions_missing_end_timestamps: {
+        Args: never
+        Returns: {
+          device_id: number
+          new_timestamp_end: string
+          old_timestamp_end: string
+          session_id: number
+          status: string
+        }[]
+      }
+      fix_session_end_timestamp: {
+        Args: { session_id_param: number }
+        Returns: {
+          new_timestamp_end: string
+          old_timestamp_end: string
+          session_id: number
+          status: string
+        }[]
+      }
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
@@ -956,10 +1137,10 @@ export type Database = {
       }
       get_devices_for_herd: {
         Args: { herd_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][]
+        Returns: Database["public"]["CompositeTypes"]["device_with_components"][]
         SetofOptions: {
           from: "*"
-          to: "device_pretty_location"
+          to: "device_with_components"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -1084,7 +1265,19 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      load_api_keys: { Args: { id_of_device: number }; Returns: string[] }
+      load_api_keys:
+        | {
+            Args: { id_of_device: number }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.load_api_keys(id_of_device => int8), public.load_api_keys(id_of_device => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
+        | {
+            Args: { id_of_device: string }
+            Returns: {
+              error: true
+            } & "Could not choose the best candidate function between: public.load_api_keys(id_of_device => int8), public.load_api_keys(id_of_device => text). Try renaming the parameters or the function itself in the database so function overloading can be resolved"
+          }
       load_api_keys_batch: {
         Args: { device_ids: number[] }
         Returns: {
@@ -1098,6 +1291,7 @@ export type Database = {
     }
     Enums: {
       app_permission: "herds.delete" | "events.delete"
+      component_status: "active" | "inactive"
       device_type:
         | "trail_camera"
         | "drone_fixed_wing"
@@ -1166,6 +1360,22 @@ export type Database = {
         description: string | null
         latitude: number | null
         longitude: number | null
+      }
+      device_with_components: {
+        id: number | null
+        inserted_at: string | null
+        created_by: string | null
+        herd_id: number | null
+        device_type: Database["public"]["Enums"]["device_type"] | null
+        domain_name: string | null
+        location: string | null
+        altitude: number | null
+        heading: number | null
+        name: string | null
+        description: string | null
+        latitude: number | null
+        longitude: number | null
+        components: Json | null
       }
       event_and_tags: {
         id: number | null
@@ -1400,6 +1610,7 @@ export const Constants = {
   public: {
     Enums: {
       app_permission: ["herds.delete", "events.delete"],
+      component_status: ["active", "inactive"],
       device_type: [
         "trail_camera",
         "drone_fixed_wing",

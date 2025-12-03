@@ -12,7 +12,7 @@ export type TagObservationType =
 // Re-export table types
 export type IUser = User;
 export type IDevice =
-  Database["public"]["CompositeTypes"]["device_pretty_location"] & {
+  Database["public"]["CompositeTypes"]["device_with_components"] & {
     api_keys_scout?: IApiKeyScout[];
     recent_events?: IEventAndTagsPrettyLocation[];
   };
