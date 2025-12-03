@@ -1200,7 +1200,27 @@ export type Database = {
         Args: { device_api_key: string }
         Returns: number
       }
+      get_device_with_components_by_id: {
+        Args: { device_id_caller: number }
+        Returns: Database["public"]["CompositeTypes"]["device_with_components"]
+        SetofOptions: {
+          from: "*"
+          to: "device_with_components"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       get_devices_for_herd: {
+        Args: { herd_id_caller: number }
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "device_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_devices_with_components_for_herd: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["device_with_components"][]
         SetofOptions: {
