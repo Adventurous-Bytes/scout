@@ -8,24 +8,18 @@ import {
   SIGNED_URL_EXPIRATION_SECONDS,
 } from "../constants/db";
 
-type FilePathParts = {
-  bucket_name: string;
-  path: string;
-};
-
 /**
  * Splits file path into bucket name and path. Must be at leaast one slash in your file path
  * @param filePath
  * @returns IFilePathParts | null - null if invalid file path
  */
-function getPartsFromFilePath(filePath: string): FilePathParts | null {
+function getBucketFromFilePath(filePath: string): string | null {
   const parts = filePath.split("/");
   if (parts.length < 2) {
     return null;
   }
   const bucket_name = parts[0];
-  const path = parts.slice(1).join("/");
-  return { bucket_name, path };
+  return bucket_name;
 }
 
 /**
@@ -42,14 +36,14 @@ export async function generateSignedUrl(
 ): Promise<string | null> {
   try {
     const supabase = supabaseClient || (await newServerClient());
-    const parts = getPartsFromFilePath(filePath);
-    if (!parts) {
+    const bucket_name = getBucketFromFilePath(filePath);
+    if (!bucket_name) {
       console.error("Invalid file path:", filePath);
       return null;
     }
     const { data, error } = await supabase.storage
-      .from(parts.bucket_name)
-      .createSignedUrl(parts.path, expiresIn);
+      .from(bucket_name)
+      .createSignedUrl(filePath, expiresIn);
     if (error) {
       console.error("Error generating signed URL:", error.message);
       return null;
@@ -71,17 +65,17 @@ export async function generateSignedUrlsBatch(
 
     const signedUrlPromises = filePaths.map(async (filePath) => {
       try {
-        const parts = getPartsFromFilePath(filePath);
-        if (!parts) {
+        const bucket_name = getBucketFromFilePath(filePath);
+        if (!bucket_name) {
           console.error("Invalid file path:", filePath);
           return null;
         }
         const { data, error } = await supabase.storage
-          .from(parts.bucket_name)
-          .createSignedUrl(parts.path, expiresIn);
+          .from(bucket_name)
+          .createSignedUrl(filePath, expiresIn);
 
         if (error) {
-          console.error(
+          console.warn(
             `Error generating signed URL for ${filePath}:`,
             error.message,
           );
