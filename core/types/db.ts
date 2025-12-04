@@ -12,9 +12,8 @@ export type TagObservationType =
 // Re-export table types
 export type IUser = User;
 export type IDevice =
-  Database["public"]["CompositeTypes"]["device_with_components"] & {
+  Database["public"]["CompositeTypes"]["device_pretty_location"] & {
     api_keys_scout?: IApiKeyScout[];
-    recent_events?: IEventAndTagsPrettyLocation[];
   };
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
@@ -41,35 +40,6 @@ export type IArtifact = Database["public"]["Tables"]["artifacts"]["Row"];
 // Compound type for artifacts with signed media URL
 export type IArtifactWithMediaUrl = IArtifact & {
   media_url?: string | null;
-};
-
-// Component info type for properly typed component arrays (when we get proper typing from DB)
-export type IComponentInfo = {
-  id: number;
-  serial_number: string;
-  product_number: string | null;
-  certificate_id: number | null;
-  status: Database["public"]["Enums"]["component_status"];
-  created_at: string;
-  updated_at: string | null;
-};
-
-// Device with components using proper typed array
-export type IDeviceWithComponents = {
-  id: number;
-  inserted_at: string;
-  created_by: string | null;
-  herd_id: number;
-  device_type: Database["public"]["Enums"]["device_type"];
-  domain_name: string | null;
-  location: string | null;
-  altitude: number | null;
-  heading: number | null;
-  name: string | null;
-  description: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  components: IComponentInfo[];
 };
 
 // Insert types

@@ -10,13 +10,10 @@ export async function get_devices_by_herd(
   herd_id: number,
   client: SupabaseClient<Database>,
 ): Promise<IWebResponseCompatible<IDevice[]>> {
-  // call get_devices_with_components_for_herd with rpc
-  const { data, error } = await client.rpc(
-    "get_devices_with_components_for_herd",
-    {
-      herd_id_caller: herd_id,
-    },
-  );
+  // call get_devices_for_herd with rpc
+  const { data, error } = await client.rpc("get_devices_for_herd", {
+    herd_id_caller: herd_id,
+  });
 
   if (!data) {
     return IWebResponse.error<IDevice[]>("No devices found").to_compatible();
