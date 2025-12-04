@@ -11,10 +11,11 @@ export type TagObservationType =
 
 // Re-export table types
 export type IUser = User;
-export type IDevice = IDeviceWithComponents & {
-  api_keys_scout?: IApiKeyScout[];
-  recent_events?: IEventAndTagsPrettyLocation[];
-};
+export type IDevice =
+  Database["public"]["CompositeTypes"]["device_with_components"] & {
+    api_keys_scout?: IApiKeyScout[];
+    recent_events?: IEventAndTagsPrettyLocation[];
+  };
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
 export type ITagPrettyLocation =
@@ -42,7 +43,7 @@ export type IArtifactWithMediaUrl = IArtifact & {
   media_url?: string | null;
 };
 
-// Component info type for properly typed component arrays
+// Component info type for properly typed component arrays (when we get proper typing from DB)
 export type IComponentInfo = {
   id: number;
   serial_number: string;

@@ -1188,10 +1188,10 @@ export type Database = {
       }
       get_device_by_id: {
         Args: { device_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_with_components"]
+        Returns: Database["public"]["CompositeTypes"]["device_pretty_location"]
         SetofOptions: {
           from: "*"
-          to: "device_with_components"
+          to: "device_pretty_location"
           isOneToOne: true
           isSetofReturn: false
         }
@@ -1401,6 +1401,15 @@ export type Database = {
       user_status: "ONLINE" | "OFFLINE"
     }
     CompositeTypes: {
+      component_detail: {
+        id: number | null
+        serial_number: string | null
+        product_number: string | null
+        certificate_id: number | null
+        status: Database["public"]["Enums"]["component_status"] | null
+        created_at: string | null
+        updated_at: string | null
+      }
       connectivity_with_coordinates: {
         id: number | null
         session_id: number | null
@@ -1464,7 +1473,9 @@ export type Database = {
         description: string | null
         latitude: number | null
         longitude: number | null
-        components: Json | null
+        components:
+          | Database["public"]["CompositeTypes"]["component_detail"][]
+          | null
       }
       event_and_tags: {
         id: number | null

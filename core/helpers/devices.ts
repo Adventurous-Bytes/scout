@@ -26,27 +26,6 @@ export async function get_devices_by_herd(
   }
 }
 
-export async function get_device_by_id(
-  device_id: number,
-  client?: SupabaseClient<Database>,
-): Promise<IWebResponseCompatible<IDevice | null>> {
-  if (!client) {
-    client = await newServerClient();
-  }
-  const { data, error } = await client.rpc("get_device_with_components_by_id", {
-    device_id_caller: device_id,
-  });
-
-  if (!data) {
-    return IWebResponse.error<IDevice | null>(
-      "No device found",
-    ).to_compatible();
-  } else {
-    let response: IWebResponse<IDevice> = IWebResponse.success(data);
-    return response.to_compatible();
-  }
-}
-
 export async function serverUpdateDevice(
   updatedDevice: IDevice,
 ): Promise<IWebResponseCompatible<IDevice | null>> {
