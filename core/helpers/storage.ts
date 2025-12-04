@@ -71,9 +71,14 @@ export async function generateSignedUrlsBatch(
 
     const signedUrlPromises = filePaths.map(async (filePath) => {
       try {
+        const parts = getPartsFromFilePath(filePath);
+        if (!parts) {
+          console.error("Invalid file path:", filePath);
+          return null;
+        }
         const { data, error } = await supabase.storage
-          .from(BUCKET_NAME_SCOUT)
-          .createSignedUrl(filePath, expiresIn);
+          .from(parts.bucket_name)
+          .createSignedUrl(parts.path, expiresIn);
 
         if (error) {
           console.error(
