@@ -8,6 +8,27 @@ import {
   SIGNED_URL_EXPIRATION_SECONDS,
 } from "../constants/db";
 
+
+
+type FilePathParts {
+  bucket_name: string;
+  path: string;
+}
+
+/**
+ * Splits file path into bucket name and path. Must be at leaast one slash in your file path
+ * @param filePath
+ * @returns IFilePathParts | null - null if invalid file path
+ */
+function getPartsFromFilePath(filePath: string): FilePathParts | null {
+  const parts = filePath.split("/");
+  if (parts.length < 2) {
+    return null;
+  }
+  const bucket_name = parts[0];
+  const path = parts.slice(1).join("/");
+  return { bucket_name, path };
+
 /**
  * Generates a signed URL for a file in Supabase storage
  * @param filePath - The path to the file in storage (e.g., "events/123/image.jpg")
@@ -22,10 +43,14 @@ export async function generateSignedUrl(
 ): Promise<string | null> {
   try {
     const supabase = supabaseClient || (await newServerClient());
-
+    const parts = getPartsFromFilePath(filePath);
+    if (!parts) {
+      console.error("Invalid file path:", filePath);
+      return null;
+    }
     const { data, error } = await supabase.storage
-      .from(BUCKET_NAME_SCOUT)
-      .createSignedUrl(filePath, expiresIn);
+      .from(parts.bucket_name)
+      .createSignedUrl(parts.path, expiresIn);
     if (error) {
       console.error("Error generating signed URL:", error.message);
       return null;
@@ -36,6 +61,7 @@ export async function generateSignedUrl(
     console.error("Error in generateSignedUrl:", error);
     return null;
   }
+}
 }
 
 export async function generateSignedUrlsBatch(
@@ -62,7 +88,7 @@ export async function generateSignedUrlsBatch(
 
         return data.signedUrl;
       } catch (error) {
-        console.error(
+        console.warn(
           `Exception generating signed URL for ${filePath}:`,
           error,
         );
