@@ -8,12 +8,10 @@ import {
   SIGNED_URL_EXPIRATION_SECONDS,
 } from "../constants/db";
 
-
-
-type FilePathParts {
+type FilePathParts = {
   bucket_name: string;
   path: string;
-}
+};
 
 /**
  * Splits file path into bucket name and path. Must be at leaast one slash in your file path
@@ -29,39 +27,39 @@ function getPartsFromFilePath(filePath: string): FilePathParts | null {
   const path = parts.slice(1).join("/");
   return { bucket_name, path };
 
-/**
- * Generates a signed URL for a file in Supabase storage
- * @param filePath - The path to the file in storage (e.g., "events/123/image.jpg")
- * @param expiresIn - Number of seconds until the URL expires (default: 12 hours)
- * @param supabaseClient - Optional Supabase client (will create new one if not provided)
- * @returns Promise<string | null> - The signed URL or null if error
- */
-export async function generateSignedUrl(
-  filePath: string,
-  expiresIn: number = SIGNED_URL_EXPIRATION_SECONDS,
-  supabaseClient?: SupabaseClient<Database>,
-): Promise<string | null> {
-  try {
-    const supabase = supabaseClient || (await newServerClient());
-    const parts = getPartsFromFilePath(filePath);
-    if (!parts) {
-      console.error("Invalid file path:", filePath);
-      return null;
-    }
-    const { data, error } = await supabase.storage
-      .from(parts.bucket_name)
-      .createSignedUrl(parts.path, expiresIn);
-    if (error) {
-      console.error("Error generating signed URL:", error.message);
-      return null;
-    }
+  /**
+   * Generates a signed URL for a file in Supabase storage
+   * @param filePath - The path to the file in storage (e.g., "events/123/image.jpg")
+   * @param expiresIn - Number of seconds until the URL expires (default: 12 hours)
+   * @param supabaseClient - Optional Supabase client (will create new one if not provided)
+   * @returns Promise<string | null> - The signed URL or null if error
+   */
+  export async function generateSignedUrl(
+    filePath: string,
+    expiresIn: number = SIGNED_URL_EXPIRATION_SECONDS,
+    supabaseClient?: SupabaseClient<Database>,
+  ): Promise<string | null> {
+    try {
+      const supabase = supabaseClient || (await newServerClient());
+      const parts = getPartsFromFilePath(filePath);
+      if (!parts) {
+        console.error("Invalid file path:", filePath);
+        return null;
+      }
+      const { data, error } = await supabase.storage
+        .from(parts.bucket_name)
+        .createSignedUrl(parts.path, expiresIn);
+      if (error) {
+        console.error("Error generating signed URL:", error.message);
+        return null;
+      }
 
-    return data.signedUrl;
-  } catch (error) {
-    console.error("Error in generateSignedUrl:", error);
-    return null;
+      return data.signedUrl;
+    } catch (error) {
+      console.error("Error in generateSignedUrl:", error);
+      return null;
+    }
   }
-}
 }
 
 export async function generateSignedUrlsBatch(
@@ -88,10 +86,7 @@ export async function generateSignedUrlsBatch(
 
         return data.signedUrl;
       } catch (error) {
-        console.warn(
-          `Exception generating signed URL for ${filePath}:`,
-          error,
-        );
+        console.warn(`Exception generating signed URL for ${filePath}:`, error);
         return null;
       }
     });
