@@ -832,10 +832,11 @@ export type Database = {
         Row: {
           commit_hash: string | null
           created_at: string
-          created_by: string | null
           description: string
           hyperlink: string | null
           id: number
+          pre: boolean
+          stable: boolean
           system: string
           title: string | null
           updated_at: string | null
@@ -844,10 +845,11 @@ export type Database = {
         Insert: {
           commit_hash?: string | null
           created_at?: string
-          created_by?: string | null
           description: string
           hyperlink?: string | null
           id?: number
+          pre?: boolean
+          stable?: boolean
           system: string
           title?: string | null
           updated_at?: string | null
@@ -856,24 +858,17 @@ export type Database = {
         Update: {
           commit_hash?: string | null
           created_at?: string
-          created_by?: string | null
           description?: string
           hyperlink?: string | null
           id?: number
+          pre?: boolean
+          stable?: boolean
           system?: string
           title?: string | null
           updated_at?: string | null
           version?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "versions_software_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       zones: {
         Row: {
@@ -1200,32 +1195,12 @@ export type Database = {
         Args: { device_api_key: string }
         Returns: number
       }
-      get_device_with_components_by_id: {
-        Args: { device_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_with_components"]
-        SetofOptions: {
-          from: "*"
-          to: "device_with_components"
-          isOneToOne: true
-          isSetofReturn: false
-        }
-      }
       get_devices_for_herd: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["device_pretty_location"][]
         SetofOptions: {
           from: "*"
           to: "device_pretty_location"
-          isOneToOne: false
-          isSetofReturn: true
-        }
-      }
-      get_devices_with_components_for_herd: {
-        Args: { herd_id_caller: number }
-        Returns: Database["public"]["CompositeTypes"]["device_with_components"][]
-        SetofOptions: {
-          from: "*"
-          to: "device_with_components"
           isOneToOne: false
           isSetofReturn: true
         }
@@ -1401,15 +1376,6 @@ export type Database = {
       user_status: "ONLINE" | "OFFLINE"
     }
     CompositeTypes: {
-      component_detail: {
-        id: number | null
-        serial_number: string | null
-        product_number: string | null
-        certificate_id: number | null
-        status: Database["public"]["Enums"]["component_status"] | null
-        created_at: string | null
-        updated_at: string | null
-      }
       connectivity_with_coordinates: {
         id: number | null
         session_id: number | null
@@ -1458,24 +1424,6 @@ export type Database = {
         description: string | null
         latitude: number | null
         longitude: number | null
-      }
-      device_with_components: {
-        id: number | null
-        inserted_at: string | null
-        created_by: string | null
-        herd_id: number | null
-        device_type: Database["public"]["Enums"]["device_type"] | null
-        domain_name: string | null
-        location: string | null
-        altitude: number | null
-        heading: number | null
-        name: string | null
-        description: string | null
-        latitude: number | null
-        longitude: number | null
-        components:
-          | Database["public"]["CompositeTypes"]["component_detail"][]
-          | null
       }
       event_and_tags: {
         id: number | null
