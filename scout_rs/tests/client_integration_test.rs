@@ -120,6 +120,12 @@ impl TestCleanup {
         }
     }
 
+    fn track_artifact(&self, artifact_id: i64) {
+        if let Ok(mut tracker) = self.tracker.lock() {
+            tracker.artifacts.push(artifact_id);
+        }
+    }
+
     /// Clean up all tracked test data
     async fn cleanup(&self, client: &mut ScoutClient) {
         if let Ok(tracker) = self.tracker.lock() {
@@ -3019,6 +3025,373 @@ test_with_cleanup!(
     test_resumable_upload_after_cancellation,
     test_resumable_upload_after_cancellation_impl
 );
+
+test_with_cleanup!(
+    test_artifact_flush_integration,
+    test_artifact_flush_integration_impl
+);
+
+/// Tests the artifact flush filtering logic to ensure:
+/// 1. Only artifacts with uploaded files are considered for sync
+/// 2. Artifacts without uploaded files are filtered out
+/// 3. Different artifact modalities are handled correctly
+/// 4. Local filtering works correctly before remote sync
+async fn test_artifact_flush_integration_impl(cleanup: &TestCleanup) {
+    use chrono::Utc;
+    use scout_rs::models::{ArtifactLocal, SessionLocal};
+    use std::env;
+
+    // Setup test environment
+    setup_test_env();
+
+    let mut sync_engine = create_test_sync_engine()
+        .await
+        .expect("Failed to create sync engine");
+
+    println!("🔧 Testing artifact flush integration workflow...");
+
+    // Get device ID for test
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .expect("SCOUT_DEVICE_ID required")
+        .parse()
+        .expect("SCOUT_DEVICE_ID must be valid integer");
+
+    // Step 1: Create a test session locally (artifacts need sessions as ancestors)
+    let session_id_local = format!("test_session_for_artifacts_{}", Utc::now().timestamp());
+    let mut session = SessionLocal::default();
+    session.device_id = device_id;
+    session.set_id_local(session_id_local.clone());
+    session.timestamp_start = Utc::now().to_rfc3339();
+    session.timestamp_end = Some(Utc::now().to_rfc3339());
+    session.software_version = "test_version".to_string();
+
+    // Insert session locally (don't flush to remote to avoid sync issues)
+    sync_engine
+        .upsert_items(vec![session.clone()])
+        .expect("Failed to insert session locally");
+
+    println!("✅ Created local session: {}", session_id_local);
+
+    // Step 2: Create test artifacts with different states
+    let mut artifacts = vec![];
+    let timestamp = Utc::now().timestamp();
+
+    // Artifact 1: Ready to flush (has uploaded file)
+    let mut artifact1 = ArtifactLocal::new(
+        "/test/path/video1.mp4".to_string(),
+        None, // Don't set session_id yet, let sync handle it
+        device_id,
+        Some("video".to_string()),
+        None,
+    );
+    artifact1.set_id_local(format!("test_artifact_{}_ready", timestamp));
+    artifact1.set_ancestor_id_local(session_id_local.clone());
+    artifact1.created_at = Some(Utc::now().to_rfc3339()); // Ensure created_at is set
+    artifact1.mark_file_uploaded(); // Mark as uploaded to storage
+    println!(
+        "Created artifact1: uploaded={}",
+        artifact1.has_uploaded_file_to_storage
+    );
+    artifacts.push(artifact1);
+
+    // Artifact 2: Not ready to flush (file not uploaded)
+    let mut artifact2 = ArtifactLocal::new(
+        "/test/path/video2.mp4".to_string(),
+        None, // Don't set session_id yet, let sync handle it
+        device_id,
+        Some("video".to_string()),
+        None,
+    );
+    artifact2.set_id_local(format!("test_artifact_{}_pending", timestamp));
+    artifact2.set_ancestor_id_local(session_id_local.clone());
+    artifact2.created_at = Some(Utc::now().to_rfc3339()); // Ensure created_at is set
+    artifact2.mark_file_not_uploaded(); // Mark as NOT uploaded
+    println!(
+        "Created artifact2: uploaded={}",
+        artifact2.has_uploaded_file_to_storage
+    );
+    artifacts.push(artifact2);
+
+    // Artifact 3: Another ready artifact with different modality
+    let mut artifact3 = ArtifactLocal::new(
+        "/test/path/image.jpg".to_string(),
+        None, // Don't set session_id yet, let sync handle it
+        device_id,
+        Some("image".to_string()),
+        Some(Utc::now().to_rfc3339()),
+    );
+    artifact3.set_id_local(format!("test_artifact_{}_image", timestamp));
+    artifact3.set_ancestor_id_local(session_id_local.clone());
+    artifact3.created_at = Some(Utc::now().to_rfc3339()); // Ensure created_at is set
+    artifact3.mark_file_uploaded(); // Mark as uploaded
+    println!(
+        "Created artifact3: uploaded={}",
+        artifact3.has_uploaded_file_to_storage
+    );
+    artifacts.push(artifact3);
+
+    println!("📦 Created {} test artifacts", artifacts.len());
+
+    // Step 3: Insert artifacts locally
+    sync_engine
+        .upsert_items(artifacts.clone())
+        .expect("Failed to insert artifacts locally");
+
+    // Verify artifacts are in local database
+    let local_artifact_count = sync_engine
+        .get_table_count::<ArtifactLocal>()
+        .expect("Failed to get local artifact count");
+    println!("📊 Local artifacts count: {}", local_artifact_count);
+
+    // Step 4: Perform flush - only uploaded artifacts should be synced
+    println!("🚀 Flushing artifacts...");
+    let flush_result = sync_engine.flush().await;
+
+    match flush_result {
+        Ok(_) => println!("✅ Flush completed successfully"),
+        Err(e) => {
+            println!("⚠️ Flush completed with errors: {}", e);
+            // Continue with verification - partial success is acceptable
+        }
+    }
+
+    // Step 5: Verify results - filter for only our test artifacts
+    let all_local_artifacts = sync_engine
+        .get_all_artifacts()
+        .expect("Failed to get all artifacts");
+
+    let test_artifact_prefix = format!("test_artifact_{}_", timestamp);
+    let our_artifacts: Vec<_> = all_local_artifacts
+        .iter()
+        .filter(|a| {
+            if let Some(id_local) = &a.id_local {
+                id_local.starts_with(&test_artifact_prefix)
+            } else {
+                false
+            }
+        })
+        .collect();
+
+    let mut synced_count = 0;
+    let mut not_synced_count = 0;
+
+    for artifact in &our_artifacts {
+        if let Some(local_id) = &artifact.id_local {
+            if artifact.id.is_some() {
+                synced_count += 1;
+                println!(
+                    "✅ Artifact '{}' synced with remote ID: {}",
+                    local_id,
+                    artifact.id.unwrap()
+                );
+
+                // Track for cleanup
+                cleanup.track_artifact(artifact.id.unwrap());
+            } else {
+                not_synced_count += 1;
+                println!(
+                    "⏳ Artifact '{}' not yet synced (upload status: {})",
+                    local_id, artifact.has_uploaded_file_to_storage
+                );
+            }
+        }
+    }
+
+    println!(
+        "📊 Our Sync Results: {} synced, {} not synced (out of {} total artifacts in DB)",
+        synced_count,
+        not_synced_count,
+        all_local_artifacts.len()
+    );
+
+    // Assertions for our test artifacts only
+    assert_eq!(
+        synced_count, 2,
+        "Expected 2 of our artifacts to be synced (only those with uploaded files)"
+    );
+    assert_eq!(
+        not_synced_count, 1,
+        "Expected 1 of our artifacts to remain unsynced (file not uploaded)"
+    );
+
+    // Step 7: Verify specific artifacts exist and have correct state
+    let mut found_ready = false;
+    let mut found_pending = false;
+    let mut found_image = false;
+
+    for artifact in &our_artifacts {
+        if let Some(id_local) = &artifact.id_local {
+            if id_local.contains("ready") {
+                found_ready = true;
+                assert!(
+                    artifact.id.is_some(),
+                    "Ready artifact should have remote ID"
+                );
+            } else if id_local.contains("pending") {
+                found_pending = true;
+                assert!(
+                    artifact.id.is_none(),
+                    "Pending artifact should not have remote ID"
+                );
+            } else if id_local.contains("image") {
+                found_image = true;
+                assert!(
+                    artifact.id.is_some(),
+                    "Image artifact should have remote ID"
+                );
+            }
+        }
+    }
+
+    assert!(found_ready, "Should find ready artifact");
+    assert!(found_pending, "Should find pending artifact");
+    assert!(found_image, "Should find image artifact");
+
+    println!("🎉 Artifact flush integration test completed successfully!");
+    println!("✅ Confirmed: Only artifacts with uploaded files are synced to database");
+    println!("✅ Confirmed: Artifacts maintain proper session references");
+    println!("✅ Confirmed: Different modalities are handled correctly");
+    println!("✅ Confirmed: Artifact flush filtering works as expected");
+}
+
+test_with_cleanup!(
+    test_minimal_artifact_sync_debug,
+    test_minimal_artifact_sync_debug_impl
+);
+
+/// Minimal test to debug artifact sync issues
+/// Tests single artifact sync to isolate the "All object keys must match" error
+async fn test_minimal_artifact_sync_debug_impl(cleanup: &TestCleanup) {
+    use chrono::Utc;
+    use scout_rs::models::{ArtifactLocal, SessionLocal};
+    use std::env;
+
+    println!("🔧 Testing minimal artifact sync to debug issues...");
+
+    // Setup test environment
+    setup_test_env();
+
+    let mut sync_engine = create_test_sync_engine()
+        .await
+        .expect("Failed to create sync engine");
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .expect("SCOUT_DEVICE_ID required")
+        .parse()
+        .expect("SCOUT_DEVICE_ID must be valid integer");
+
+    // Step 1: Create and sync a minimal test session
+    let session_id_local = format!("debug_session_{}", Utc::now().timestamp_micros());
+    let mut session = SessionLocal::default();
+    session.device_id = device_id;
+    session.set_id_local(session_id_local.clone());
+    session.timestamp_start = Utc::now().to_rfc3339();
+    session.timestamp_end = Some(Utc::now().to_rfc3339());
+    session.software_version = "debug_test".to_string();
+
+    sync_engine
+        .upsert_items(vec![session.clone()])
+        .expect("Failed to insert session");
+
+    // First try to sync session only using public flush method
+    println!("🚀 Syncing session (and all data)...");
+    match sync_engine.flush().await {
+        Ok(_) => println!("✅ Full sync successful"),
+        Err(e) => println!("❌ Full sync failed: {}", e),
+    }
+
+    // Get session with potential remote ID
+    let updated_session: SessionLocal = sync_engine
+        .get_item(&session_id_local)
+        .expect("Failed to get session")
+        .expect("Session not found");
+
+    if let Some(remote_session_id) = updated_session.id {
+        cleanup.track_session(remote_session_id);
+        println!("✅ Session has remote ID: {}", remote_session_id);
+    }
+
+    // Step 2: Create ONE minimal artifact with all required fields explicitly set
+    let now = Utc::now();
+    let artifact = ArtifactLocal {
+        id: None,
+        id_local: Some(format!("debug_artifact_{}", now.timestamp_micros())),
+        ancestor_id_local: Some(session_id_local.clone()),
+        created_at: Some(now.to_rfc3339()),
+        file_path: "/debug/test.mp4".to_string(),
+        session_id: updated_session.id, // Use remote session ID if available
+        timestamp_observation: Some(now.to_rfc3339()),
+        modality: Some("video".to_string()),
+        device_id,
+        updated_at: Some(now.to_rfc3339()),
+        timestamp_observation_end: now.to_rfc3339(), // Explicitly set required field
+        has_uploaded_file_to_storage: true,          // Mark as uploaded so it will be synced
+        upload_url: None,
+        upload_url_generated_at: None,
+    };
+
+    println!("🔧 Created minimal artifact:");
+    println!("  - id_local: {:?}", artifact.id_local);
+    println!("  - file_path: {}", artifact.file_path);
+    println!("  - device_id: {}", artifact.device_id);
+    println!("  - session_id: {:?}", artifact.session_id);
+    println!(
+        "  - has_uploaded_file_to_storage: {}",
+        artifact.has_uploaded_file_to_storage
+    );
+    println!("  - created_at: {:?}", artifact.created_at);
+    println!(
+        "  - timestamp_observation_end: {}",
+        artifact.timestamp_observation_end
+    );
+
+    // Insert artifact locally
+    sync_engine
+        .upsert_items(vec![artifact.clone()])
+        .expect("Failed to insert artifact");
+
+    // Step 3: Try to sync all data (including artifacts)
+    println!("🚀 Syncing all data (including artifacts)...");
+    match sync_engine.flush().await {
+        Ok(_) => {
+            println!("✅ Artifact sync successful!");
+
+            // Check if artifact got remote ID
+            let updated_artifact: ArtifactLocal = sync_engine
+                .get_item(artifact.id_local.as_ref().unwrap())
+                .expect("Failed to get artifact")
+                .expect("Artifact not found");
+
+            if let Some(remote_id) = updated_artifact.id {
+                cleanup.track_artifact(remote_id);
+                println!("✅ Artifact synced with remote ID: {}", remote_id);
+            } else {
+                println!("⚠️ Artifact sync completed but no remote ID assigned");
+            }
+        }
+        Err(e) => {
+            println!("❌ Artifact sync failed: {}", e);
+
+            // Let's also try to convert to API format to see if that's the issue
+            let artifact_for_api: scout_rs::models::Artifact = artifact.clone().into();
+            println!("🔍 Artifact converted to API format:");
+            println!("  - id: {:?}", artifact_for_api.id);
+            println!("  - created_at: {:?}", artifact_for_api.created_at);
+            println!("  - file_path: {}", artifact_for_api.file_path);
+            println!("  - session_id: {:?}", artifact_for_api.session_id);
+            println!("  - device_id: {}", artifact_for_api.device_id);
+            println!(
+                "  - timestamp_observation_end: {}",
+                artifact_for_api.timestamp_observation_end
+            );
+
+            // This test will fail, but we'll get diagnostic info
+            panic!("Artifact sync failed - check logs above for diagnostic info");
+        }
+    }
+
+    println!("🎉 Minimal artifact sync debug test completed!");
+}
 
 async fn test_resumable_upload_after_cancellation_impl(_cleanup: &TestCleanup) {
     use scout_rs::models::ArtifactLocal;

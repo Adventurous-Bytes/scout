@@ -916,10 +916,24 @@ impl SyncEngine {
             .map(|artifact| artifact.clone().into())
             .collect();
 
-        let response = self
+        let response = match self
             .scout_client
             .upsert_artifacts_batch(&artifacts_for_api)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                tracing::warn!(
+                    "Bulk artifact upsert failed ({}), falling back to individual upserts",
+                    e
+                );
+
+                // Fallback to individual upserts
+                return self
+                    .fallback_individual_artifact_upserts(all_artifacts)
+                    .await;
+            }
+        };
 
         if let Some(remote_artifacts) = response.data {
             tracing::info!("Successfully synced {} artifacts", remote_artifacts.len());
@@ -937,6 +951,65 @@ impl SyncEngine {
                 .collect();
 
             self.upsert_items(updated_locals)?;
+        }
+
+        Ok(())
+    }
+
+    async fn fallback_individual_artifact_upserts(
+        &mut self,
+        artifacts: Vec<ArtifactLocal>,
+    ) -> Result<(), Error> {
+        tracing::info!("Processing {} artifacts individually", artifacts.len());
+
+        let mut successful_count = 0;
+        let mut errors = Vec::new();
+
+        for (index, artifact) in artifacts.iter().enumerate() {
+            let api_artifact: crate::models::Artifact = artifact.clone().into();
+
+            match self
+                .scout_client
+                .upsert_artifacts_batch(&[api_artifact])
+                .await
+            {
+                Ok(response) => {
+                    if let Some(remote_artifacts) = response.data {
+                        if let Some(remote_artifact) = remote_artifacts.into_iter().next() {
+                            let mut updated_local: ArtifactLocal = remote_artifact.into();
+                            updated_local.id_local = artifact.id_local.clone();
+                            updated_local.ancestor_id_local = artifact.ancestor_id_local.clone();
+
+                            if let Err(e) = self.upsert_items(vec![updated_local]) {
+                                tracing::error!("Failed to update local artifact {}: {}", index, e);
+                                errors.push(format!(
+                                    "Local update failed for artifact {}: {}",
+                                    index, e
+                                ));
+                            } else {
+                                successful_count += 1;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to sync artifact {}: {}", index, e);
+                    errors.push(format!("Sync failed for artifact {}: {}", index, e));
+                }
+            }
+        }
+
+        tracing::info!(
+            "Individual artifact sync completed: {} successful, {} failed",
+            successful_count,
+            errors.len()
+        );
+
+        if !errors.is_empty() {
+            return Err(Error::msg(format!(
+                "Some artifacts failed to sync: {}",
+                errors.join("; ")
+            )));
         }
 
         Ok(())
