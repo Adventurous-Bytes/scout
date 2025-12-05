@@ -348,6 +348,8 @@ pub struct ArtifactLocal {
     pub updated_at: Option<String>,
     pub timestamp_observation_end: String,
     pub has_uploaded_file_to_storage: bool,
+    pub upload_url: Option<String>,
+    pub upload_url_generated_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -385,6 +387,8 @@ impl Default for ArtifactLocal {
             updated_at: None,
             timestamp_observation_end: Utc::now().to_rfc3339(),
             has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
         }
     }
 }
@@ -448,6 +452,8 @@ impl From<Artifact> for ArtifactLocal {
             updated_at: artifact.updated_at,
             timestamp_observation_end: artifact.timestamp_observation_end,
             has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
         }
     }
 }
@@ -497,6 +503,8 @@ impl ArtifactLocal {
             updated_at: None,
             timestamp_observation_end: Utc::now().to_rfc3339(),
             has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
         }
     }
 }
@@ -519,6 +527,8 @@ impl From<super::v1::Artifact> for ArtifactLocal {
             updated_at: None,
             timestamp_observation_end: Utc::now().to_rfc3339(),
             has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
         }
     }
 }

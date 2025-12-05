@@ -12,12 +12,13 @@ readme = "README.md"
 exclude = ["src/bin/*"]
 
 [dependencies]
+tus_client = "0.1.1"
 native_db = "0.8.2"
 native_model = "0.4.20"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-reqwest = { version = "0.11", features = ["multipart", "json"] }
+reqwest = { version = "0.12", features = ["json", "stream", "blocking"] }
 anyhow = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 dotenv = "0.15"
@@ -30,6 +31,8 @@ postgrest = "1.0"
 # Test utilities
 once_cell = "1.0"
 tempfile = "3.3"
+url = "2.4"
+base64 = "0.13"
 
 [dev-dependencies]
 tempfile = "3.3"

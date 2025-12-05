@@ -4,6 +4,7 @@ use crate::{
         data, ArtifactLocal, Connectivity, ConnectivityLocal, Event, EventLocal, Session,
         SessionLocal, Syncable, Tag, TagLocal,
     },
+    storage::{StorageClient, StorageConfig, UploadResult},
 };
 use anyhow::{Error, Result};
 use native_db::{Builder, Database, Models, ToInput};
@@ -73,6 +74,7 @@ pub struct SyncEngine {
     max_num_items_per_sync: Option<u64>,
     auto_clean: bool,
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
+    storage_client: Option<StorageClient>,
 }
 
 pub enum EnumSyncAction {
@@ -133,6 +135,7 @@ impl SyncEngine {
             max_num_items_per_sync,
             auto_clean,
             shutdown_tx: None,
+            storage_client: None,
         })
     }
 
@@ -146,7 +149,7 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
-            true, // Enable auto-clean by default
+            true,
         )
     }
 
@@ -1475,6 +1478,103 @@ impl SyncEngine {
         }
 
         Ok(pending_artifacts)
+    }
+
+    /// Sets up storage client for artifact uploads
+    pub fn with_storage(mut self, storage_config: StorageConfig) -> Result<Self, Error> {
+        self.storage_client = Some(StorageClient::new(storage_config)?);
+        Ok(self)
+    }
+
+    /// Generates upload URLs for the provided artifacts
+    ///
+    /// This will update artifacts in-place with upload URLs and timestamps.
+    /// Existing URLs within 24 hours will be reused.
+    pub async fn generate_upload_urls(
+        &mut self,
+        artifacts: &mut Vec<ArtifactLocal>,
+    ) -> Result<(), Error> {
+        let storage_client = self.storage_client.as_ref().ok_or_else(|| {
+            Error::msg("Storage client not configured. Call with_storage() first.")
+        })?;
+
+        let herd_id = self
+            .scout_client
+            .herd
+            .as_ref()
+            .and_then(|h| h.id)
+            .ok_or_else(|| {
+                Error::msg("Herd ID not available. Call scout_client.identify() first.")
+            })?;
+
+        storage_client
+            .generate_upload_urls(artifacts, herd_id)
+            .await?;
+
+        // Update the artifacts in the database
+        self.upsert_items(artifacts.clone())?;
+
+        Ok(())
+    }
+
+    /// Upload artifacts to storage
+    ///
+    /// Returns the modified artifacts with upload status updated.
+    /// Only artifacts with upload URLs will be processed.
+    pub async fn upload_artifacts_to_storage(
+        &mut self,
+        artifacts: &mut Vec<ArtifactLocal>,
+    ) -> Result<Vec<UploadResult>, Error> {
+        let storage_client = self.storage_client.as_ref().ok_or_else(|| {
+            Error::msg("Storage client not configured. Call with_storage() first.")
+        })?;
+
+        let herd_id = self
+            .scout_client
+            .herd
+            .as_ref()
+            .and_then(|h| h.id)
+            .ok_or_else(|| {
+                Error::msg("Herd ID not available. Call scout_client.identify() first.")
+            })?;
+
+        let results = storage_client
+            .upload_artifacts_to_storage(artifacts, herd_id)
+            .await?;
+
+        // Update the modified artifacts in the database
+        // Only update artifacts that were successfully uploaded
+        let modified_artifacts: Vec<ArtifactLocal> = artifacts
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| results.get(*i).map_or(false, |r| r.success))
+            .map(|(_, artifact)| artifact.clone())
+            .collect();
+
+        if !modified_artifacts.is_empty() {
+            self.upsert_items(modified_artifacts)?;
+        }
+
+        Ok(results)
+    }
+
+    /// Get artifacts that need upload URLs
+    pub fn get_artifacts_needing_upload_urls(&self) -> Result<Vec<ArtifactLocal>, Error> {
+        let storage_client = self.storage_client.as_ref().ok_or_else(|| {
+            Error::msg("Storage client not configured. Call with_storage() first.")
+        })?;
+
+        // Get all artifacts from database
+        let r = self.database.r_transaction()?;
+        let mut all_artifacts = Vec::new();
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                all_artifacts.push(artifact);
+            }
+        }
+
+        Ok(storage_client.get_artifacts_needing_urls(&all_artifacts))
     }
 
     /// Updates all descendants of a session with the new remote session ID
