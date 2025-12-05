@@ -1291,6 +1291,27 @@ impl ScoutClient {
         ))
     }
 
+    /// Upserts multiple artifacts in a batch (insert or update on conflict)
+    pub async fn upsert_artifacts_batch(
+        &mut self,
+        artifacts: &[Artifact],
+    ) -> Result<ResponseScout<Vec<Artifact>>> {
+        let db_client = self.get_db_client()?;
+
+        if artifacts.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+
+        let result = db_client.upsert_bulk("artifacts", artifacts).await?;
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            Some(result),
+        ))
+    }
+
     /// Creates a heartbeat record for a device
     pub async fn create_heartbeat(
         &mut self,

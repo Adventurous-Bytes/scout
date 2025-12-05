@@ -1,8 +1,8 @@
 use crate::{
     client::ScoutClient,
     models::{
-        data, Connectivity, ConnectivityLocal, Event, EventLocal, Session, SessionLocal, Syncable,
-        Tag, TagLocal,
+        data, ArtifactLocal, Connectivity, ConnectivityLocal, Event, EventLocal, Session,
+        SessionLocal, Syncable, Tag, TagLocal,
     },
 };
 use anyhow::{Error, Result};
@@ -42,6 +42,11 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
     models
         .define::<data::v2::OperatorLocal>()
         .expect("Failed to define Operator model");
+
+    // Define v3 Artifact model (updated schema with modality, device_id, updated_at, timestamp_observation_end)
+    models
+        .define::<ArtifactLocal>()
+        .expect("Failed to define ArtifactLocal model");
 
     models
 });
@@ -238,6 +243,12 @@ impl SyncEngine {
         if let Err(e) = self.flush_tags().await {
             sync_errors.push(format!("Tags sync failed: {}", e));
             tracing::error!("Tags sync failed: {}", e);
+        }
+
+        // Sync artifacts (depends on sessions and devices)
+        if let Err(e) = self.flush_artifacts().await {
+            sync_errors.push(format!("Artifacts sync failed: {}", e));
+            tracing::error!("Artifacts sync failed: {}", e);
         }
 
         // Auto clean if enabled and no critical errors occurred
@@ -805,6 +816,129 @@ impl SyncEngine {
         Ok(())
     }
 
+    /// Syncs artifacts to remote server
+    ///
+    /// Only artifacts with `has_uploaded_file_to_storage = true` will be synced.
+    /// This ensures that artifact metadata is only sent to the server after
+    /// the actual file has been successfully uploaded to storage.
+    ///
+    /// # Example
+    /// ```
+    /// // Create artifact and upload file first
+    /// let mut artifact = ArtifactLocal::new(
+    ///     "path/to/image.jpg".to_string(),
+    ///     Some(session_id),
+    ///     device_id,
+    ///     Some("image".to_string()),
+    ///     Some(timestamp),
+    /// );
+    ///
+    /// // Upload file to storage first
+    /// upload_file_to_storage(&artifact.file_path).await?;
+    ///
+    /// // Mark as uploaded so it will be included in sync
+    /// artifact.mark_file_uploaded();
+    /// sync_engine.upsert_items(vec![artifact])?;
+    ///
+    /// // Now flush will include this artifact
+    /// sync_engine.flush().await?;
+    /// ```
+    async fn flush_artifacts(&mut self) -> Result<(), Error> {
+        // For artifacts, we support both upsert (existing items) and insert (new items)
+        let artifacts_batch: BatchSync<ArtifactLocal> = self.get_batch::<ArtifactLocal>(
+            EnumSyncAction::Upsert, // Process items with remote IDs for updates
+            EnumSyncAction::Insert, // Process items without remote IDs for creation
+        )?;
+
+        // Combine both upsert and insert items
+        let mut all_artifacts = artifacts_batch.upsert;
+        all_artifacts.extend(artifacts_batch.insert);
+
+        let total_artifacts = all_artifacts.len();
+
+        // Filter to only include artifacts that have uploaded their files to storage
+        all_artifacts.retain(|artifact| artifact.has_uploaded_file_to_storage);
+
+        let uploaded_artifacts = all_artifacts.len();
+        let pending_uploads = total_artifacts - uploaded_artifacts;
+
+        if pending_uploads > 0 {
+            tracing::debug!(
+                "Skipping {} artifacts without uploaded files (only syncing {} with uploaded files)",
+                pending_uploads,
+                uploaded_artifacts
+            );
+        }
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if all_artifacts.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting artifacts sync from {} to {} items",
+                    all_artifacts.len(),
+                    max_items
+                );
+                all_artifacts.truncate(max_items as usize);
+            }
+        }
+
+        if all_artifacts.is_empty() {
+            tracing::debug!("No artifacts with uploaded files found for syncing");
+            return Ok(());
+        }
+
+        // Update artifacts' session_id if their ancestor sessions have remote IDs
+        let mut updated_artifacts = Vec::new();
+        for artifact in all_artifacts.iter() {
+            let mut updated_artifact = artifact.clone();
+            if let Some(ancestor_local_id) = &artifact.ancestor_id_local {
+                // Check if the ancestor session has a remote ID
+                if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
+                    if let Some(remote_session_id) = session.id {
+                        // Update the artifact's session_id with the remote session ID
+                        updated_artifact.session_id = Some(remote_session_id);
+                    }
+                }
+            }
+            updated_artifacts.push(updated_artifact);
+        }
+
+        // Use the updated artifacts for syncing
+        let all_artifacts = updated_artifacts;
+
+        tracing::info!("Syncing {} artifacts to remote", all_artifacts.len());
+
+        // Convert to API format
+        let artifacts_for_api: Vec<crate::models::Artifact> = all_artifacts
+            .iter()
+            .map(|artifact| artifact.clone().into())
+            .collect();
+
+        let response = self
+            .scout_client
+            .upsert_artifacts_batch(&artifacts_for_api)
+            .await?;
+
+        if let Some(remote_artifacts) = response.data {
+            tracing::info!("Successfully synced {} artifacts", remote_artifacts.len());
+
+            // Update local records with remote IDs and data
+            let updated_locals: Vec<ArtifactLocal> = remote_artifacts
+                .into_iter()
+                .zip(all_artifacts.iter())
+                .map(|(remote_artifact, original_local)| {
+                    let mut updated_local: ArtifactLocal = remote_artifact.into();
+                    updated_local.id_local = original_local.id_local.clone();
+                    updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
+                    updated_local
+                })
+                .collect();
+
+            self.upsert_items(updated_locals)?;
+        }
+
+        Ok(())
+    }
+
     /// Syncs operators to remote server
     async fn flush_operators(&mut self) -> Result<(), Error> {
         // For operators, we only process items without remote IDs (new items to insert)
@@ -1079,6 +1213,21 @@ impl SyncEngine {
             }
         }
 
+        // Check artifacts entries
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if artifact.ancestor_id_local.as_deref() == Some(session_local_id) {
+                    if artifact.id.is_none() {
+                        tracing::debug!(
+                            "Session {} has artifact without remote ID",
+                            session_local_id
+                        );
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+
         // Check events and their tags
         for raw_event in r.scan().primary::<EventLocal>()?.all()? {
             if let Ok(event) = raw_event {
@@ -1128,6 +1277,7 @@ impl SyncEngine {
         let mut events_to_remove = Vec::new();
         let mut connectivity_to_remove = Vec::new();
         let mut operators_to_remove = Vec::new();
+        let mut artifacts_to_remove = Vec::new();
 
         // Collect events for this session
         for raw_event in r.scan().primary::<EventLocal>()?.all()? {
@@ -1169,6 +1319,15 @@ impl SyncEngine {
             }
         }
 
+        // Collect artifacts entries
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if artifact.ancestor_id_local.as_deref() == Some(&session_local_id) {
+                    artifacts_to_remove.push(artifact);
+                }
+            }
+        }
+
         drop(r); // Close read transaction
 
         // Now remove all items using write transaction
@@ -1198,18 +1357,25 @@ impl SyncEngine {
             rw.remove(operator)?;
         }
 
+        // Remove artifacts entries
+        let artifacts_count = artifacts_to_remove.len();
+        for artifact in artifacts_to_remove {
+            rw.remove(artifact)?;
+        }
+
         // Remove the session itself
         rw.remove(session.clone())?;
 
         rw.commit()?;
 
         tracing::info!(
-            "Cleaned session {}: removed {} tags, {} events, {} connectivity entries, {} operators, and 1 session",
+            "Cleaned session {}: removed {} tags, {} events, {} connectivity entries, {} operators, {} artifacts, and 1 session",
             session_local_id,
             tags_count,
             events_count,
             connectivity_count,
-            operators_count
+            operators_count,
+            artifacts_count
         );
 
         Ok(())
@@ -1277,6 +1443,38 @@ impl SyncEngine {
         }
         rw.commit()?;
         Ok(())
+    }
+
+    /// Returns the count of artifacts that are pending file upload
+    pub fn get_artifacts_pending_upload_count(&self) -> Result<usize, Error> {
+        let r = self.database.r_transaction()?;
+        let mut pending_count = 0;
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if !artifact.has_uploaded_file_to_storage {
+                    pending_count += 1;
+                }
+            }
+        }
+
+        Ok(pending_count)
+    }
+
+    /// Returns artifacts that are pending file upload
+    pub fn get_artifacts_pending_upload(&self) -> Result<Vec<ArtifactLocal>, Error> {
+        let r = self.database.r_transaction()?;
+        let mut pending_artifacts = Vec::new();
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if !artifact.has_uploaded_file_to_storage {
+                    pending_artifacts.push(artifact);
+                }
+            }
+        }
+
+        Ok(pending_artifacts)
     }
 
     /// Updates all descendants of a session with the new remote session ID
@@ -3242,6 +3440,86 @@ mod tests {
         drop(r);
 
         println!("✅ Test passed: Late arriving children get proper ancestor IDs populated");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_artifact_upload_filtering() -> Result<()> {
+        setup_test_env();
+        let mut sync_engine = create_test_sync_engine()?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create two artifacts - one with file uploaded, one without
+        let mut artifact_uploaded = ArtifactLocal::new(
+            "path/to/uploaded_file.jpg".to_string(),
+            None,
+            device_id,
+            Some("image".to_string()),
+            None,
+        );
+        artifact_uploaded.set_id_local("artifact_uploaded".to_string());
+        artifact_uploaded.mark_file_uploaded(); // Mark as uploaded
+
+        let mut artifact_pending = ArtifactLocal::new(
+            "path/to/pending_file.jpg".to_string(),
+            None,
+            device_id,
+            Some("image".to_string()),
+            None,
+        );
+        artifact_pending.set_id_local("artifact_pending".to_string());
+        // Leave as not uploaded (default is false)
+
+        // Insert both artifacts
+        sync_engine.upsert_items(vec![artifact_uploaded.clone(), artifact_pending.clone()])?;
+
+        // Verify both are in database
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 2);
+
+        // Check pending upload counts
+        let pending_count = sync_engine.get_artifacts_pending_upload_count()?;
+        assert_eq!(pending_count, 1, "Should have 1 artifact pending upload");
+
+        let pending_artifacts = sync_engine.get_artifacts_pending_upload()?;
+        assert_eq!(pending_artifacts.len(), 1);
+        assert_eq!(
+            pending_artifacts[0].id_local,
+            Some("artifact_pending".to_string())
+        );
+
+        // Test the filtering in get_batch
+        let artifacts_batch: BatchSync<ArtifactLocal> = sync_engine
+            .get_batch::<ArtifactLocal>(EnumSyncAction::Upsert, EnumSyncAction::Insert)?;
+
+        let mut all_artifacts = artifacts_batch.upsert;
+        all_artifacts.extend(artifacts_batch.insert);
+
+        // Before filtering, we should have 2 artifacts
+        assert_eq!(
+            all_artifacts.len(),
+            2,
+            "Should have 2 artifacts before filtering"
+        );
+
+        // Apply the same filtering logic as flush_artifacts
+        all_artifacts.retain(|artifact| artifact.has_uploaded_file_to_storage);
+
+        // After filtering, we should only have 1 artifact (the uploaded one)
+        assert_eq!(
+            all_artifacts.len(),
+            1,
+            "Should have 1 artifact after filtering"
+        );
+        assert_eq!(
+            all_artifacts[0].id_local,
+            Some("artifact_uploaded".to_string())
+        );
+
+        println!("✅ Test passed: Only artifacts with uploaded files are included in sync");
         Ok(())
     }
 }

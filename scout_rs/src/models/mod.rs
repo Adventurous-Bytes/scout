@@ -12,6 +12,8 @@ pub mod data {
     pub type Connectivity = super::v3::Connectivity;
     pub type OperatorLocal = super::v2::OperatorLocal; // New model in v2
     pub type Operator = super::v2::Operator; // New model in v2
+    pub type ArtifactLocal = super::v3::ArtifactLocal; // New model in v3
+    pub type Artifact = super::v3::Artifact; // Updated in v3
 
     // Other models that haven't changed stay at v1
     pub type Device = super::v1::Device;
@@ -19,7 +21,6 @@ pub mod data {
     pub type Herd = super::v1::Herd;
     pub type SessionLocal = super::v1::SessionLocal;
     pub type Session = super::v1::Session;
-    pub type Artifact = super::v1::Artifact;
     pub type EventLocal = super::v1::EventLocal;
     pub type Event = super::v1::Event;
     pub type TagLocal = super::v1::TagLocal;
