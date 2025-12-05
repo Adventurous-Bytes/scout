@@ -21,6 +21,7 @@ pub struct UploadProgress {
 pub struct SimpleHttpHandler {
     client: reqwest::Client,
     auth_token: String,
+    scout_api_key: String,
 }
 
 impl SimpleHttpHandler {
@@ -28,11 +29,28 @@ impl SimpleHttpHandler {
         Self {
             client,
             auth_token: String::new(),
+            scout_api_key: String::new(),
         }
     }
 
     pub fn with_auth(client: reqwest::Client, auth_token: String) -> Self {
-        Self { client, auth_token }
+        Self {
+            client,
+            auth_token,
+            scout_api_key: String::new(),
+        }
+    }
+
+    pub fn with_auth_and_api_key(
+        client: reqwest::Client,
+        auth_token: String,
+        scout_api_key: String,
+    ) -> Self {
+        Self {
+            client,
+            auth_token,
+            scout_api_key,
+        }
     }
 }
 
@@ -52,6 +70,16 @@ impl HttpHandler for SimpleHttpHandler {
         if !self.auth_token.is_empty() {
             request_builder =
                 request_builder.header("Authorization", format!("Bearer {}", self.auth_token));
+        }
+
+        // Add apikey header (similar to db_client.rs)
+        if !self.auth_token.is_empty() {
+            request_builder = request_builder.header("apikey", &self.auth_token);
+        }
+
+        // Add device API key header (similar to db_client.rs)
+        if !self.scout_api_key.is_empty() {
+            request_builder = request_builder.header("api_key", &self.scout_api_key);
         }
 
         // Add x-upsert header to allow overwriting existing files (fixes 409 Conflict)
@@ -95,6 +123,7 @@ impl HttpHandler for &SimpleHttpHandler {
 pub struct StorageConfig {
     pub supabase_url: String,
     pub supabase_anon_key: String,
+    pub scout_api_key: String,
     pub bucket_name: String,
     pub allowed_extensions: Vec<String>,
 }
@@ -110,6 +139,7 @@ impl Clone for SimpleHttpHandler {
         Self {
             client: self.client.clone(),
             auth_token: self.auth_token.clone(),
+            scout_api_key: self.scout_api_key.clone(),
         }
     }
 }
@@ -123,14 +153,29 @@ impl StorageClient {
                 .map_err(|e| anyhow!("Invalid auth header: {}", e))?,
         );
 
+        // Add apikey header (similar to db_client.rs)
+        headers.insert(
+            "apikey",
+            reqwest::header::HeaderValue::from_str(&config.supabase_anon_key)
+                .map_err(|e| anyhow!("Invalid apikey header: {}", e))?,
+        );
+
+        // Add device API key header (similar to db_client.rs)
+        headers.insert(
+            "api_key",
+            reqwest::header::HeaderValue::from_str(&config.scout_api_key)
+                .map_err(|e| anyhow!("Invalid api_key header: {}", e))?,
+        );
+
         let http_client = reqwest::Client::builder()
             .default_headers(headers)
             .build()
             .map_err(|e| anyhow!("Failed to build HTTP client: {}", e))?;
 
-        let http_handler = Box::new(SimpleHttpHandler::with_auth(
+        let http_handler = Box::new(SimpleHttpHandler::with_auth_and_api_key(
             http_client.clone(),
             config.supabase_anon_key.clone(),
+            config.scout_api_key.clone(),
         ));
 
         Ok(Self {
@@ -143,12 +188,31 @@ impl StorageClient {
     pub fn with_allowed_extensions(
         supabase_url: String,
         supabase_anon_key: String,
+        scout_api_key: String,
         bucket_name: String,
         allowed_extensions: Vec<String>,
     ) -> Result<Self> {
         let config = StorageConfig {
             supabase_url,
             supabase_anon_key,
+            scout_api_key,
+            bucket_name,
+            allowed_extensions,
+        };
+        Self::new(config)
+    }
+
+    pub fn with_device_api_key(
+        supabase_url: String,
+        supabase_anon_key: String,
+        scout_api_key: String,
+        bucket_name: String,
+        allowed_extensions: Vec<String>,
+    ) -> Result<Self> {
+        let config = StorageConfig {
+            supabase_url,
+            supabase_anon_key,
+            scout_api_key,
             bucket_name,
             allowed_extensions,
         };
@@ -237,23 +301,64 @@ impl StorageClient {
     /// - JoinHandle: Resolves to Result<(ArtifactLocal, String)>
     /// - progress_receiver: Broadcast receiver for upload progress updates
     ///
-    /// # Example
+    /// # Example - Complete Artifact Management Workflow
     /// ```rust,no_run
-    /// # use scout_rs::storage::StorageClient;
-    /// # async fn example(client: StorageClient, artifact: scout_rs::models::ArtifactLocal) -> anyhow::Result<()> {
-    /// let (upload_handle, mut progress_rx) = client.spawn_upload_artifact(artifact, 10, None);
+    /// # use scout_rs::sync::SyncEngine;
+    /// # use scout_rs::models::ArtifactLocal;
+    /// # use scout_rs::storage::StorageConfig;
+    /// # use scout_rs::client::ScoutClient;
+    /// # use scout_rs::db_client::DatabaseConfig;
+    /// # async fn example() -> anyhow::Result<()> {
+    /// // 1. Create scout client and storage config
+    /// let db_config = DatabaseConfig::from_env()?;
+    /// let scout_client = ScoutClient::new(db_config);
+    /// let storage_config = StorageConfig {
+    ///     supabase_url: "https://your-project.supabase.co".to_string(),
+    ///     supabase_anon_key: "your-anon-key".to_string(),
+    ///     scout_api_key: "your-device-api-key".to_string(),
+    ///     bucket_name: "artifacts".to_string(),
+    ///     allowed_extensions: vec![".mp4".to_string()],
+    /// };
+    /// let mut sync_engine = SyncEngine::new(scout_client, "db.path".to_string(), None, None, false)?
+    ///     .with_storage(storage_config)?;
     ///
-    /// // Listen for progress updates
-    /// tokio::spawn(async move {
-    ///     while let Ok(progress) = progress_rx.recv().await {
-    ///         let percent = (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
-    ///         println!("Progress: {:.1}% ({}/{} bytes) for {}",
-    ///                  percent, progress.bytes_uploaded, progress.total_bytes, progress.file_name);
+    /// // 2. Query artifacts by various criteria
+    /// let all_artifacts = sync_engine.get_all_artifacts()?;
+    /// let pending_upload = sync_engine.get_artifacts_pending_upload()?;
+    /// let ready_for_upload = sync_engine.get_artifacts_ready_for_upload()?;
+    /// let need_urls = sync_engine.get_artifacts_needing_upload_urls()?;
+    /// let uploaded_artifacts = sync_engine.get_artifacts_by_upload_status(true)?;
+    /// let specific_artifact = sync_engine.get_artifact_by_local_id("artifact_123")?;
+    ///
+    /// // 3. Generate upload URLs for artifacts that need them
+    /// let mut artifacts_needing_urls = sync_engine.get_artifacts_needing_upload_urls()?;
+    /// sync_engine.generate_upload_urls(&mut artifacts_needing_urls).await?;
+    ///
+    /// // 4. Upload artifacts with progress monitoring and custom chunk size
+    /// let ready_artifacts = sync_engine.get_artifacts_ready_for_upload()?;
+    /// for artifact in ready_artifacts {
+    ///     let (upload_handle, mut progress_rx) = sync_engine
+    ///         .spawn_upload_artifact(artifact.clone(), Some(512 * 1024))?; // 512KB chunks
+    ///
+    ///     // Monitor progress in background
+    ///     tokio::spawn(async move {
+    ///         while let Ok(progress) = progress_rx.recv().await {
+    ///             let percent = (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
+    ///             println!("Progress: {:.1}% ({}/{} bytes) for {}",
+    ///                      percent, progress.bytes_uploaded, progress.total_bytes, progress.file_name);
+    ///         }
+    ///     });
+    ///
+    ///     // Handle upload completion or cancellation
+    ///     match upload_handle.await {
+    ///         Ok(Ok((updated_artifact, storage_path))) => {
+    ///             println!("✅ Uploaded {} to {}", updated_artifact.file_path, storage_path);
+    ///             sync_engine.upsert_items(vec![updated_artifact])?; // Update database
+    ///         }
+    ///         Ok(Err(e)) => println!("❌ Upload failed: {}", e),
+    ///         Err(_) => println!("🛑 Upload cancelled"), // Task was aborted
     ///     }
-    /// });
-    ///
-    /// let (updated_artifact, storage_path) = upload_handle.await??;
-    /// println!("Uploaded to: {}", storage_path);
+    /// }
     /// # Ok(())
     /// # }
     /// ```
@@ -505,6 +610,8 @@ mod tests {
             supabase_url,
             supabase_anon_key: env::var("SUPABASE_PUBLIC_API_KEY")
                 .expect("SUPABASE_PUBLIC_API_KEY must be set"),
+            scout_api_key: env::var("SCOUT_DEVICE_API_KEY")
+                .expect("SCOUT_DEVICE_API_KEY must be set"),
             bucket_name: "artifacts".to_string(),
             allowed_extensions: vec![".mp4".to_string()],
         }

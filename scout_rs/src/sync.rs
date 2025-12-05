@@ -1569,6 +1569,70 @@ impl SyncEngine {
         Ok(storage_client.get_artifacts_needing_urls(&all_artifacts))
     }
 
+    /// Get all artifacts from the database
+    pub fn get_all_artifacts(&self) -> Result<Vec<ArtifactLocal>, Error> {
+        let r = self.database.r_transaction()?;
+        let mut all_artifacts = Vec::new();
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                all_artifacts.push(artifact);
+            }
+        }
+
+        Ok(all_artifacts)
+    }
+
+    /// Get artifacts that have upload URLs but haven't been uploaded yet
+    pub fn get_artifacts_ready_for_upload(&self) -> Result<Vec<ArtifactLocal>, Error> {
+        let r = self.database.r_transaction()?;
+        let mut ready_artifacts = Vec::new();
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if !artifact.has_uploaded_file_to_storage && artifact.upload_url.is_some() {
+                    ready_artifacts.push(artifact);
+                }
+            }
+        }
+
+        Ok(ready_artifacts)
+    }
+
+    /// Get artifacts by their upload status
+    pub fn get_artifacts_by_upload_status(
+        &self,
+        uploaded: bool,
+    ) -> Result<Vec<ArtifactLocal>, Error> {
+        let r = self.database.r_transaction()?;
+        let mut filtered_artifacts = Vec::new();
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if artifact.has_uploaded_file_to_storage == uploaded {
+                    filtered_artifacts.push(artifact);
+                }
+            }
+        }
+
+        Ok(filtered_artifacts)
+    }
+
+    /// Get a specific artifact by its local ID
+    pub fn get_artifact_by_local_id(&self, local_id: &str) -> Result<Option<ArtifactLocal>, Error> {
+        let r = self.database.r_transaction()?;
+
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if artifact.id_local.as_deref() == Some(local_id) {
+                    return Ok(Some(artifact));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
     /// Updates all descendants of a session with the new remote session ID
     fn update_session_descendants(
         &mut self,
