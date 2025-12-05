@@ -4,7 +4,7 @@ use crate::{
         data, ArtifactLocal, Connectivity, ConnectivityLocal, Event, EventLocal, Session,
         SessionLocal, Syncable, Tag, TagLocal,
     },
-    storage::{StorageClient, StorageConfig, UploadResult},
+    storage::{StorageClient, StorageConfig, UploadProgress},
 };
 use anyhow::{Error, Result};
 use native_db::{Builder, Database, Models, ToInput};
@@ -1517,14 +1517,23 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Upload artifacts to storage
+    /// Upload a single artifact to storage using spawned task
+    /// Returns a tuple of (task handle, progress receiver). Consumer must handle updating database.
     ///
-    /// Returns the modified artifacts with upload status updated.
-    /// Only artifacts with upload URLs will be processed.
-    pub async fn upload_artifacts_to_storage(
-        &mut self,
-        artifacts: &mut Vec<ArtifactLocal>,
-    ) -> Result<Vec<UploadResult>, Error> {
+    /// # Arguments
+    /// * `artifact` - The artifact to upload
+    /// * `chunk_size` - Optional chunk size in bytes (default: 1MB)
+    pub fn spawn_upload_artifact(
+        &self,
+        artifact: ArtifactLocal,
+        chunk_size: Option<usize>,
+    ) -> Result<
+        (
+            tokio::task::JoinHandle<Result<(ArtifactLocal, String)>>,
+            tokio::sync::broadcast::Receiver<UploadProgress>,
+        ),
+        Error,
+    > {
         let storage_client = self.storage_client.as_ref().ok_or_else(|| {
             Error::msg("Storage client not configured. Call with_storage() first.")
         })?;
@@ -1538,24 +1547,7 @@ impl SyncEngine {
                 Error::msg("Herd ID not available. Call scout_client.identify() first.")
             })?;
 
-        let results = storage_client
-            .upload_artifacts_to_storage(artifacts, herd_id)
-            .await?;
-
-        // Update the modified artifacts in the database
-        // Only update artifacts that were successfully uploaded
-        let modified_artifacts: Vec<ArtifactLocal> = artifacts
-            .iter()
-            .enumerate()
-            .filter(|(i, _)| results.get(*i).map_or(false, |r| r.success))
-            .map(|(_, artifact)| artifact.clone())
-            .collect();
-
-        if !modified_artifacts.is_empty() {
-            self.upsert_items(modified_artifacts)?;
-        }
-
-        Ok(results)
+        Ok(storage_client.spawn_upload_artifact(artifact, herd_id, chunk_size))
     }
 
     /// Get artifacts that need upload URLs

@@ -2818,3 +2818,198 @@ fn test_gps_tracker_vehicle_device_type() {
     let unknown = data::v1::DeviceType::from("invalid_type");
     assert_eq!(unknown, data::v1::DeviceType::Unknown);
 }
+
+test_with_cleanup!(
+    test_artifact_upload_integration,
+    test_artifact_upload_integration_impl
+);
+
+async fn test_artifact_upload_integration_impl(_cleanup: &TestCleanup) {
+    use scout_rs::models::ArtifactLocal;
+
+    use std::env;
+
+    // Setup test environment
+    setup_test_env();
+
+    let mut sync_engine = create_test_sync_engine()
+        .await
+        .expect("Failed to create sync engine");
+
+    // Create test artifact using sample file
+    let sample_file_path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/sample1.mp4");
+
+    if !sample_file_path.exists() {
+        println!("⚠️ Sample file not found, skipping artifact upload test");
+        return;
+    }
+
+    let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+        .expect("SCOUT_DEVICE_ID required")
+        .parse()
+        .expect("SCOUT_DEVICE_ID must be valid integer");
+
+    let mut artifact = ArtifactLocal::new(
+        sample_file_path.to_string_lossy().to_string(),
+        None,
+        device_id,
+        Some("video".to_string()),
+        None,
+    );
+    artifact.set_id_local("integration_test_artifact".to_string());
+
+    println!("🔧 Testing artifact upload integration workflow...");
+
+    // Step 1: Generate upload URL
+    let mut artifacts = vec![artifact.clone()];
+    sync_engine
+        .generate_upload_urls(&mut artifacts)
+        .await
+        .expect("Failed to generate upload URLs");
+
+    assert!(
+        artifacts[0].upload_url.is_some(),
+        "Upload URL should be generated"
+    );
+    assert!(
+        artifacts[0].upload_url_generated_at.is_some(),
+        "Upload URL timestamp should be set"
+    );
+
+    println!(
+        "✅ Upload URL generated: {}",
+        artifacts[0].upload_url.as_ref().unwrap().len()
+    );
+
+    // Step 2: Spawn upload with progress monitoring
+    let (upload_handle, mut progress_rx) = sync_engine
+        .spawn_upload_artifact(artifacts[0].clone(), Some(512 * 1024)) // 512KB chunks for more progress updates
+        .expect("Failed to spawn upload");
+
+    println!("🚀 Upload spawned with 512KB chunks for detailed progress...");
+
+    // Step 3: Monitor progress in background task
+    let progress_monitor = tokio::spawn(async move {
+        let mut progress_updates = Vec::new();
+        let mut last_percent = 0.0;
+
+        while let Ok(progress) = progress_rx.recv().await {
+            let percent = (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
+
+            // Only log significant progress changes
+            if percent - last_percent >= 10.0 || percent == 100.0 {
+                let update = format!(
+                    "Progress: {:.1}% ({}/{} bytes) - {}",
+                    percent, progress.bytes_uploaded, progress.total_bytes, progress.file_name
+                );
+                println!("   {}", update);
+                progress_updates.push(update);
+                last_percent = percent;
+            }
+        }
+        progress_updates
+    });
+
+    // Step 4: Wait for upload completion
+    let (updated_artifact, storage_path) = upload_handle
+        .await
+        .expect("Upload task failed")
+        .expect("Upload operation failed");
+
+    println!("✅ Upload completed! Storage path: {}", storage_path);
+
+    // Step 5: Verify upload results
+    assert!(
+        updated_artifact.has_uploaded_file_to_storage,
+        "Artifact should be marked as uploaded"
+    );
+    assert_eq!(
+        updated_artifact.id_local, artifact.id_local,
+        "Artifact ID should be preserved"
+    );
+    assert!(
+        storage_path.contains(&device_id.to_string()),
+        "Storage path should contain device ID"
+    );
+    assert!(
+        storage_path.contains("sample1.mp4"),
+        "Storage path should contain filename"
+    );
+
+    // Step 6: Get progress updates and verify monitoring worked
+    progress_monitor.abort(); // Stop monitoring
+    if let Ok(Ok(progress_updates)) =
+        tokio::time::timeout(std::time::Duration::from_secs(1), progress_monitor).await
+    {
+        println!(
+            "📊 Captured {} progress updates during upload",
+            progress_updates.len()
+        );
+        assert!(
+            !progress_updates.is_empty(),
+            "Should have captured progress updates"
+        );
+
+        // Verify final progress shows 100%
+        if let Some(final_update) = progress_updates.last() {
+            assert!(
+                final_update.contains("100.0%"),
+                "Final progress should be 100%"
+            );
+        }
+    }
+
+    // Step 7: Test handle cancellation (with a new upload)
+    println!("🔧 Testing upload cancellation...");
+    let mut test_artifact = artifact.clone();
+    test_artifact.set_id_local("cancellation_test_artifact".to_string());
+    test_artifact.upload_url = artifacts[0].upload_url.clone(); // Reuse URL
+
+    let (cancel_handle, _cancel_progress_rx) = sync_engine
+        .spawn_upload_artifact(test_artifact, Some(1024 * 1024)) // 1MB chunks
+        .expect("Failed to spawn test upload");
+
+    // Cancel immediately
+    cancel_handle.abort();
+
+    // Verify cancellation
+    let cancel_result = cancel_handle.await;
+    assert!(
+        cancel_result.is_err(),
+        "Cancelled upload should return error"
+    );
+    println!("✅ Upload cancellation works correctly");
+
+    println!("🎉 Artifact upload integration test completed successfully!");
+}
+
+async fn create_test_sync_engine() -> Result<scout_rs::sync::SyncEngine, Box<dyn std::error::Error>>
+{
+    use scout_rs::storage::StorageConfig;
+    use std::env;
+
+    // Create scout client and identify
+    let mut scout_client = create_test_client();
+    scout_client.identify().await?;
+
+    // Create storage config
+    let storage_config = StorageConfig {
+        supabase_url: env::var("SCOUT_DATABASE_REST_URL")?.replace("/rest/v1", ""),
+        supabase_anon_key: env::var("SUPABASE_PUBLIC_API_KEY")?,
+        bucket_name: "artifacts".to_string(),
+        allowed_extensions: vec![".mp4".to_string()],
+    };
+
+    // Create sync engine with storage
+    let sync_engine = scout_rs::sync::SyncEngine::new(
+        scout_client,
+        "/tmp/test_scout_integration.db".to_string(),
+        None,
+        None,
+        false,
+    )?
+    .with_storage(storage_config)?;
+
+    Ok(sync_engine)
+}

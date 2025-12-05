@@ -12,7 +12,7 @@ readme = "README.md"
 exclude = ["src/bin/*"]
 
 [dependencies]
-tus_client = "0.1.1"
+tus_client = { path = "tus_client" }
 native_db = "0.8.2"
 native_model = "0.4.20"
 serde = { version = "1.0", features = ["derive"] }

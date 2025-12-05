@@ -5,8 +5,17 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
+use tokio::sync::broadcast;
 use tus_client::http::{HttpHandler, HttpMethod, HttpRequest, HttpResponse};
 use tus_client::{Client, Error as TusError};
+
+/// Progress information for upload operations
+#[derive(Debug, Clone)]
+pub struct UploadProgress {
+    pub bytes_uploaded: usize,
+    pub total_bytes: usize,
+    pub file_name: String,
+}
 
 /// Simplified HTTP handler for TUS client using modern reqwest
 pub struct SimpleHttpHandler {
@@ -87,6 +96,7 @@ pub struct StorageConfig {
     pub supabase_url: String,
     pub supabase_anon_key: String,
     pub bucket_name: String,
+    pub allowed_extensions: Vec<String>,
 }
 
 pub struct StorageClient {
@@ -102,14 +112,6 @@ impl Clone for SimpleHttpHandler {
             auth_token: self.auth_token.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct UploadResult {
-    pub artifact_id_local: String,
-    pub success: bool,
-    pub storage_path: Option<String>,
-    pub error: Option<String>,
 }
 
 impl StorageClient {
@@ -138,7 +140,35 @@ impl StorageClient {
         })
     }
 
+    pub fn with_allowed_extensions(
+        supabase_url: String,
+        supabase_anon_key: String,
+        bucket_name: String,
+        allowed_extensions: Vec<String>,
+    ) -> Result<Self> {
+        let config = StorageConfig {
+            supabase_url,
+            supabase_anon_key,
+            bucket_name,
+            allowed_extensions,
+        };
+        Self::new(config)
+    }
+
     /// Generate upload URLs for artifacts that need them
+    ///
+    /// This method filters artifacts based on allowed file extensions and
+    /// generates TUS upload URLs only for artifacts that:
+    /// - Have allowed file extensions (e.g., .mp4)
+    /// - Don't already have recent upload URLs (within 24 hours)
+    /// - Haven't already been uploaded
+    ///
+    /// # Arguments
+    /// * `artifacts` - Vector of artifacts to process (modified in place)
+    /// * `herd_id` - The herd ID for the storage path
+    ///
+    /// # Returns
+    /// Result<()> - Success or error from URL generation process
     pub async fn generate_upload_urls(
         &self,
         artifacts: &mut Vec<ArtifactLocal>,
@@ -147,6 +177,31 @@ impl StorageClient {
         let now = Utc::now();
 
         for artifact in artifacts.iter_mut() {
+            // Check file extension filter
+            if let Some(extension) = Path::new(&artifact.file_path).extension() {
+                if let Some(ext_str) = extension.to_str() {
+                    if !self
+                        .config
+                        .allowed_extensions
+                        .contains(&format!(".{}", ext_str))
+                    {
+                        tracing::warn!(
+                            "Skipping artifact {} - extension .{} not in allowed list: {:?}",
+                            artifact.file_path,
+                            ext_str,
+                            self.config.allowed_extensions
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    "Skipping artifact {} - no file extension found",
+                    artifact.file_path
+                );
+                continue;
+            }
+
             // Skip if we already have a recent URL
             if let Some(generated_at_str) = &artifact.upload_url_generated_at {
                 if let Ok(generated_at) = DateTime::parse_from_rfc3339(generated_at_str) {
@@ -167,72 +222,151 @@ impl StorageClient {
         Ok(())
     }
 
-    /// Upload artifacts to storage using TUS protocol
-    pub async fn upload_artifacts_to_storage(
+    /// Upload a single artifact to storage using TUS protocol in a spawned task
+    ///
+    /// This method spawns a non-blocking background task to upload the artifact,
+    /// allowing the caller to continue processing while the upload happens.
+    ///
+    /// # Arguments
+    /// * `artifact` - The artifact to upload (must have upload_url set)
+    /// * `herd_id` - The herd ID for the storage path
+    /// * `chunk_size` - Size of upload chunks in bytes (default: 1MB for better progress granularity)
+    ///
+    /// # Returns
+    /// A tuple of (JoinHandle, progress_receiver) where:
+    /// - JoinHandle: Resolves to Result<(ArtifactLocal, String)>
+    /// - progress_receiver: Broadcast receiver for upload progress updates
+    ///
+    /// # Example
+    /// ```rust,no_run
+    /// # use scout_rs::storage::StorageClient;
+    /// # async fn example(client: StorageClient, artifact: scout_rs::models::ArtifactLocal) -> anyhow::Result<()> {
+    /// let (upload_handle, mut progress_rx) = client.spawn_upload_artifact(artifact, 10, None);
+    ///
+    /// // Listen for progress updates
+    /// tokio::spawn(async move {
+    ///     while let Ok(progress) = progress_rx.recv().await {
+    ///         let percent = (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
+    ///         println!("Progress: {:.1}% ({}/{} bytes) for {}",
+    ///                  percent, progress.bytes_uploaded, progress.total_bytes, progress.file_name);
+    ///     }
+    /// });
+    ///
+    /// let (updated_artifact, storage_path) = upload_handle.await??;
+    /// println!("Uploaded to: {}", storage_path);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn spawn_upload_artifact(
         &self,
-        artifacts: &mut Vec<ArtifactLocal>,
+        mut artifact: ArtifactLocal,
         herd_id: i64,
-    ) -> Result<Vec<UploadResult>> {
-        let mut results = Vec::new();
+        chunk_size: Option<usize>,
+    ) -> (
+        tokio::task::JoinHandle<Result<(ArtifactLocal, String)>>,
+        broadcast::Receiver<UploadProgress>,
+    ) {
+        let storage_client_handler = self.http_handler.clone();
+        let chunk_size = chunk_size.unwrap_or(1024 * 1024); // Default 1MB for better progress granularity
 
-        for artifact in artifacts.iter_mut() {
-            let artifact_id = artifact
-                .id_local
-                .as_deref()
-                .unwrap_or("unknown")
-                .to_string();
+        // Create broadcast channel for progress updates
+        let (progress_tx, progress_rx) = broadcast::channel(1000);
 
-            // Skip if already uploaded
+        let upload_handle = tokio::spawn(async move {
+            // Check if already uploaded
             if artifact.has_uploaded_file_to_storage {
-                results.push(UploadResult {
-                    artifact_id_local: artifact_id,
-                    success: true,
-                    storage_path: Some(artifact.file_path.clone()),
-                    error: None,
-                });
-                continue;
+                let storage_path = format!(
+                    "{}/{}/{}",
+                    herd_id,
+                    artifact.device_id,
+                    Path::new(&artifact.file_path)
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("unknown")
+                );
+                return Ok((artifact, storage_path));
             }
 
             // Check if upload URL is available
             let upload_url = match &artifact.upload_url {
                 Some(url) => url.clone(),
-                None => {
-                    results.push(UploadResult {
-                        artifact_id_local: artifact_id,
-                        success: false,
-                        storage_path: None,
-                        error: Some("No upload URL available".to_string()),
-                    });
-                    continue;
-                }
+                None => return Err(anyhow!("No upload URL available")),
             };
 
-            // Perform the upload
-            match self
-                .upload_single_artifact(artifact, &upload_url, herd_id)
-                .await
-            {
-                Ok(storage_path) => {
-                    artifact.has_uploaded_file_to_storage = true;
-                    results.push(UploadResult {
-                        artifact_id_local: artifact_id,
-                        success: true,
-                        storage_path: Some(storage_path),
-                        error: None,
-                    });
-                }
-                Err(e) => {
-                    results.push(UploadResult {
-                        artifact_id_local: artifact_id,
-                        success: false,
-                        storage_path: None,
-                        error: Some(format!("Upload failed: {}", e)),
-                    });
-                }
+            // Verify file exists
+            if !std::path::Path::new(&artifact.file_path).exists() {
+                return Err(anyhow!("File does not exist: {}", artifact.file_path));
             }
-        }
 
-        Ok(results)
+            // Perform TUS upload using spawn_blocking
+            let file_path = artifact.file_path.clone();
+            let device_id = artifact.device_id;
+            let file_name = Path::new(&file_path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+
+            // Get file size for progress tracking
+            let file_size = std::fs::metadata(&file_path)
+                .map(|m| m.len() as usize)
+                .unwrap_or(0);
+
+            let storage_path = tokio::task::spawn_blocking(move || {
+                let tus_client = Client::new(storage_client_handler.as_ref());
+
+                // Create progress callback
+                let progress_callback = move |bytes_uploaded: usize, total_bytes: usize| {
+                    let progress = UploadProgress {
+                        bytes_uploaded,
+                        total_bytes: if total_bytes > 0 {
+                            total_bytes
+                        } else {
+                            file_size
+                        },
+                        file_name: file_name.clone(),
+                    };
+                    let _ = progress_tx.send(progress); // Ignore send errors if no receivers
+                };
+
+                // Perform TUS upload with resumable capability and progress tracking
+                match tus_client.upload_with_chunk_size(
+                    &upload_url,
+                    Path::new(&file_path),
+                    chunk_size,
+                    Some(&progress_callback),
+                ) {
+                    Ok(_) => {
+                        let file_name = Path::new(&file_path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("unknown");
+
+                        let storage_path = format!("{}/{}/{}", herd_id, device_id, file_name);
+
+                        tracing::info!(
+                            "Successfully uploaded {} via TUS to {}",
+                            file_path,
+                            storage_path
+                        );
+
+                        Ok(storage_path)
+                    }
+                    Err(e) => {
+                        tracing::error!("TUS upload failed for {}: {}", file_path, e);
+                        Err(anyhow!("TUS upload failed: {}", e))
+                    }
+                }
+            })
+            .await
+            .map_err(|e| anyhow!("Task join error: {}", e))??;
+
+            // Mark as uploaded
+            artifact.has_uploaded_file_to_storage = true;
+            Ok((artifact, storage_path))
+        });
+
+        (upload_handle, progress_rx)
     }
 
     /// Generate a TUS upload URL
@@ -276,7 +410,7 @@ impl StorageClient {
             metadata.insert("bucketName".to_string(), "artifacts".to_string());
             metadata.insert(
                 "objectName".to_string(),
-                format!("artifacts/{}/{}/{}", herd_id, device_id, file_name_owned),
+                format!("{}/{}/{}", herd_id, device_id, file_name_owned),
             );
             metadata.insert("cacheControl".to_string(), "3600".to_string());
             metadata.insert("upsert".to_string(), "true".to_string());
@@ -289,55 +423,6 @@ impl StorageClient {
                 Err(e) => {
                     tracing::error!("Failed to create TUS upload: {}", e);
                     Err(anyhow!("TUS upload creation failed: {}", e))
-                }
-            }
-        })
-        .await
-        .map_err(|e| anyhow!("Task join error: {}", e))?
-    }
-
-    /// Upload a single artifact using TUS protocol for resumable uploads
-    async fn upload_single_artifact(
-        &self,
-        artifact: &ArtifactLocal,
-        upload_url: &str,
-        herd_id: i64,
-    ) -> Result<String> {
-        // Verify file exists
-        if !std::path::Path::new(&artifact.file_path).exists() {
-            return Err(anyhow!("File does not exist: {}", artifact.file_path));
-        }
-
-        // Create TUS client for upload using spawn_blocking
-        let http_handler = self.http_handler.clone();
-        let file_path = artifact.file_path.clone();
-        let upload_url = upload_url.to_string();
-        let device_id = artifact.device_id;
-
-        tokio::task::spawn_blocking(move || {
-            let tus_client = Client::new(http_handler.as_ref());
-
-            // Perform TUS upload with resumable capability
-            match tus_client.upload(&upload_url, Path::new(&file_path)) {
-                Ok(_) => {
-                    let file_name = Path::new(&file_path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("unknown");
-
-                    let storage_path = format!("artifacts/{}/{}/{}", herd_id, device_id, file_name);
-
-                    tracing::info!(
-                        "Successfully uploaded {} via TUS to {}",
-                        file_path,
-                        storage_path
-                    );
-
-                    Ok(storage_path)
-                }
-                Err(e) => {
-                    tracing::error!("TUS upload failed for {}: {}", file_path, e);
-                    Err(anyhow!("TUS upload failed: {}", e))
                 }
             }
         })
@@ -421,6 +506,7 @@ mod tests {
             supabase_anon_key: env::var("SUPABASE_PUBLIC_API_KEY")
                 .expect("SUPABASE_PUBLIC_API_KEY must be set"),
             bucket_name: "artifacts".to_string(),
+            allowed_extensions: vec![".mp4".to_string()],
         }
     }
 
@@ -483,9 +569,9 @@ mod tests {
             .parse()
             .expect("SCOUT_HERD_ID must be valid integer");
 
-        // Use the sample.mp4 file from test data
+        // Use the sample1.mp4 file from test data
         let sample_file_path =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/sample.mp4");
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/data/sample1.mp4");
 
         if !sample_file_path.exists() {
             panic!("Sample file not found: {:?}", sample_file_path);
@@ -501,7 +587,7 @@ mod tests {
             Some("video".to_string()),
             None,
         );
-        artifact.set_id_local("test_sample_video".to_string());
+        artifact.set_id_local("test_sample1_video".to_string());
 
         let mut artifacts = vec![artifact];
 
@@ -512,7 +598,7 @@ mod tests {
 
         // Write results to file regardless of success or failure
         let output_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("test_output")
+            .join("tests/output/storage")
             .join("generated_urls.txt");
 
         // Create directory if it doesn't exist
@@ -552,44 +638,68 @@ mod tests {
                     generated_url.len()
                 ));
 
-                // Test actual upload
-                println!("🚀 Testing actual file upload...");
-                let upload_result = client
-                    .upload_artifacts_to_storage(&mut artifacts, herd_id)
-                    .await;
+                // Test actual upload using spawn with progress tracking
+                println!("🚀 Testing actual file upload with progress...");
+                let (upload_handle, mut progress_rx) =
+                    client.spawn_upload_artifact(artifacts[0].clone(), herd_id, None);
 
-                match upload_result {
-                    Ok(results) => {
-                        assert_eq!(results.len(), 1);
-                        let result = &results[0];
+                // Spawn task to listen for progress updates
 
-                        if result.success {
-                            println!("✅ File upload successful!");
-                            println!("   Storage path: {:?}", result.storage_path);
-                            url_info.push_str(&format!(
-                                "Upload Status: SUCCESS\nStorage Path: {:?}\n",
-                                result.storage_path
-                            ));
-                            assert!(artifacts[0].has_uploaded_file_to_storage);
-                        } else {
-                            println!("❌ Upload failed: {:?}", result.error);
-                            url_info.push_str(&format!(
-                                "Upload Status: FAILED\nError: {:?}\n",
-                                result.error
-                            ));
+                let progress_task = tokio::spawn(async move {
+                    let mut last_progress = 0;
+                    let mut progress_updates = Vec::new();
+                    while let Ok(progress) = progress_rx.recv().await {
+                        if progress.bytes_uploaded > last_progress {
+                            let percent = (progress.bytes_uploaded as f64
+                                / progress.total_bytes as f64)
+                                * 100.0;
+                            let progress_msg = format!(
+                                "   Progress: {:.1}% ({}/{} bytes) for {}",
+                                percent,
+                                progress.bytes_uploaded,
+                                progress.total_bytes,
+                                progress.file_name
+                            );
+                            println!("{}", progress_msg);
+                            progress_updates.push(progress_msg);
+                            last_progress = progress.bytes_uploaded;
                         }
                     }
+                    progress_updates
+                });
+
+                match upload_handle.await {
+                    Ok(Ok((updated_artifact, storage_path))) => {
+                        println!("✅ File upload successful!");
+                        println!("   Storage path: {}", storage_path);
+                        url_info.push_str(&format!(
+                            "Upload Status: SUCCESS\nStorage Path: {}\n",
+                            storage_path
+                        ));
+                        assert!(updated_artifact.has_uploaded_file_to_storage);
+                        artifacts[0] = updated_artifact;
+
+                        // Get progress updates and cancel task
+                        if let Ok(progress_updates) = progress_task.await {
+                            url_info.push_str("Progress Updates:\n");
+                            for update in progress_updates {
+                                url_info.push_str(&format!("{}\n", update));
+                            }
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        println!("❌ Upload failed: {}", e);
+                        url_info.push_str(&format!("Upload Status: FAILED\nError: {}\n", e));
+                        progress_task.abort();
+                    }
                     Err(e) => {
-                        println!("⚠️  Upload error: {}", e);
-                        url_info.push_str(&format!("Upload Status: ERROR\nError: {}\n", e));
+                        println!("⚠️  Task join error: {}", e);
+                        url_info.push_str(&format!("Upload Status: TASK_ERROR\nError: {}\n", e));
+                        progress_task.abort();
                     }
                 }
             }
             Err(e) => {
-                println!("⚠️  URL generation error: {}", e);
-                url_info.push_str(&format!("Status: FAILED\nError: {}\n", e));
-
-                // Fail loudly if URL generation fails
                 panic!("URL generation failed: {}", e);
             }
         }
@@ -601,7 +711,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_multiple_upload_urls() {
+    async fn test_multiple_files_upload() {
         setup_storage_test_env();
 
         let device_id: i64 = env::var("SCOUT_DEVICE_ID")
@@ -617,36 +727,19 @@ mod tests {
         let config = create_test_storage_config();
         let client = StorageClient::new(config).expect("Failed to create storage client");
 
-        // Create multiple test artifacts with different file types
-        let test_files = vec![
-            ("test_video.mp4", "video"),
-            ("test_audio.wav", "audio"),
-            ("test_image.jpg", "image"),
-            ("test_data.csv", "data"),
+        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let sample_files = vec![
+            ("tests/data/sample1.mp4", "test_sample1_video"),
+            ("tests/data/sample2.mp4", "test_sample2_video"),
         ];
 
         let mut artifacts = Vec::new();
-        for (i, (filename, modality)) in test_files.iter().enumerate() {
-            let mut artifact = ArtifactLocal::new(
-                format!("/tmp/{}", filename),
-                None,
-                device_id,
-                Some(modality.to_string()),
-                None,
-            );
-            artifact.set_id_local(format!("test_artifact_{}", i));
-            artifacts.push(artifact);
-        }
+        for (file_path, id_local) in sample_files {
+            let sample_file_path = manifest_dir.join(file_path);
+            if !sample_file_path.exists() {
+                panic!("Sample file not found: {:?}", sample_file_path);
+            }
 
-        println!("🔧 Testing multiple upload URL generation...");
-
-        // Create test files that actually exist for better testing
-        let manifest_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut actual_artifacts = Vec::new();
-
-        // Use the sample.mp4 file if it exists, otherwise create temporary files
-        let sample_file_path = manifest_dir.join("tests/data/sample.mp4");
-        if sample_file_path.exists() {
             let mut artifact = ArtifactLocal::new(
                 sample_file_path.to_string_lossy().to_string(),
                 None,
@@ -654,137 +747,247 @@ mod tests {
                 Some("video".to_string()),
                 None,
             );
-            artifact.set_id_local("test_sample_video".to_string());
-            actual_artifacts.push(artifact);
-        } else {
-            // Create temporary files for testing
-            use std::io::Write;
-            let temp_dir = std::env::temp_dir();
+            artifact.set_id_local(id_local.to_string());
+            artifacts.push(artifact);
+        }
 
-            for (i, (filename, modality)) in test_files.iter().enumerate() {
-                let temp_file_path = temp_dir.join(format!("scout_test_{}", filename));
+        // Generate URLs
+        client
+            .generate_upload_urls(&mut artifacts, herd_id)
+            .await
+            .expect("Failed to generate upload URLs");
 
-                // Create a small temporary file
-                if let Ok(mut file) = std::fs::File::create(&temp_file_path) {
-                    let _ = file.write_all(b"test data");
+        // Test spawned uploads with progress tracking
+        let mut upload_handles = Vec::new();
+        let mut progress_receivers = Vec::new();
 
-                    let mut artifact = ArtifactLocal::new(
-                        temp_file_path.to_string_lossy().to_string(),
-                        None,
-                        device_id,
-                        Some(modality.to_string()),
-                        None,
+        for artifact in artifacts {
+            let (handle, progress_rx) = client.spawn_upload_artifact(artifact, herd_id, None);
+            upload_handles.push(handle);
+            progress_receivers.push(progress_rx);
+        }
+
+        // Spawn tasks to monitor progress
+        let mut progress_tasks = Vec::new();
+        for (i, mut progress_rx) in progress_receivers.into_iter().enumerate() {
+            let progress_task = tokio::spawn(async move {
+                let mut progress_log: Vec<String> = Vec::new();
+                while let Ok(progress) = progress_rx.recv().await {
+                    let percent =
+                        (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
+                    let progress_msg = format!(
+                        "File {}: {:.1}% ({}/{} bytes) for {}",
+                        i + 1,
+                        percent,
+                        progress.bytes_uploaded,
+                        progress.total_bytes,
+                        progress.file_name
                     );
-                    artifact.set_id_local(format!("test_artifact_{}", i));
-                    actual_artifacts.push(artifact);
+                    println!("{}", progress_msg);
+                    progress_log.push(progress_msg);
                 }
+                progress_log
+            });
+            progress_tasks.push(progress_task);
+        }
+
+        // Wait for all uploads
+        let mut results = Vec::new();
+        for handle in upload_handles {
+            let result = handle
+                .await
+                .expect("Task join failed")
+                .expect("Upload failed");
+            results.push(result);
+        }
+
+        // Collect progress logs from monitoring tasks
+        let mut all_progress_logs = Vec::new();
+        for task in progress_tasks {
+            if let Ok(progress_log) = task.await {
+                all_progress_logs.extend(progress_log);
             }
         }
 
-        println!(
-            "🔧 Testing multiple upload URL generation with {} artifacts...",
-            actual_artifacts.len()
-        );
-
-        // Generate URLs
-        let url_result = client
-            .generate_upload_urls(&mut actual_artifacts, herd_id)
-            .await;
-
+        // Write results
         let output_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("test_output")
-            .join("multiple_generated_urls.txt");
+            .join("tests/output/storage")
+            .join("multiple_uploads.txt");
 
-        // Create directory if it doesn't exist
         if let Some(parent) = output_path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
 
         let mut output_content = format!(
-            "Multiple URL Generation Test\n\
+            "Multiple File Upload Test\n\
              Test Run: {}\n\
-             Herd ID: {}\n\
-             Device ID: {}\n\
-             Test Files Count: {}\n\
+             Files Uploaded: {}\n\
              {}\n\n",
             chrono::Utc::now().to_rfc3339(),
-            herd_id,
-            device_id,
-            actual_artifacts.len(),
-            "=".repeat(80)
+            results.len(),
+            "=".repeat(60)
         );
+
+        // Add results
+        for (i, (artifact, path)) in results.iter().enumerate() {
+            output_content.push_str(&format!(
+                "File {}: {} -> {}\n",
+                i + 1,
+                Path::new(&artifact.file_path)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy(),
+                path
+            ));
+        }
+
+        // Add progress logs
+        if !all_progress_logs.is_empty() {
+            output_content.push_str("\nProgress Updates:\n");
+            for progress_log in all_progress_logs {
+                output_content.push_str(&format!("{}\n", progress_log));
+            }
+        }
+
+        std::fs::write(&output_path, &output_content).expect("Failed to write results");
+        println!("📝 Upload results written to: {}", output_path.display());
+    }
+
+    #[tokio::test]
+    async fn test_file_extension_filtering() {
+        setup_storage_test_env();
+
+        let device_id: i64 = env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        let herd_id: i64 = env::var("SCOUT_HERD_ID")
+            .expect("SCOUT_HERD_ID required")
+            .parse()
+            .expect("SCOUT_HERD_ID must be valid integer");
+
+        let config = create_test_storage_config();
+        let client = StorageClient::new(config).expect("Failed to create storage client");
+
+        // Create temporary files with different extensions
+        use std::io::Write;
+        let temp_dir = std::env::temp_dir();
+
+        let temp_files = vec![
+            (temp_dir.join("scout_test_video.mp4"), "video"),
+            (temp_dir.join("scout_test_image.jpg"), "image"),
+            (temp_dir.join("scout_test_audio.wav"), "audio"),
+        ];
+
+        // Create the temporary files
+        for (path, _) in &temp_files {
+            if let Ok(mut file) = std::fs::File::create(path) {
+                let _ = file.write_all(b"test data");
+            }
+        }
+
+        // Create artifacts with different file extensions
+        let mut artifacts = vec![
+            ArtifactLocal::new(
+                temp_files[0].0.to_string_lossy().to_string(),
+                None,
+                device_id,
+                Some("video".to_string()),
+                None,
+            ),
+            ArtifactLocal::new(
+                temp_files[1].0.to_string_lossy().to_string(), // Not allowed
+                None,
+                device_id,
+                Some("image".to_string()),
+                None,
+            ),
+            ArtifactLocal::new(
+                temp_files[2].0.to_string_lossy().to_string(), // Not allowed
+                None,
+                device_id,
+                Some("audio".to_string()),
+                None,
+            ),
+        ];
+
+        artifacts[0].set_id_local("test_mp4".to_string());
+        artifacts[1].set_id_local("test_jpg".to_string());
+        artifacts[2].set_id_local("test_wav".to_string());
+
+        println!("🔧 Testing file extension filtering...");
+
+        // Generate URLs - should only process .mp4 file
+        let url_result = client.generate_upload_urls(&mut artifacts, herd_id).await;
 
         match url_result {
             Ok(_) => {
-                println!(
-                    "✅ Successfully processed {} upload URLs",
-                    actual_artifacts.len()
-                );
+                println!("✅ Extension filtering completed");
+                // Only the .mp4 file should have a URL
+                assert!(artifacts[0].upload_url.is_some()); // Should have URL because .mp4 is allowed
+                assert!(artifacts[1].upload_url.is_none()); // No URL because .jpg not allowed
+                assert!(artifacts[2].upload_url.is_none()); // No URL because .wav not allowed
 
-                for (i, artifact) in actual_artifacts.iter().enumerate() {
-                    let success_status = if artifact.upload_url.is_some() {
-                        "SUCCESS"
-                    } else {
-                        "FAILED"
-                    };
-                    let url_info = format!(
-                        "Artifact #{}: {} ({})\n\
-                         File: {}\n\
-                         Modality: {:?}\n\
-                         URL: {}\n\
-                         Generated At: {}\n\
-                         URL Length: {} characters\n\
-                         {}\n\n",
-                        i + 1,
-                        artifact.id_local.as_ref().unwrap_or(&"unknown".to_string()),
-                        success_status,
-                        artifact.file_path,
-                        artifact.modality,
-                        artifact.upload_url.as_ref().unwrap_or(&"NONE".to_string()),
-                        artifact
-                            .upload_url_generated_at
-                            .as_ref()
-                            .unwrap_or(&"NONE".to_string()),
-                        artifact.upload_url.as_ref().map(|u| u.len()).unwrap_or(0),
-                        "-".repeat(60)
-                    );
-                    output_content.push_str(&url_info);
-                }
-
-                let successful_count = actual_artifacts
-                    .iter()
-                    .filter(|a| a.upload_url.is_some())
-                    .count();
-                output_content.push_str(&format!(
-                    "\nSummary: {}/{} URLs generated successfully\n",
-                    successful_count,
-                    actual_artifacts.len()
-                ));
+                println!("   MP4 file: {:?}", artifacts[0].upload_url.is_some());
+                println!("   JPG file: {:?}", artifacts[1].upload_url.is_some());
+                println!("   WAV file: {:?}", artifacts[2].upload_url.is_some());
             }
             Err(e) => {
-                let error_info = format!("❌ URL generation failed: {}\nError Details: {}\n", e, e);
-                output_content.push_str(&error_info);
-                println!("⚠️  URL generation error: {}", e);
-
-                // Write error to file first, then fail loudly
-                let _ = std::fs::write(&output_path, &output_content);
-                panic!("Multiple URL generation failed: {}", e);
+                panic!("Extension filtering test failed: {}", e);
             }
         }
+
+        // Write test results to file
+        let output_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/output/storage")
+            .join("extension_filtering_test.txt");
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+
+        let test_results = format!(
+            "File Extension Filtering Test\n\
+             Test Run: {}\n\
+             Allowed Extensions: {:?}\n\
+             {}\n\n\
+             Results:\n\
+             - test_video.mp4: URL={}\n\
+             - test_image.jpg: URL={}\n\
+             - test_audio.wav: URL={}\n\n\
+             Expected: Only .mp4 files should be processed\n",
+            chrono::Utc::now().to_rfc3339(),
+            client.config.allowed_extensions,
+            "=".repeat(60),
+            if artifacts[0].upload_url.is_some() {
+                "Generated"
+            } else {
+                "None"
+            },
+            if artifacts[1].upload_url.is_some() {
+                "Generated"
+            } else {
+                "None"
+            },
+            if artifacts[2].upload_url.is_some() {
+                "Generated"
+            } else {
+                "None"
+            }
+        );
 
         // Clean up temporary files
-        for artifact in &actual_artifacts {
-            if artifact.file_path.contains("scout_test_") {
-                let _ = std::fs::remove_file(&artifact.file_path);
-            }
+        for (path, _) in &temp_files {
+            let _ = std::fs::remove_file(path);
         }
 
-        match std::fs::write(&output_path, &output_content) {
+        match std::fs::write(&output_path, &test_results) {
             Ok(_) => println!(
-                "📝 Multiple URLs test results written to: {}",
+                "📝 Extension filtering test results written to: {}",
                 output_path.display()
             ),
-            Err(e) => println!("⚠️  Failed to write URLs to file: {}", e),
+            Err(e) => println!("⚠️  Failed to write test results: {}", e),
         }
     }
 }
