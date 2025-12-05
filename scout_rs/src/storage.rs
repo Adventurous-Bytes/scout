@@ -1,13 +1,13 @@
 //! Storage module for uploading artifacts to Supabase storage using TUS protocol
 
 use crate::models::ArtifactLocal;
+use crate::tus::http::{HttpHandler, HttpMethod, HttpRequest, HttpResponse};
+use crate::tus::{Client, Error as TusError};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
 use tokio::sync::broadcast;
-use tus_client::http::{HttpHandler, HttpMethod, HttpRequest, HttpResponse};
-use tus_client::{Client, Error as TusError};
 
 /// Progress information for upload operations
 #[derive(Debug, Clone)]

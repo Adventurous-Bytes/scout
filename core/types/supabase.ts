@@ -62,6 +62,7 @@ export type Database = {
           modality: string | null
           session_id: number | null
           timestamp_observation: string | null
+          timestamp_observation_end: string
           updated_at: string | null
         }
         Insert: {
@@ -72,6 +73,7 @@ export type Database = {
           modality?: string | null
           session_id?: number | null
           timestamp_observation?: string | null
+          timestamp_observation_end?: string
           updated_at?: string | null
         }
         Update: {
@@ -82,6 +84,7 @@ export type Database = {
           modality?: string | null
           session_id?: number | null
           timestamp_observation?: string | null
+          timestamp_observation_end?: string
           updated_at?: string | null
         }
         Relationships: [
@@ -835,6 +838,7 @@ export type Database = {
           description: string
           hyperlink: string | null
           id: number
+          min: boolean
           pre: boolean
           stable: boolean
           system: string
@@ -848,6 +852,7 @@ export type Database = {
           description: string
           hyperlink?: string | null
           id?: number
+          min?: boolean
           pre?: boolean
           stable?: boolean
           system: string
@@ -861,6 +866,7 @@ export type Database = {
           description?: string
           hyperlink?: string | null
           id?: number
+          min?: boolean
           pre?: boolean
           stable?: boolean
           system?: string
@@ -1100,6 +1106,7 @@ export type Database = {
           modality: string | null
           session_id: number | null
           timestamp_observation: string | null
+          timestamp_observation_end: string
           updated_at: string | null
         }[]
         SetofOptions: {
@@ -1119,6 +1126,7 @@ export type Database = {
           modality: string | null
           session_id: number | null
           timestamp_observation: string | null
+          timestamp_observation_end: string
           updated_at: string | null
         }[]
         SetofOptions: {
@@ -1142,6 +1150,7 @@ export type Database = {
           modality: string | null
           session_id: number | null
           timestamp_observation: string | null
+          timestamp_observation_end: string
           updated_at: string | null
         }[]
         SetofOptions: {

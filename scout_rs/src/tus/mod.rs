@@ -1,56 +1,4 @@
-//! # tus_client
-//!
-//! A Rust native client library to interact with *tus* enabled endpoints.
-//!
-//! ## `reqwest` implementation
-//!
-//! `tus_client` requires a "handler" which implements the `HttpHandler` trait. To include a default implementation of this trait for [`reqwest`](https://crates.io/crates/reqwest), specify the `reqwest` feature when including `tus_client` as a dependency.
-//!
-//! ```toml
-//! # Other parts of Cargo.toml omitted for brevity
-//! [dependencies]
-//! tus_client = {version = "x.x.x", features = ["reqwest"]}
-//! ```
-//!
-//! ## Usage
-//!
-//! ```rust
-//! use tus_client::Client;
-//! use reqwest;
-//!
-//! // Create an instance of the `tus_client::Client` struct.
-//! // Assumes "reqwest" feature is enabled (see above)
-//! let client = Client::new(reqwest::Client::new());
-//!
-//! // You'll need an upload URL to be able to upload a files.
-//! // This may be provided to you (through a separate API, for example),
-//! // or you might need to create the file through the *tus* protocol.
-//! // If an upload URL is provided for you, you can skip this step.
-//!
-//! let upload_url = client
-//! .create("https://my.tus.server/files/", "/path/to/file")
-//! .expect("Failed to create file on server");
-//!
-//! // Simple upload with default 5 MiB chunks
-//! client
-//! .upload(&upload_url, "/path/to/file")
-//! .expect("Failed to upload file to server");
-//!
-//! // Upload with custom chunk size and progress tracking:
-//! let progress_callback = |bytes_uploaded: usize, total_bytes: usize| {
-//!     let percent = (bytes_uploaded as f64 / total_bytes as f64) * 100.0;
-//!     println!("Progress: {:.1}% ({}/{})", percent, bytes_uploaded, total_bytes);
-//! };
-//!
-//! client
-//! .upload_with_chunk_size(&upload_url, "/path/to/file", 1024 * 1024, Some(&progress_callback))
-//! .expect("Failed to upload file to server");
-//! ```
-//!
-//! All uploads will automatically resume from where they left off if interrupted.
-//! Progress tracking is available via optional callback parameter.
-#![doc(html_root_url = "https://docs.rs/tus_client/0.1.1")]
-use crate::http::{default_headers, Headers, HttpHandler, HttpMethod, HttpRequest};
+use http::{default_headers, Headers, HttpHandler, HttpMethod, HttpRequest};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fmt::{Display, Formatter};
@@ -65,9 +13,6 @@ use std::str::FromStr;
 mod headers;
 /// Contains the `HttpHandler` trait and related structs. This module is only relevant when implement `HttpHandler` manually.
 pub mod http;
-
-#[cfg(feature = "reqwest")]
-mod reqwest;
 
 const DEFAULT_CHUNK_SIZE: usize = 5 * 1024 * 1024;
 

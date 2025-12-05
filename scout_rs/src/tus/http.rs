@@ -1,4 +1,3 @@
-use crate::Error;
 use std::collections::HashMap;
 use std::fmt;
 
@@ -39,14 +38,14 @@ pub struct HttpResponse {
 
 /// The required trait used by `tus_client::Client` to represent a handler to execute `HttpRequest`s.
 pub trait HttpHandler {
-    fn handle_request(&self, req: HttpRequest) -> Result<HttpResponse, Error>;
+    fn handle_request(&self, req: HttpRequest) -> Result<HttpResponse, crate::tus::Error>;
 }
 
 /// Returns the default headers required to make requests to an tus enabled endpoint.
 pub fn default_headers() -> Headers {
     let mut map = Headers::new();
     map.insert(
-        String::from(crate::headers::TUS_RESUMABLE),
+        String::from(crate::tus::headers::TUS_RESUMABLE),
         String::from("1.0.0"),
     );
     map
