@@ -14,12 +14,36 @@ import {
  * @returns IFilePathParts | null - null if invalid file path
  */
 function getBucketFromFilePath(filePath: string): string | null {
+  // delete any start or end slashes/whitespace
+  filePath = filePath.replace(/^\/+|\/+$/g, "");
   const parts = filePath.split("/");
   if (parts.length < 2) {
     return null;
   }
   const bucket_name = parts[0];
   return bucket_name;
+}
+
+/**
+ * Extracts the short path from a file path
+ * @param filePath
+ * @returns string | null - null if invalid file path
+ */
+// for example if the input is /artifacts/10/52/test.mp4 - the output shld be 10/52/test.mp4
+function getFormattedPath(filePath: string): string | null {
+  const cleaned = cleanPath(filePath);
+  const parts = cleaned.split("/");
+  if (parts.length < 2) {
+    return null;
+  }
+  // Remove the first part (bucket name) and return the rest
+  return parts.slice(1).join("/");
+}
+
+/** Removes leading and trailing slashes and leading/trailing whitespace */
+function cleanPath(filePath: string): string {
+  // delete leading/trailing slash and whitespace
+  return filePath.trim().replace(/^\/+|\/+$/g, "");
 }
 
 /**
@@ -41,9 +65,14 @@ export async function generateSignedUrl(
       console.error("Invalid file path:", filePath);
       return null;
     }
+    const formattedPath = getFormattedPath(filePath);
+    if (!formattedPath) {
+      console.error("Invalid formatted path:", formattedPath);
+      return null;
+    }
     const { data, error } = await supabase.storage
       .from(bucket_name)
-      .createSignedUrl(filePath, expiresIn);
+      .createSignedUrl(formattedPath, expiresIn);
     if (error) {
       console.error("Error generating signed URL:", error.message);
       return null;
@@ -70,9 +99,14 @@ export async function generateSignedUrlsBatch(
           console.error("Invalid file path:", filePath);
           return null;
         }
+        const formattedPath = getFormattedPath(filePath);
+        if (!formattedPath) {
+          console.error("Invalid formatted path:", formattedPath);
+          return null;
+        }
         const { data, error } = await supabase.storage
           .from(bucket_name)
-          .createSignedUrl(filePath, expiresIn);
+          .createSignedUrl(formattedPath, expiresIn);
 
         if (error) {
           console.warn(
