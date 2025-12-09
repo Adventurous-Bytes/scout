@@ -237,6 +237,7 @@ export type Database = {
           id: number
           inserted_at: string
           location: unknown
+          mode: string | null
           noise: number
           session_id: number | null
           signal: number
@@ -257,6 +258,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           location: unknown
+          mode?: string | null
           noise: number
           session_id?: number | null
           signal: number
@@ -277,6 +279,7 @@ export type Database = {
           id?: number
           inserted_at?: string
           location?: unknown
+          mode?: string | null
           noise?: number
           session_id?: number | null
           signal?: number
