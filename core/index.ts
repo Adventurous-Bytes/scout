@@ -47,6 +47,7 @@ export * from "./helpers/components";
 // Hooks
 export * from "./hooks/useScoutRealtimeConnectivity";
 export * from "./hooks/useScoutRealtimeDevices";
+export * from "./hooks/useScoutRealtimeVersionsSoftware";
 export * from "./hooks/useScoutRefresh";
 
 // Providers
