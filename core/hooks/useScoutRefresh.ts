@@ -84,210 +84,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   });
 
   // Helper function for deep comparison of objects
-  const deepEqual = useCallback(
-    (obj1: any, obj2: any, visited = new WeakMap()): boolean => {
-      if (obj1 === obj2) return true;
-
-      if (obj1 == null || obj2 == null) return obj1 === obj2;
-
-      if (typeof obj1 !== typeof obj2) return false;
-
-      if (typeof obj1 !== "object") return obj1 === obj2;
-
-      // Handle circular references
-      if (visited.has(obj1)) {
-        return visited.get(obj1) === obj2;
-      }
-      visited.set(obj1, obj2);
-
-      // Handle Date objects
-      if (obj1 instanceof Date && obj2 instanceof Date) {
-        return obj1.getTime() === obj2.getTime();
-      }
-
-      if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
-
-      if (Array.isArray(obj1)) {
-        if (obj1.length !== obj2.length) return false;
-        for (let i = 0; i < obj1.length; i++) {
-          if (!deepEqual(obj1[i], obj2[i], visited)) return false;
-        }
-        return true;
-      }
-
-      const keys1 = Object.keys(obj1);
-      const keys2 = Object.keys(obj2);
-
-      if (keys1.length !== keys2.length) return false;
-
-      for (const key of keys1) {
-        if (!keys2.includes(key)) return false;
-        if (!deepEqual(obj1[key], obj2[key], visited)) return false;
-      }
-
-      return true;
-    },
-    [],
-  );
-
-  // Helper function to sort herd modules consistently by ID
-  const sortHerdModulesById = useCallback((herdModules: any[]) => {
-    if (!Array.isArray(herdModules)) return herdModules;
-
-    return [...herdModules].sort((a, b) => {
-      const aId = a?.herd?.id || 0;
-      const bId = b?.herd?.id || 0;
-      return aId - bId;
-    });
-  }, []);
-
-  // Helper function to normalize herd modules for comparison (excludes timestamp metadata)
-  const normalizeHerdModulesForComparison = useCallback(
-    (herdModules: any[]) => {
-      if (!Array.isArray(herdModules)) return herdModules;
-
-      return herdModules.map((hm) => {
-        if (!hm || typeof hm !== "object") return hm;
-
-        // Create a copy without timestamp metadata that doesn't represent business data changes
-        const { timestamp_last_refreshed, ...businessData } = hm;
-        return businessData;
-      });
-    },
-    [],
-  );
-
-  // Helper function to find what specifically changed for debugging
-  const findBusinessDataChanges = useCallback(
-    (newData: any[], currentData: any[]) => {
-      if (!Array.isArray(newData) || !Array.isArray(currentData)) {
-        return `Array type mismatch: new=${Array.isArray(newData)}, current=${Array.isArray(currentData)}`;
-      }
-
-      if (newData.length !== currentData.length) {
-        return `Array length: ${currentData.length} → ${newData.length}`;
-      }
-
-      // Sort and normalize both for consistent comparison
-      const sortedNew = normalizeHerdModulesForComparison(
-        sortHerdModulesById(newData),
-      );
-      const sortedCurrent = normalizeHerdModulesForComparison(
-        sortHerdModulesById(currentData),
-      );
-
-      const changes: string[] = [];
-
-      for (let i = 0; i < sortedNew.length; i++) {
-        const newHerd = sortedNew[i];
-        const currentHerd = sortedCurrent[i];
-
-        if (!newHerd || !currentHerd) continue;
-
-        const herdName =
-          newHerd.herd?.name || newHerd.name || `herd-${newHerd.herd?.id || i}`;
-
-        // Check key business fields
-        const businessFields = [
-          "total_events",
-          "total_events_with_filters",
-          "events_page_index",
-        ];
-
-        businessFields.forEach((field) => {
-          if (newHerd[field] !== currentHerd[field]) {
-            changes.push(
-              `${herdName}.${field}: ${currentHerd[field]} → ${newHerd[field]}`,
-            );
-          }
-        });
-
-        // Check array lengths
-        const arrayFields = [
-          "devices",
-          "events",
-          "plans",
-          "zones",
-          "sessions",
-          "layers",
-          "providers",
-        ];
-        arrayFields.forEach((field) => {
-          const newArray = newHerd[field];
-          const currentArray = currentHerd[field];
-          if (Array.isArray(newArray) && Array.isArray(currentArray)) {
-            if (newArray.length !== currentArray.length) {
-              changes.push(
-                `${herdName}.${field}[]: ${currentArray.length} → ${newArray.length}`,
-              );
-            }
-          }
-        });
-      }
-
-      return changes.length > 0
-        ? changes.join(", ")
-        : "No specific changes identified";
-    },
-    [normalizeHerdModulesForComparison, sortHerdModulesById],
-  );
-
-  // Helper function to conditionally dispatch only if business data has changed
-  const conditionalDispatch = useCallback(
-    (
-      newData: any,
-      currentData: any,
-      actionCreator: (data: any) => any,
-      dataType: string,
-      skipTimestampOnlyUpdates: boolean = true,
-    ) => {
-      // For herd modules, sort both datasets by ID before comparison
-      let dataToCompare = newData;
-      let currentToCompare = currentData;
-
-      if (dataType.includes("Herd modules")) {
-        dataToCompare = sortHerdModulesById(newData);
-        currentToCompare = sortHerdModulesById(currentData);
-
-        // If we want to skip timestamp-only updates, normalize the data for comparison
-        if (skipTimestampOnlyUpdates) {
-          dataToCompare = normalizeHerdModulesForComparison(dataToCompare);
-          currentToCompare =
-            normalizeHerdModulesForComparison(currentToCompare);
-        }
-      }
-
-      if (!deepEqual(dataToCompare, currentToCompare)) {
-        console.log(
-          `[useScoutRefresh] ${dataType} business data changed, updating store`,
-        );
-
-        // Add debugging for unexpected business changes
-        if (skipTimestampOnlyUpdates && dataType.includes("Herd modules")) {
-          const changes = findBusinessDataChanges(
-            dataToCompare,
-            currentToCompare,
-          );
-          console.log(`[useScoutRefresh] ${dataType} changes: ${changes}`);
-        }
-
-        dispatch(actionCreator(newData)); // Always dispatch original unsorted data
-        return true;
-      } else {
-        console.log(
-          `[useScoutRefresh] ${dataType} business data unchanged, skipping store update`,
-        );
-        return false;
-      }
-    },
-    [
-      dispatch,
-      deepEqual,
-      sortHerdModulesById,
-      normalizeHerdModulesForComparison,
-      findBusinessDataChanges,
-    ],
-  );
 
   // Helper function to handle IndexedDB errors - memoized for stability
   const handleIndexedDbError = useCallback(
@@ -372,24 +168,16 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
               }),
             );
 
-            // Conditionally update the store with cached data if business data is different
-            // Get current state at execution time to avoid dependency issues
-            const currentHerdModules = store.getState().scout.herd_modules;
-            const herdModulesChanged = conditionalDispatch(
-              cachedHerdModules,
-              currentHerdModules,
-              setHerdModules,
-              "Herd modules (cache)",
-              true, // Skip timestamp-only updates
+            // Update the store with cached data
+            console.log(
+              `[useScoutRefresh] Updating store with cached herd modules`,
             );
-
-            if (herdModulesChanged) {
-              dispatch(
-                setHerdModulesLoadingState(
-                  EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
-                ),
-              );
-            }
+            dispatch(setHerdModules(cachedHerdModules));
+            dispatch(
+              setHerdModulesLoadingState(
+                EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
+              ),
+            );
 
             // If cache is fresh, we still background fetch but don't wait
             if (!cacheResult.isStale) {
@@ -472,26 +260,17 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
                       );
                     }
 
-                    // Conditionally update store with fresh background data, skip timestamp-only changes
-                    const currentHerdModules =
-                      store.getState().scout.herd_modules;
-                    const currentUser = store.getState().scout.user;
-
-                    conditionalDispatch(
-                      backgroundHerdModulesResult.data,
-                      currentHerdModules,
-                      setHerdModules,
-                      "Herd modules (background)",
-                      true, // Skip timestamp-only updates
+                    // Update store with fresh data from background request
+                    console.log(
+                      `[useScoutRefresh] Updating store with background herd modules`,
                     );
+                    dispatch(setHerdModules(backgroundHerdModulesResult.data));
 
                     if (backgroundUserResult && backgroundUserResult.data) {
-                      conditionalDispatch(
-                        backgroundUserResult.data,
-                        currentUser,
-                        setUser,
-                        "User (background)",
+                      console.log(
+                        `[useScoutRefresh] Updating store with background user data`,
                       );
+                      dispatch(setUser(backgroundUserResult.data));
                     }
 
                     // Update data source to DATABASE
@@ -645,31 +424,18 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
       // Step 4: Conditionally update store with fresh data, skip timestamp-only changes
       const dataProcessingStartTime = Date.now();
 
-      const currentHerdModules = store.getState().scout.herd_modules;
-      const currentUser = store.getState().scout.user;
+      // Update store with new data
+      console.log(`[useScoutRefresh] Updating store with fresh herd modules`);
+      dispatch(setHerdModules(compatible_new_herd_modules));
 
-      const herdModulesChanged = conditionalDispatch(
-        compatible_new_herd_modules,
-        currentHerdModules,
-        setHerdModules,
-        "Herd modules (fresh API)",
-        true, // Skip timestamp-only updates
+      console.log(`[useScoutRefresh] Updating store with fresh user data`);
+      dispatch(setUser(res_new_user.data));
+
+      dispatch(
+        setHerdModulesLoadingState(
+          EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
+        ),
       );
-
-      const userChanged = conditionalDispatch(
-        res_new_user.data,
-        currentUser,
-        setUser,
-        "User (fresh API)",
-      );
-
-      if (herdModulesChanged) {
-        dispatch(
-          setHerdModulesLoadingState(
-            EnumHerdModulesLoadingState.SUCCESSFULLY_LOADED,
-          ),
-        );
-      }
 
       const dataProcessingDuration = Date.now() - dataProcessingStartTime;
       timingRefs.current.dataProcessingDuration = dataProcessingDuration;
@@ -725,7 +491,6 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
     onRefreshComplete,
     cacheFirst,
     cacheTtlMs,
-    conditionalDispatch,
     handleIndexedDbError,
   ]);
 
