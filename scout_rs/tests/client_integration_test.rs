@@ -1478,6 +1478,7 @@ async fn test_complete_data_collection_workflow() {
                     None,       // frequency_hz
                     None,       // bandwidth_hz
                     None,       // associated_station
+                    None,       // mode
                 );
 
                 let connectivity_result = client.create_connectivity(&connectivity).await;
@@ -1947,6 +1948,7 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             None,       // frequency_hz
             None,       // bandwidth_hz
             None,       // associated_station
+            None,       // mode
         ),
         Connectivity::new(
             Some(session_id),
@@ -1965,6 +1967,7 @@ async fn test_connectivity_batch_upsert_impl(cleanup: &TestCleanup) {
             None,       // frequency_hz
             None,       // bandwidth_hz
             None,       // associated_station
+            None,       // mode
         ),
     ];
 
