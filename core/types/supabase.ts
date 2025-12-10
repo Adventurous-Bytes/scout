@@ -1408,6 +1408,7 @@ export type Database = {
         frequency_hz: number | null
         bandwidth_hz: number | null
         associated_station: string | null
+        mode: string | null
       }
       device_heartbeat_analysis: {
         device_id: number | null
