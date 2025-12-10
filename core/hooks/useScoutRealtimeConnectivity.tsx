@@ -86,7 +86,7 @@ export function useScoutRealtimeConnectivity(
       }
 
       console.log(
-        `[CONNECTIVITY] ${data.operation} received for device ${connectivityData.device_id}:`,
+        `[scout-core realtime] CONNECTIVITY ${data.operation} received for device ${connectivityData.device_id}:`,
         JSON.stringify(connectivityData),
       );
 

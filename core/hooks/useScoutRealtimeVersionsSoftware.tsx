@@ -52,7 +52,7 @@ export function useScoutRealtimeVersionsSoftware(
       }
 
       console.log(
-        `[VERSIONS_SOFTWARE] ${data.operation} received for version ${versionData.system}@${versionData.version}:`,
+        `[scout-core realtime] VERSIONS_SOFTWARE ${data.operation} received for version ${versionData.system}@${versionData.version}:`,
         JSON.stringify(versionData),
       );
 
@@ -87,9 +87,13 @@ export function useScoutRealtimeVersionsSoftware(
       .on("broadcast", { event: "*" }, handleVersionsSoftwareBroadcast)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          console.log("[VERSIONS_SOFTWARE] ✅ Connected to software versions broadcasts");
+          console.log(
+            "[VERSIONS_SOFTWARE] ✅ Connected to software versions broadcasts",
+          );
         } else if (status === "CHANNEL_ERROR") {
-          console.warn("[VERSIONS_SOFTWARE] 🟡 Failed to connect to software versions broadcasts");
+          console.warn(
+            "[VERSIONS_SOFTWARE] 🟡 Failed to connect to software versions broadcasts",
+          );
         }
       });
 

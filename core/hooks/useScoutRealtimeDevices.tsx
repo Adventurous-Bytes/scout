@@ -75,6 +75,11 @@ export function useScoutRealtimeDevices(
         operation,
       };
 
+      console.log(
+        `[scout-core realtime] DEVICE ${data.operation} received:`,
+        JSON.stringify(realtimeData),
+      );
+
       setNewDeviceItems((prev) => [realtimeData, ...prev]);
     },
     [dispatch],
