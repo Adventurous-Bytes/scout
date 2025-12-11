@@ -48,6 +48,10 @@ export * from "./helpers/components";
 export * from "./hooks/useScoutRealtimeConnectivity";
 export * from "./hooks/useScoutRealtimeDevices";
 export * from "./hooks/useScoutRealtimeVersionsSoftware";
+export * from "./hooks/useScoutRealtimeEvents";
+export * from "./hooks/useScoutRealtimeTags";
+export * from "./hooks/useScoutRealtimeSessions";
+export * from "./hooks/useScoutRealtimePlans";
 export * from "./hooks/useScoutRefresh";
 
 // Providers
