@@ -384,7 +384,22 @@ impl SyncEngine {
             {
                 return self.fallback_individual_session_upserts(sessions).await;
             }
-            Err(e) => return Err(e),
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in sessions batch, removing {} entries from local storage: {}",
+                        sessions.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(sessions) {
+                        tracing::error!("Failed to remove session entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
         };
 
         // Process successful bulk response
@@ -476,8 +491,29 @@ impl SyncEngine {
                     }
                 }
                 Err(e) => {
-                    tracing::error!("Individual session upsert failed: {}", e);
-                    return Err(e);
+                    let error_message = e.to_string();
+
+                    if Self::is_critical_error(&error_message) && self.remove_failed_records {
+                        tracing::warn!(
+                            "Critical error detected for session {:?}, removing from local storage: {}",
+                            session.id_local,
+                            error_message
+                        );
+
+                        if let Err(remove_err) = self.remove_items(vec![session]) {
+                            tracing::error!(
+                                "Failed to remove session from local storage: {}",
+                                remove_err
+                            );
+                        } else {
+                            tracing::info!(
+                                "Removed session with critical error from local storage"
+                            );
+                        }
+                    } else {
+                        tracing::error!("Individual session upsert failed: {}", e);
+                        return Err(e);
+                    }
                 }
             }
         }
@@ -571,10 +607,29 @@ impl SyncEngine {
             .map(|local_connectivity| local_connectivity.clone().into())
             .collect();
 
-        let response = self
+        let response = match self
             .scout_client
             .upsert_connectivity_batch(&connectivity_for_insert)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in connectivity batch, removing {} entries from local storage: {}",
+                        updated_all_connectivity.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(updated_all_connectivity) {
+                        tracing::error!("Failed to remove connectivity entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         if let Some(inserted_connectivity) = response.data {
             let final_connectivity: Vec<ConnectivityLocal> = inserted_connectivity
@@ -680,10 +735,29 @@ impl SyncEngine {
             .map(|local_event| local_event.clone().into())
             .collect();
 
-        let response = self
+        let response = match self
             .scout_client
             .upsert_events_batch(&events_for_insert)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in events batch, removing {} entries from local storage: {}",
+                        updated_all_events.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(updated_all_events) {
+                        tracing::error!("Failed to remove event entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         if let Some(inserted_events) = response.data {
             let final_events: Vec<EventLocal> = inserted_events
@@ -853,10 +927,25 @@ impl SyncEngine {
             .map(|local_tag| local_tag.clone().into())
             .collect();
 
-        let response = self
-            .scout_client
-            .upsert_tags_batch(&tags_for_insert)
-            .await?;
+        let response = match self.scout_client.upsert_tags_batch(&tags_for_insert).await {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in tags batch, removing {} entries from local storage: {}",
+                        updated_all_tags.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(updated_all_tags) {
+                        tracing::error!("Failed to remove tag entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         if let Some(inserted_tags) = response.data {
             let final_tags: Vec<TagLocal> = inserted_tags
@@ -952,10 +1041,29 @@ impl SyncEngine {
             .map(|artifact| artifact.clone().into())
             .collect();
 
-        let response = self
+        let response = match self
             .scout_client
             .upsert_artifacts_batch(&artifacts_for_api)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in artifacts batch, removing {} entries from local storage: {}",
+                        all_artifacts.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(all_artifacts) {
+                        tracing::error!("Failed to remove artifact entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         if let Some(remote_artifacts) = response.data {
             tracing::info!("Successfully synced {} artifacts", remote_artifacts.len());
@@ -1070,10 +1178,29 @@ impl SyncEngine {
             })
             .collect();
 
-        let response = self
+        let response = match self
             .scout_client
             .upsert_operators_batch(&operators_for_insert)
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in operators batch, removing {} entries from local storage: {}",
+                        updated_all_operators.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(updated_all_operators) {
+                        tracing::error!("Failed to remove operator entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         if let Some(inserted_operators) = response.data {
             let final_operators: Vec<data::v2::OperatorLocal> = inserted_operators
@@ -1171,41 +1298,87 @@ impl SyncEngine {
     }
 
     /// Cleans completed sessions and their descendants from local database
-    /// Only removes sessions where timestamp_end is Some, all entities have remote IDs
+    /// Uses safe cleaning (timestamp_end + all descendants synced) OR TTL-based cleaning
     pub async fn clean(&mut self) -> Result<(), Error> {
-        tracing::info!("Starting clean operation for completed sessions");
+        tracing::info!("Starting clean operation for sessions");
 
         let r = self.database.r_transaction()?;
         let mut sessions_to_clean = Vec::new();
+        let mut ttl_sessions_to_clean = Vec::new();
 
-        // Find completed sessions with remote IDs
+        // Calculate TTL cutoff time if configured
+        let ttl_cutoff_timestamp = if let Some(ttl_secs) = self.ttl_secs {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_err(|e| Error::msg(format!("System time error: {}", e)))?
+                .as_secs();
+            Some(now - ttl_secs)
+        } else {
+            None
+        };
+
+        // Find sessions to clean
         for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
             if let Ok(session) = raw_session {
+                let mut should_clean_safely = false;
+                let mut should_clean_by_ttl = false;
+
+                // Safe cleaning criteria: completed + all descendants synced
                 if let (Some(_end_time_str), Some(_remote_id)) =
                     (&session.timestamp_end, session.id)
                 {
-                    // Check if all descendants have remote IDs
                     if self.session_descendants_have_remote_ids(&session, &r)? {
-                        sessions_to_clean.push(session);
+                        should_clean_safely = true;
                     }
+                }
+
+                // TTL cleaning criteria: older than TTL regardless of sync status
+                if let Some(cutoff) = ttl_cutoff_timestamp {
+                    if let Ok(session_timestamp) = self.parse_timestamp(&session.timestamp_start) {
+                        if session_timestamp < cutoff {
+                            should_clean_by_ttl = true;
+                        }
+                    }
+                }
+
+                if should_clean_safely {
+                    sessions_to_clean.push(session);
+                } else if should_clean_by_ttl {
+                    ttl_sessions_to_clean.push(session);
                 }
             }
         }
         drop(r);
 
-        if sessions_to_clean.is_empty() {
-            tracing::debug!("No completed sessions found for cleaning");
+        let total_to_clean = sessions_to_clean.len() + ttl_sessions_to_clean.len();
+
+        if total_to_clean == 0 {
+            tracing::debug!("No sessions found for cleaning");
             return Ok(());
         }
 
         tracing::info!(
-            "Found {} completed sessions to clean",
-            sessions_to_clean.len()
+            "Found {} sessions to clean ({} safe, {} TTL-based)",
+            total_to_clean,
+            sessions_to_clean.len(),
+            ttl_sessions_to_clean.len()
         );
 
-        // Clean each session and its descendants
+        // Clean safely completed sessions
         for session in sessions_to_clean {
             self.clean_session_and_descendants(&session).await?;
+        }
+
+        // Clean TTL-expired sessions (potentially with data loss warning)
+        if !ttl_sessions_to_clean.is_empty() {
+            tracing::warn!(
+                "TTL cleaning {} sessions - this may result in data loss for unsynced data",
+                ttl_sessions_to_clean.len()
+            );
+            for session in ttl_sessions_to_clean {
+                self.clean_session_and_descendants(&session).await?;
+            }
         }
 
         Ok(())
@@ -1993,6 +2166,26 @@ impl SyncEngine {
         error_lower.contains("parse error - invalid geometry")
             || error_lower.contains("new row violates row-level security policy")
             || error_lower.contains("all object keys must match")
+    }
+
+    /// Parses a timestamp string to Unix timestamp
+    fn parse_timestamp(&self, timestamp_str: &str) -> Result<u64, Error> {
+        use chrono::{DateTime, Utc};
+
+        let parsed = DateTime::parse_from_rfc3339(timestamp_str)
+            .or_else(|_| {
+                // Try alternative format if RFC3339 fails
+                DateTime::parse_from_str(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
+                    .map(|dt| dt.with_timezone(&Utc).fixed_offset())
+            })
+            .map_err(|e| {
+                Error::msg(format!(
+                    "Failed to parse timestamp '{}': {}",
+                    timestamp_str, e
+                ))
+            })?;
+
+        Ok(parsed.timestamp() as u64)
     }
 }
 
@@ -3778,6 +3971,273 @@ mod tests {
         let _ = std::fs::remove_file(&temp_db);
 
         println!("✅ Test passed: SyncEngine with failed record removal constructor works");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_ttl_cleaning_functionality() -> Result<()> {
+        setup_test_env();
+
+        let database_config =
+            DatabaseConfig::from_env().expect("Failed to create database config from environment");
+        let client = ScoutClient::new(database_config);
+
+        let temp_db = format!(
+            "/tmp/scout_test_ttl_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Create sync engine with 1 second TTL for testing
+        let mut sync_engine =
+            SyncEngine::new(client, temp_db.clone(), None, None, false, false, Some(1))?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create an old session (2 seconds ago)
+        let mut old_session = SessionLocal::default();
+        old_session.set_id_local("old_session_ttl_test".to_string());
+        old_session.device_id = device_id;
+        old_session.timestamp_start = {
+            use chrono::{Duration, Utc};
+            (Utc::now() - Duration::seconds(2))
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string()
+        };
+        old_session.software_version = "ttl_test".to_string();
+        old_session.altitude_max = 100.0;
+        old_session.altitude_min = 50.0;
+        old_session.altitude_average = 75.0;
+        old_session.velocity_max = 25.0;
+        old_session.velocity_min = 10.0;
+        old_session.velocity_average = 15.0;
+        old_session.distance_total = 1000.0;
+        old_session.distance_max_from_start = 500.0;
+
+        // Create a new session (current time)
+        let mut new_session = SessionLocal::default();
+        new_session.set_id_local("new_session_ttl_test".to_string());
+        new_session.device_id = device_id;
+        new_session.timestamp_start = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        new_session.software_version = "ttl_test".to_string();
+        new_session.altitude_max = 150.0;
+        new_session.altitude_min = 80.0;
+        new_session.altitude_average = 115.0;
+        new_session.velocity_max = 30.0;
+        new_session.velocity_min = 15.0;
+        new_session.velocity_average = 22.0;
+        new_session.distance_total = 1500.0;
+        new_session.distance_max_from_start = 750.0;
+
+        // Insert both sessions
+        sync_engine.upsert_items(vec![old_session, new_session])?;
+
+        // Verify both sessions exist
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
+
+        // Run clean operation - should remove old session due to TTL
+        sync_engine.clean().await?;
+
+        // Verify only new session remains (old session removed by TTL)
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+
+        // Verify the remaining session is the new one
+        let remaining_sessions: Vec<SessionLocal> = {
+            let r = sync_engine.database.r_transaction()?;
+            let mut sessions = Vec::new();
+            for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+                if let Ok(session) = raw_session {
+                    sessions.push(session);
+                }
+            }
+            sessions
+        };
+
+        assert_eq!(remaining_sessions.len(), 1);
+        assert_eq!(
+            remaining_sessions[0].id_local,
+            Some("new_session_ttl_test".to_string())
+        );
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_db);
+
+        println!("✅ Test passed: TTL cleaning removes old sessions correctly");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remove_failed_records_functionality() -> Result<()> {
+        setup_test_env();
+
+        let database_config =
+            DatabaseConfig::from_env().expect("Failed to create database config from environment");
+        let client = ScoutClient::new(database_config);
+
+        let temp_db = format!(
+            "/tmp/scout_test_remove_failed_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Create sync engine with remove_failed_records enabled
+        let mut sync_engine =
+            SyncEngine::new(client, temp_db.clone(), None, None, false, true, None)?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create a session that might trigger critical errors
+        let mut test_session = SessionLocal::default();
+        test_session.set_id_local("test_session_for_removal".to_string());
+        test_session.device_id = device_id;
+        test_session.timestamp_start = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        test_session.software_version = "remove_failed_test".to_string();
+        test_session.altitude_max = 100.0;
+        test_session.altitude_min = 50.0;
+        test_session.altitude_average = 75.0;
+        test_session.velocity_max = 25.0;
+        test_session.velocity_min = 10.0;
+        test_session.velocity_average = 15.0;
+        test_session.distance_total = 1000.0;
+        test_session.distance_max_from_start = 500.0;
+
+        // Insert the session
+        sync_engine.upsert_items(vec![test_session])?;
+
+        // Verify session exists
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+
+        // Test critical error detection
+        assert!(SyncEngine::is_critical_error(
+            "parse error - invalid geometry"
+        ));
+        assert!(SyncEngine::is_critical_error(
+            "new row violates row-level security policy"
+        ));
+        assert!(SyncEngine::is_critical_error("all object keys must match"));
+        assert!(!SyncEngine::is_critical_error("network timeout"));
+
+        // Verify the sync engine has remove_failed_records enabled
+        assert_eq!(sync_engine.remove_failed_records, true);
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_db);
+
+        println!("✅ Test passed: Remove failed records functionality is configured correctly");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_remove_failed_records_comprehensive() -> Result<()> {
+        setup_test_env();
+
+        let database_config =
+            DatabaseConfig::from_env().expect("Failed to create database config from environment");
+        let client = ScoutClient::new(database_config);
+
+        let temp_db = format!(
+            "/tmp/scout_test_comprehensive_remove_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        // Create sync engine with remove_failed_records enabled
+        let mut sync_engine =
+            SyncEngine::new(client, temp_db.clone(), None, None, false, true, None)?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create test data for all entity types
+        let mut test_session = SessionLocal::default();
+        test_session.set_id_local("test_session_comprehensive".to_string());
+        test_session.device_id = device_id;
+        test_session.timestamp_start = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        test_session.software_version = "comprehensive_test".to_string();
+        test_session.altitude_max = 100.0;
+        test_session.altitude_min = 50.0;
+        test_session.altitude_average = 75.0;
+        test_session.velocity_max = 25.0;
+        test_session.velocity_min = 10.0;
+        test_session.velocity_average = 15.0;
+        test_session.distance_total = 1000.0;
+        test_session.distance_max_from_start = 500.0;
+
+        let mut test_event = EventLocal::default();
+        test_event.set_id_local("test_event_comprehensive".to_string());
+        test_event.device_id = device_id;
+        test_event.set_ancestor_id_local("test_session_comprehensive".to_string());
+        test_event.timestamp_observation =
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        test_event.message = Some("Test event".to_string());
+        test_event.altitude = 100.0;
+        test_event.heading = 0.0;
+        test_event.media_type = MediaType::Image;
+
+        let mut test_connectivity = ConnectivityLocal::default();
+        test_connectivity.set_id_local("test_conn_comprehensive".to_string());
+        test_connectivity.set_ancestor_id_local("test_session_comprehensive".to_string());
+        test_connectivity.timestamp_start =
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        test_connectivity.signal = -70.0;
+        test_connectivity.altitude = 100.0;
+        test_connectivity.h14_index = "h14_test".to_string();
+        test_connectivity.h13_index = "h13_test".to_string();
+        test_connectivity.h12_index = "h12_test".to_string();
+        test_connectivity.h11_index = "h11_test".to_string();
+
+        let mut test_tag = TagLocal::default();
+        test_tag.set_id_local("test_tag_comprehensive".to_string());
+        test_tag.set_ancestor_id_local("test_event_comprehensive".to_string());
+        test_tag.event_id = 0; // Will be updated when event syncs
+        test_tag.class_name = "test_class_name".to_string();
+
+        let mut test_artifact = ArtifactLocal::new(
+            "/test/path/file.jpg".to_string(),
+            None,
+            device_id,
+            Some("image".to_string()),
+            None,
+        );
+        test_artifact.set_id_local("test_artifact_comprehensive".to_string());
+        test_artifact.set_ancestor_id_local("test_session_comprehensive".to_string());
+        test_artifact.mark_file_uploaded(); // Mark as uploaded so it gets synced
+
+        // Insert all test data
+        sync_engine.upsert_items(vec![test_session])?;
+        sync_engine.upsert_items(vec![test_event])?;
+        sync_engine.upsert_items(vec![test_connectivity])?;
+        sync_engine.upsert_items(vec![test_tag])?;
+        sync_engine.upsert_items(vec![test_artifact])?;
+
+        // Verify all entities exist before sync
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 1);
+
+        // Verify the sync engine has remove_failed_records enabled
+        assert_eq!(sync_engine.remove_failed_records, true);
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_db);
+
+        println!("✅ Test passed: Comprehensive remove failed records test completed");
         Ok(())
     }
 }
