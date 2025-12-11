@@ -301,66 +301,6 @@ impl StorageClient {
     /// - JoinHandle: Resolves to Result<(ArtifactLocal, String)>
     /// - progress_receiver: Broadcast receiver for upload progress updates
     ///
-    /// # Example - Complete Artifact Management Workflow
-    /// ```rust,no_run
-    /// # use scout_rs::sync::SyncEngine;
-    /// # use scout_rs::models::ArtifactLocal;
-    /// # use scout_rs::storage::StorageConfig;
-    /// # use scout_rs::client::ScoutClient;
-    /// # use scout_rs::db_client::DatabaseConfig;
-    /// # async fn example() -> anyhow::Result<()> {
-    /// // 1. Create scout client and storage config
-    /// let db_config = DatabaseConfig::from_env()?;
-    /// let scout_client = ScoutClient::new(db_config);
-    /// let storage_config = StorageConfig {
-    ///     supabase_url: "https://your-project.supabase.co".to_string(),
-    ///     supabase_anon_key: "your-anon-key".to_string(),
-    ///     scout_api_key: "your-device-api-key".to_string(),
-    ///     bucket_name: "artifacts".to_string(),
-    ///     allowed_extensions: vec![".mp4".to_string()],
-    /// };
-    /// let mut sync_engine = SyncEngine::new(scout_client, "db.path".to_string(), None, None, false)?
-    ///     .with_storage(storage_config)?;
-    ///
-    /// // 2. Query artifacts by various criteria
-    /// let all_artifacts = sync_engine.get_all_artifacts()?;
-    /// let pending_upload = sync_engine.get_artifacts_pending_upload()?;
-    /// let ready_for_upload = sync_engine.get_artifacts_ready_for_upload()?;
-    /// let need_urls = sync_engine.get_artifacts_needing_upload_urls()?;
-    /// let uploaded_artifacts = sync_engine.get_artifacts_by_upload_status(true)?;
-    /// let specific_artifact = sync_engine.get_artifact_by_local_id("artifact_123")?;
-    ///
-    /// // 3. Generate upload URLs for artifacts that need them
-    /// let mut artifacts_needing_urls = sync_engine.get_artifacts_needing_upload_urls()?;
-    /// sync_engine.generate_upload_urls(&mut artifacts_needing_urls).await?;
-    ///
-    /// // 4. Upload artifacts with progress monitoring and custom chunk size
-    /// let ready_artifacts = sync_engine.get_artifacts_ready_for_upload()?;
-    /// for artifact in ready_artifacts {
-    ///     let (upload_handle, mut progress_rx) = sync_engine
-    ///         .spawn_upload_artifact(artifact.clone(), Some(512 * 1024))?; // 512KB chunks
-    ///
-    ///     // Monitor progress in background
-    ///     tokio::spawn(async move {
-    ///         while let Ok(progress) = progress_rx.recv().await {
-    ///             let percent = (progress.bytes_uploaded as f64 / progress.total_bytes as f64) * 100.0;
-    ///             println!("Progress: {:.1}% ({}/{} bytes) for {}",
-    ///                      percent, progress.bytes_uploaded, progress.total_bytes, progress.file_name);
-    ///         }
-    ///     });
-    ///
-    ///     // Handle upload completion or cancellation
-    ///     match upload_handle.await {
-    ///         Ok(Ok((updated_artifact, storage_path))) => {
-    ///             println!("✅ Uploaded {} to {}", updated_artifact.file_path, storage_path);
-    ///             sync_engine.upsert_items(vec![updated_artifact])?; // Update database
-    ///         }
-    ///         Ok(Err(e)) => println!("❌ Upload failed: {}", e),
-    ///         Err(_) => println!("🛑 Upload cancelled"), // Task was aborted
-    ///     }
-    /// }
-    /// # Ok(())
-    /// # }
     /// ```
     pub fn spawn_upload_artifact(
         &self,
