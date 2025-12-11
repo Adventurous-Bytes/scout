@@ -33,13 +33,17 @@ use scout_rs::{SyncEngine, ScoutClient};
 let client = ScoutClient::new("your-api-key", "https://api.scout.com")?;
 let sync_engine = SyncEngine::with_defaults(client, "/path/to/local.db")?;
 
+// With failed record removal enabled (removes records with critical errors)
+let sync_engine = SyncEngine::with_failed_record_removal(client, "/path/to/local.db")?;
+
 // With custom configuration
 let sync_engine = SyncEngine::new(
     client,
     "/path/to/local.db".to_string(),
     Some(5000), // Sync every 5 seconds
     Some(50),   // Max 50 items per batch
-    true        // Enable auto-clean
+    true,       // Enable auto-clean
+    false       // Disable failed record removal (safer default)
 )?;
 ```
 
@@ -108,6 +112,19 @@ Safety features:
 - Verifies all descendants have remote IDs before cleaning
 - Logs detailed information about cleaned items
 
+### Failed Record Removal
+
+Failed record removal automatically removes records from local storage when they fail with critical errors that indicate the operation will never succeed:
+
+- **Critical Errors**:
+  - `"parse error - invalid geometry"` - Invalid geographic data
+  - `"new row violates row-level security policy"` - Permission denied
+  - `"All object keys must match"` - Data structure mismatch
+
+- **Safety**: Disabled by default to prevent data loss
+- **Logging**: Records detailed information about removed items
+- **Fallback**: Individual processing continues for other records
+
 ## Data Flow
 
 ### Local Data Creation
@@ -150,6 +167,7 @@ The sync engine uses a "continue on error" approach:
 - Detailed error logging for troubleshooting
 - Partial failures are reported but don't stop the entire sync
 - Background sync continues running despite individual failures
+- Critical errors can optionally remove problematic records (when `remove_failed_records` is enabled)
 
 ### Sync Behavior by Entity Type
 
@@ -182,6 +200,20 @@ sync_engine.upsert_items(items)?;
 sync_engine.remove_items(items)?;
 ```
 
+### Failed Record Removal Example
+
+```rust
+// Create sync engine with failed record removal enabled
+let sync_engine = SyncEngine::with_failed_record_removal(client, db_path)?;
+
+// Records with critical errors will be automatically removed
+sync_engine.flush().await?;
+
+// Check logs for removed records:
+// WARN: Critical error detected for session "session_123", removing from local storage: parse error - invalid geometry
+// INFO: Removed 1 sessions with critical errors from local storage
+```
+
 ### Monitoring and Debugging
 
 The sync engine provides extensive logging:
@@ -207,6 +239,12 @@ Start with `with_defaults()` unless you have specific requirements:
 
 ```rust
 let sync_engine = SyncEngine::with_defaults(client, db_path)?;
+```
+
+For environments with data quality issues, consider enabling failed record removal:
+
+```rust
+let sync_engine = SyncEngine::with_failed_record_removal(client, db_path)?;
 ```
 
 ### 2. Handle Background Tasks Properly
@@ -302,6 +340,11 @@ let event = EventLocal {
 4. **Incomplete Cleaning**
    - Verify all descendants have remote IDs before sessions are cleaned
    - Check that sessions have `timestamp_end` set
+
+5. **Critical Sync Errors**
+   - Enable `remove_failed_records` for automatic cleanup of problematic records
+   - Monitor logs for removed records to identify data quality issues
+   - Consider data validation before sync to prevent critical errors
 
 ### Debug Commands
 
