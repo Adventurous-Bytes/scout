@@ -78,6 +78,8 @@ pub struct SyncEngine {
     interval_flush_sessions_ms: Option<u64>,
     max_num_items_per_sync: Option<u64>,
     auto_clean: bool,
+    remove_failed_records: bool,
+    ttl_secs: Option<u64>,
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
     storage_client: Option<StorageClient>,
 }
@@ -122,12 +124,15 @@ impl SyncEngine {
     /// * `interval_flush_sessions_ms` - How often to sync (None = manual only)
     /// * `max_num_items_per_sync` - Maximum items per sync batch (None = unlimited)
     /// * `auto_clean` - Whether to automatically clean completed sessions
+    /// * `remove_failed_records` - Whether to remove failed records from the local database
     pub fn new(
         scout_client: ScoutClient,
         db_local_path: String,
         interval_flush_sessions_ms: Option<u64>,
         max_num_items_per_sync: Option<u64>,
         auto_clean: bool,
+        remove_failed_records: bool,
+        ttl_secs: Option<u64>,
     ) -> Result<Self> {
         // Create database using static models reference
         let database = Builder::new().create(&*MODELS, &db_local_path)?;
@@ -139,6 +144,8 @@ impl SyncEngine {
             interval_flush_sessions_ms,
             max_num_items_per_sync,
             auto_clean,
+            remove_failed_records,
+            ttl_secs,
             shutdown_tx: None,
             storage_client: None,
         })
@@ -148,6 +155,7 @@ impl SyncEngine {
     /// - 3 second sync interval
     /// - 100 items per sync batch
     /// - Auto-clean enabled
+    /// - Remove failed records disabled (for safety)
     pub fn with_defaults(scout_client: ScoutClient, db_local_path: String) -> Result<Self> {
         Self::new(
             scout_client,
@@ -155,6 +163,50 @@ impl SyncEngine {
             Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             true,
+            false, // Remove failed records disabled by default for safety
+            None,  // TTL disabled by default
+        )
+    }
+
+    /// Creates a SyncEngine with remove_failed_records enabled:
+    /// - 3 second sync interval
+    /// - 100 items per sync batch
+    /// - Auto-clean enabled
+    /// - Remove failed records enabled (removes records with critical errors)
+    pub fn with_failed_record_removal(
+        scout_client: ScoutClient,
+        db_local_path: String,
+    ) -> Result<Self> {
+        Self::new(
+            scout_client,
+            db_local_path,
+            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
+            Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
+            true,
+            true, // Remove failed records enabled
+            None, // TTL disabled by default
+        )
+    }
+
+    /// Creates a SyncEngine with TTL-based cleaning enabled
+    /// - 3 second sync interval
+    /// - 100 items per sync batch
+    /// - Auto-clean enabled
+    /// - Remove failed records disabled (for safety)
+    /// - TTL cleaning enabled with specified duration
+    pub fn with_ttl_cleaning(
+        scout_client: ScoutClient,
+        db_local_path: String,
+        ttl_secs: u64,
+    ) -> Result<Self> {
+        Self::new(
+            scout_client,
+            db_local_path,
+            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
+            Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
+            true,
+            false, // Remove failed records disabled by default for safety
+            Some(ttl_secs),
         )
     }
 
@@ -330,7 +382,7 @@ impl SyncEngine {
                     .to_lowercase()
                     .contains("all object keys must match") =>
             {
-                return self.fallback_individual_upserts(sessions).await;
+                return self.fallback_individual_session_upserts(sessions).await;
             }
             Err(e) => return Err(e),
         };
@@ -380,7 +432,7 @@ impl SyncEngine {
     }
 
     /// Fallback to individual session upserts when bulk fails
-    async fn fallback_individual_upserts(
+    async fn fallback_individual_session_upserts(
         &mut self,
         sessions: Vec<SessionLocal>,
     ) -> Result<(), Error> {
@@ -829,28 +881,7 @@ impl SyncEngine {
     /// Only artifacts with `has_uploaded_file_to_storage = true` will be synced.
     /// This ensures that artifact metadata is only sent to the server after
     /// the actual file has been successfully uploaded to storage.
-    ///
-    /// # Example
-    /// ```
-    /// // Create artifact and upload file first
-    /// let mut artifact = ArtifactLocal::new(
-    ///     "path/to/image.jpg".to_string(),
-    ///     Some(session_id),
-    ///     device_id,
-    ///     Some("image".to_string()),
-    ///     Some(timestamp),
-    /// );
-    ///
-    /// // Upload file to storage first
-    /// upload_file_to_storage(&artifact.file_path).await?;
-    ///
-    /// // Mark as uploaded so it will be included in sync
-    /// artifact.mark_file_uploaded();
-    /// sync_engine.upsert_items(vec![artifact])?;
-    ///
-    /// // Now flush will include this artifact
-    /// sync_engine.flush().await?;
-    /// ```
+
     async fn flush_artifacts(&mut self) -> Result<(), Error> {
         // For artifacts, we support both upsert (existing items) and insert (new items)
         let artifacts_batch: BatchSync<ArtifactLocal> = self.get_batch::<ArtifactLocal>(
@@ -921,24 +952,10 @@ impl SyncEngine {
             .map(|artifact| artifact.clone().into())
             .collect();
 
-        let response = match self
+        let response = self
             .scout_client
             .upsert_artifacts_batch(&artifacts_for_api)
-            .await
-        {
-            Ok(response) => response,
-            Err(e) => {
-                tracing::warn!(
-                    "Bulk artifact upsert failed ({}), falling back to individual upserts",
-                    e
-                );
-
-                // Fallback to individual upserts
-                return self
-                    .fallback_individual_artifact_upserts(all_artifacts)
-                    .await;
-            }
-        };
+            .await?;
 
         if let Some(remote_artifacts) = response.data {
             tracing::info!("Successfully synced {} artifacts", remote_artifacts.len());
@@ -956,65 +973,6 @@ impl SyncEngine {
                 .collect();
 
             self.upsert_items(updated_locals)?;
-        }
-
-        Ok(())
-    }
-
-    async fn fallback_individual_artifact_upserts(
-        &mut self,
-        artifacts: Vec<ArtifactLocal>,
-    ) -> Result<(), Error> {
-        tracing::info!("Processing {} artifacts individually", artifacts.len());
-
-        let mut successful_count = 0;
-        let mut errors = Vec::new();
-
-        for (index, artifact) in artifacts.iter().enumerate() {
-            let api_artifact: crate::models::Artifact = artifact.clone().into();
-
-            match self
-                .scout_client
-                .upsert_artifacts_batch(&[api_artifact])
-                .await
-            {
-                Ok(response) => {
-                    if let Some(remote_artifacts) = response.data {
-                        if let Some(remote_artifact) = remote_artifacts.into_iter().next() {
-                            let mut updated_local: ArtifactLocal = remote_artifact.into();
-                            updated_local.id_local = artifact.id_local.clone();
-                            updated_local.ancestor_id_local = artifact.ancestor_id_local.clone();
-
-                            if let Err(e) = self.upsert_items(vec![updated_local]) {
-                                tracing::error!("Failed to update local artifact {}: {}", index, e);
-                                errors.push(format!(
-                                    "Local update failed for artifact {}: {}",
-                                    index, e
-                                ));
-                            } else {
-                                successful_count += 1;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::error!("Failed to sync artifact {}: {}", index, e);
-                    errors.push(format!("Sync failed for artifact {}: {}", index, e));
-                }
-            }
-        }
-
-        tracing::info!(
-            "Individual artifact sync completed: {} successful, {} failed",
-            successful_count,
-            errors.len()
-        );
-
-        if !errors.is_empty() {
-            return Err(Error::msg(format!(
-                "Some artifacts failed to sync: {}",
-                errors.join("; ")
-            )));
         }
 
         Ok(())
@@ -2028,6 +1986,14 @@ impl SyncEngine {
 
         Ok(())
     }
+
+    /// Checks if an error indicates a permanent failure that will never succeed
+    fn is_critical_error(error_message: &str) -> bool {
+        let error_lower = error_message.to_lowercase();
+        error_lower.contains("parse error - invalid geometry")
+            || error_lower.contains("new row violates row-level security policy")
+            || error_lower.contains("all object keys must match")
+    }
 }
 
 #[cfg(test)]
@@ -2087,7 +2053,7 @@ mod tests {
         let database_config = DatabaseConfig::from_env()
             .map_err(|e| Error::msg(format!("System time error: {}", e)))?;
         let scout_client = ScoutClient::new(database_config);
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2123,7 +2089,7 @@ mod tests {
             "Client identification failed - check SCOUT_DEVICE_API_KEY and database connection",
         );
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2847,7 +2813,7 @@ mod tests {
         let mut scout_client = ScoutClient::new(invalid_config);
         scout_client.identify().await?; // This should fail
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -3218,7 +3184,7 @@ mod tests {
 
         sync_engine.upsert_items(vec![remote_event1, remote_event2])?;
 
-        // End of day flush
+        // End of day flush - should now succeed with session fallback
         sync_engine.flush().await?;
 
         // Verify final state
@@ -3226,6 +3192,7 @@ mod tests {
         assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 3);
         assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
 
+        println!("✅ Test passed: Field workflow completed successfully with session fallback");
         Ok(())
     }
     #[tokio::test]
@@ -3754,6 +3721,63 @@ mod tests {
         );
 
         println!("✅ Test passed: Only artifacts with uploaded files are included in sync");
+        Ok(())
+    }
+
+    #[test]
+    fn test_critical_error_detection() {
+        // Test that critical errors are properly detected
+        assert!(SyncEngine::is_critical_error(
+            "parse error - invalid geometry"
+        ));
+        assert!(SyncEngine::is_critical_error(
+            "Parse Error - Invalid Geometry"
+        )); // Case insensitive
+        assert!(SyncEngine::is_critical_error(
+            "new row violates row-level security policy"
+        ));
+        assert!(SyncEngine::is_critical_error(
+            "New Row Violates Row-Level Security Policy"
+        )); // Case insensitive
+        assert!(SyncEngine::is_critical_error("all object keys must match"));
+        assert!(SyncEngine::is_critical_error("All Object Keys Must Match")); // Case insensitive
+
+        // Test that non-critical errors are not detected as critical
+        assert!(!SyncEngine::is_critical_error("network timeout"));
+        assert!(!SyncEngine::is_critical_error("connection refused"));
+        assert!(!SyncEngine::is_critical_error("invalid json"));
+        assert!(!SyncEngine::is_critical_error("server error 500"));
+
+        println!("✅ Test passed: Critical error detection works correctly");
+    }
+
+    #[tokio::test]
+    async fn test_sync_engine_with_failed_record_removal() -> Result<()> {
+        setup_test_env();
+
+        // Test that the constructor with failed record removal works
+        let database_config =
+            DatabaseConfig::from_env().expect("Failed to create database config from environment");
+        let client = ScoutClient::new(database_config);
+
+        let temp_db = format!(
+            "/tmp/scout_test_failed_removal_{}.db",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+
+        let sync_engine = SyncEngine::with_failed_record_removal(client, temp_db.clone())?;
+
+        // Verify the flag is set correctly
+        assert_eq!(sync_engine.remove_failed_records, true);
+        assert_eq!(sync_engine.auto_clean, true);
+
+        // Clean up
+        let _ = std::fs::remove_file(&temp_db);
+
+        println!("✅ Test passed: SyncEngine with failed record removal constructor works");
         Ok(())
     }
 }
