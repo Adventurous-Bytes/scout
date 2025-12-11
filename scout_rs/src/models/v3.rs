@@ -46,9 +46,7 @@ pub struct ConnectivityLocal {
 pub struct Connectivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
@@ -359,14 +357,10 @@ pub struct Artifact {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub file_path: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp_observation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub modality: Option<String>,
     pub device_id: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<String>,
     pub timestamp_observation_end: String,
 }

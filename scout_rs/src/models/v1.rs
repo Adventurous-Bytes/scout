@@ -341,7 +341,6 @@ pub struct Session {
     pub velocity_average: f64,
     pub distance_total: f64,
     pub distance_max_from_start: f64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub earthranger_url: Option<String>,
 }
 
@@ -905,7 +904,6 @@ pub struct Event {
     pub heading: f64,
     pub media_type: MediaType,
     pub device_id: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub earthranger_url: Option<String>,
     pub timestamp_observation: String,
     pub is_public: bool,
@@ -1166,7 +1164,6 @@ pub struct Tag {
     pub observation_type: TagObservationType,
     pub class_name: String,
     pub event_id: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<String>,
 }
 

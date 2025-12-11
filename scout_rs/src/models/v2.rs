@@ -43,9 +43,7 @@ pub struct ConnectivityLocal {
 pub struct Connectivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
@@ -88,7 +86,6 @@ pub struct Operator {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<String>,
     pub timestamp: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
     pub user_id: String,
     pub action: String,

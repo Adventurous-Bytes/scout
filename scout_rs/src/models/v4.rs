@@ -54,9 +54,7 @@ pub struct ConnectivityLocal {
 pub struct Connectivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_id: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inserted_at: Option<String>,
@@ -71,17 +69,12 @@ pub struct Connectivity {
     pub h12_index: String,
     pub h11_index: String,
     // FIELDS FROM V2
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub battery_percentage: Option<f32>,
     // FIELDS FROM V3
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub frequency_hz: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub bandwidth_hz: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub associated_station: Option<String>,
     // NEW FIELD IN V4
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
 
