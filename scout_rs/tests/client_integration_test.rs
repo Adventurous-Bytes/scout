@@ -3018,6 +3018,7 @@ async fn create_test_sync_engine() -> Result<scout_rs::sync::SyncEngine, Box<dyn
         None,
         None,
         false,
+        false,
     )?
     .with_storage(storage_config)?;
 
