@@ -54,6 +54,8 @@ impl SimpleHttpHandler {
     }
 }
 
+const BUCKET_NAME_ARTIFACTS: &str = "artifacts";
+
 impl HttpHandler for SimpleHttpHandler {
     fn handle_request(&self, req: HttpRequest<'_>) -> Result<HttpResponse, TusError> {
         // Use a truly blocking HTTP client for synchronous operations
@@ -321,7 +323,8 @@ impl StorageClient {
             // Check if already uploaded
             if artifact.has_uploaded_file_to_storage {
                 let storage_path = format!(
-                    "{}/{}/{}",
+                    "{}{}/{}/{}",
+                    BUCKET_NAME_ARTIFACTS,
                     herd_id,
                     artifact.device_id,
                     Path::new(&artifact.file_path)
@@ -387,7 +390,10 @@ impl StorageClient {
                             .and_then(|name| name.to_str())
                             .unwrap_or("unknown");
 
-                        let storage_path = format!("{}/{}/{}", herd_id, device_id, file_name);
+                        let storage_path = format!(
+                            "{}/{}/{}/{}",
+                            BUCKET_NAME_ARTIFACTS, herd_id, device_id, file_name
+                        );
 
                         tracing::info!(
                             "Successfully uploaded {} via TUS to {}",
@@ -408,6 +414,7 @@ impl StorageClient {
 
             // Mark as uploaded
             artifact.has_uploaded_file_to_storage = true;
+            artifact.file_path = storage_path.clone();
             Ok((artifact, storage_path))
         });
 
@@ -425,7 +432,10 @@ impl StorageClient {
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow!("Invalid file path: {}", artifact.file_path))?;
 
-        let _object_path = format!("artifacts/{}/{}/{}", herd_id, artifact.device_id, file_name);
+        let _object_path = format!(
+            "{}/{}/{}/{}",
+            BUCKET_NAME_ARTIFACTS, herd_id, artifact.device_id, file_name
+        );
 
         // Extract project ID from supabase_url for TUS endpoint
         let url_parts = self
@@ -452,7 +462,7 @@ impl StorageClient {
 
             // Create metadata for Supabase
             let mut metadata = std::collections::HashMap::new();
-            metadata.insert("bucketName".to_string(), "artifacts".to_string());
+            metadata.insert("bucketName".to_string(), BUCKET_NAME_ARTIFACTS.to_string());
             metadata.insert(
                 "objectName".to_string(),
                 format!("{}/{}/{}", herd_id, device_id, file_name_owned),
@@ -552,7 +562,7 @@ mod tests {
                 .expect("SUPABASE_PUBLIC_API_KEY must be set"),
             scout_api_key: env::var("SCOUT_DEVICE_API_KEY")
                 .expect("SCOUT_DEVICE_API_KEY must be set"),
-            bucket_name: "artifacts".to_string(),
+            bucket_name: BUCKET_NAME_ARTIFACTS,
             allowed_extensions: vec![".mp4".to_string()],
         }
     }
