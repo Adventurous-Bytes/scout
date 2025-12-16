@@ -69,7 +69,6 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
 /// - Batch operations for efficiency
 /// - Automatic ID relationship management
 /// - Configurable sync intervals and batch sizes
-/// - Auto-cleaning of completed sessions
 /// - Resilient error handling with partial failure recovery
 pub struct SyncEngine {
     scout_client: ScoutClient,
@@ -77,7 +76,6 @@ pub struct SyncEngine {
     database: Database<'static>,
     interval_flush_sessions_ms: Option<u64>,
     max_num_items_per_sync: Option<u64>,
-    auto_clean: bool,
     remove_failed_records: bool,
     ttl_secs: Option<u64>,
     shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
@@ -123,14 +121,12 @@ impl SyncEngine {
     /// * `db_local_path` - Path to local database file
     /// * `interval_flush_sessions_ms` - How often to sync (None = manual only)
     /// * `max_num_items_per_sync` - Maximum items per sync batch (None = unlimited)
-    /// * `auto_clean` - Whether to automatically clean completed sessions
     /// * `remove_failed_records` - Whether to remove failed records from the local database
     pub fn new(
         scout_client: ScoutClient,
         db_local_path: String,
         interval_flush_sessions_ms: Option<u64>,
         max_num_items_per_sync: Option<u64>,
-        auto_clean: bool,
         remove_failed_records: bool,
         ttl_secs: Option<u64>,
     ) -> Result<Self> {
@@ -143,7 +139,6 @@ impl SyncEngine {
             database,
             interval_flush_sessions_ms,
             max_num_items_per_sync,
-            auto_clean,
             remove_failed_records,
             ttl_secs,
             shutdown_tx: None,
@@ -154,7 +149,6 @@ impl SyncEngine {
     /// Creates a default SyncEngine with common settings:
     /// - 3 second sync interval
     /// - 100 items per sync batch
-    /// - Auto-clean enabled
     /// - Remove failed records disabled (for safety)
     pub fn with_defaults(scout_client: ScoutClient, db_local_path: String) -> Result<Self> {
         Self::new(
@@ -162,7 +156,6 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
-            true,
             false, // Remove failed records disabled by default for safety
             None,  // TTL disabled by default
         )
@@ -171,7 +164,6 @@ impl SyncEngine {
     /// Creates a SyncEngine with remove_failed_records enabled:
     /// - 3 second sync interval
     /// - 100 items per sync batch
-    /// - Auto-clean enabled
     /// - Remove failed records enabled (removes records with critical errors)
     pub fn with_failed_record_removal(
         scout_client: ScoutClient,
@@ -182,7 +174,6 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
-            true,
             true, // Remove failed records enabled
             None, // TTL disabled by default
         )
@@ -191,7 +182,6 @@ impl SyncEngine {
     /// Creates a SyncEngine with TTL-based cleaning enabled
     /// - 3 second sync interval
     /// - 100 items per sync batch
-    /// - Auto-clean enabled
     /// - Remove failed records disabled (for safety)
     /// - TTL cleaning enabled with specified duration
     pub fn with_ttl_cleaning(
@@ -204,7 +194,6 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
-            true,
             false, // Remove failed records disabled by default for safety
             Some(ttl_secs),
         )
@@ -309,14 +298,6 @@ impl SyncEngine {
         if let Err(e) = self.flush_artifacts().await {
             sync_errors.push(format!("Artifacts sync failed: {}", e));
             tracing::error!("Artifacts sync failed: {}", e);
-        }
-
-        // Auto clean if enabled and no critical errors occurred
-        if self.auto_clean && sync_errors.is_empty() {
-            if let Err(e) = self.clean().await {
-                sync_errors.push(format!("Clean operation failed: {}", e));
-                tracing::error!("Clean operation failed: {}", e);
-            }
         }
 
         // Return error if any operations failed
@@ -2246,7 +2227,7 @@ mod tests {
         let database_config = DatabaseConfig::from_env()
             .map_err(|e| Error::msg(format!("System time error: {}", e)))?;
         let scout_client = ScoutClient::new(database_config);
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2282,7 +2263,7 @@ mod tests {
             "Client identification failed - check SCOUT_DEVICE_API_KEY and database connection",
         );
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -3006,7 +2987,7 @@ mod tests {
         let mut scout_client = ScoutClient::new(invalid_config);
         scout_client.identify().await?; // This should fail
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -3965,7 +3946,6 @@ mod tests {
 
         // Verify the flag is set correctly
         assert_eq!(sync_engine.remove_failed_records, true);
-        assert_eq!(sync_engine.auto_clean, true);
 
         // Clean up
         let _ = std::fs::remove_file(&temp_db);
@@ -3991,8 +3971,7 @@ mod tests {
         );
 
         // Create sync engine with 1 second TTL for testing
-        let mut sync_engine =
-            SyncEngine::new(client, temp_db.clone(), None, None, false, false, Some(1))?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, false, Some(1))?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
@@ -4088,8 +4067,7 @@ mod tests {
         );
 
         // Create sync engine with remove_failed_records enabled
-        let mut sync_engine =
-            SyncEngine::new(client, temp_db.clone(), None, None, false, true, None)?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, true, None)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
@@ -4154,8 +4132,7 @@ mod tests {
         );
 
         // Create sync engine with remove_failed_records enabled
-        let mut sync_engine =
-            SyncEngine::new(client, temp_db.clone(), None, None, false, true, None)?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, true, None)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
