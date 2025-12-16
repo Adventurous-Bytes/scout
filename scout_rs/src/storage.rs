@@ -56,6 +56,27 @@ impl SimpleHttpHandler {
 
 const BUCKET_NAME_ARTIFACTS: &str = "artifacts";
 
+/// Generate a remote file path from a local file path
+///
+/// Transforms a local path like `/opt/raven/blah/blah/test.mp4`
+/// into a remote path like `herd_id/device_id/test.mp4`
+///
+/// # Arguments
+/// * `local_path` - The local file path
+/// * `herd_id` - The herd ID for the storage path
+/// * `device_id` - The device ID for the storage path
+///
+/// # Returns
+/// Result<String> - The remote file path or an error if the local path is invalid
+fn generate_remote_path(local_path: &str, herd_id: i64, device_id: i64) -> Result<String> {
+    let file_name = Path::new(local_path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow!("Invalid file path: {}", local_path))?;
+
+    Ok(format!("{}/{}/{}", herd_id, device_id, file_name))
+}
+
 impl HttpHandler for SimpleHttpHandler {
     fn handle_request(&self, req: HttpRequest<'_>) -> Result<HttpResponse, TusError> {
         // Use a truly blocking HTTP client for synchronous operations
@@ -322,16 +343,11 @@ impl StorageClient {
         let upload_handle = tokio::spawn(async move {
             // Check if already uploaded
             if artifact.has_uploaded_file_to_storage {
-                let storage_path = format!(
-                    "{}{}/{}/{}",
-                    BUCKET_NAME_ARTIFACTS,
-                    herd_id,
-                    artifact.device_id,
-                    Path::new(&artifact.file_path)
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("unknown")
-                );
+                let storage_path =
+                    generate_remote_path(&artifact.file_path, herd_id, artifact.device_id)
+                        .unwrap_or_else(|_| {
+                            format!("{}/{}/{}", herd_id, artifact.device_id, "unknown")
+                        });
                 return Ok((artifact, storage_path));
             }
 
@@ -385,16 +401,12 @@ impl StorageClient {
                     Some(&progress_callback),
                 ) {
                     Ok(_) => {
-                        let file_name = Path::new(&file_path)
-                            .file_name()
-                            .and_then(|name| name.to_str())
-                            .unwrap_or("unknown");
-
-                        let storage_path = format!(
-                            "{}/{}/{}/{}",
-                            BUCKET_NAME_ARTIFACTS, herd_id, device_id, file_name
-                        );
-
+                        let storage_path_without_bucket =
+                            generate_remote_path(&file_path, herd_id, device_id)
+                                .map_err(|e| anyhow!("Failed to generate storage path: {}", e))?;
+                        // should be something like bucket_name/herd_id/device_id/name.extension
+                        let storage_path =
+                            format!("{}/{}", BUCKET_NAME_ARTIFACTS, storage_path_without_bucket);
                         tracing::info!(
                             "Successfully uploaded {} via TUS to {}",
                             file_path,
@@ -427,15 +439,8 @@ impl StorageClient {
         artifact: &ArtifactLocal,
         herd_id: i64,
     ) -> Result<String> {
-        let file_name = Path::new(&artifact.file_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow!("Invalid file path: {}", artifact.file_path))?;
-
-        let _object_path = format!(
-            "{}/{}/{}/{}",
-            BUCKET_NAME_ARTIFACTS, herd_id, artifact.device_id, file_name
-        );
+        // Generate object path using the helper function
+        let object_path = generate_remote_path(&artifact.file_path, herd_id, artifact.device_id)?;
 
         // Extract project ID from supabase_url for TUS endpoint
         let url_parts = self
@@ -451,22 +456,19 @@ impl StorageClient {
         );
 
         // Create TUS client and generate upload URL using spawn_blocking
+        // Use the object path we already generated
+        let object_name = object_path.clone();
+
         let http_handler = self.http_handler.clone();
         let file_path = artifact.file_path.clone();
         let endpoint = tus_endpoint.clone();
-        let device_id = artifact.device_id;
-        let file_name_owned = file_name.to_string();
-
         tokio::task::spawn_blocking(move || {
             let tus_client = Client::new(http_handler.as_ref());
 
             // Create metadata for Supabase
             let mut metadata = std::collections::HashMap::new();
             metadata.insert("bucketName".to_string(), BUCKET_NAME_ARTIFACTS.to_string());
-            metadata.insert(
-                "objectName".to_string(),
-                format!("{}/{}/{}", herd_id, device_id, file_name_owned),
-            );
+            metadata.insert("objectName".to_string(), object_name);
             metadata.insert("cacheControl".to_string(), "3600".to_string());
             metadata.insert("upsert".to_string(), "true".to_string());
 
@@ -513,7 +515,30 @@ impl StorageClient {
     }
 }
 
-// to run just these tests do cargo test -- storage
+impl StorageClient {
+    /// Generate a remote file path from a local file path
+    ///
+    /// This is a convenience wrapper around the standalone `generate_remote_path` function.
+    /// Transforms a local path like `/opt/raven/blah/blah/test.mp4` into `herd_id/device_id/test.mp4`
+    ///
+    /// # Arguments
+    /// * `local_path` - The local file path
+    /// * `herd_id` - The herd ID for the storage path
+    /// * `device_id` - The device ID for the storage path
+    ///
+    /// # Returns
+    /// Result<String> - The remote file path or an error if the local path is invalid
+    /// ```
+    pub fn generate_remote_file_path(
+        &self,
+        local_path: &str,
+        herd_id: i64,
+        device_id: i64,
+    ) -> Result<String> {
+        generate_remote_path(local_path, herd_id, device_id)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -562,7 +587,7 @@ mod tests {
                 .expect("SUPABASE_PUBLIC_API_KEY must be set"),
             scout_api_key: env::var("SCOUT_DEVICE_API_KEY")
                 .expect("SCOUT_DEVICE_API_KEY must be set"),
-            bucket_name: BUCKET_NAME_ARTIFACTS,
+            bucket_name: BUCKET_NAME_ARTIFACTS.to_string(),
             allowed_extensions: vec![".mp4".to_string()],
         }
     }
@@ -1046,5 +1071,103 @@ mod tests {
             ),
             Err(e) => println!("⚠️  Failed to write test results: {}", e),
         }
+    }
+
+    #[test]
+    fn test_generate_remote_file_path() {
+        setup_storage_test_env();
+
+        let config = create_test_storage_config();
+        let client = StorageClient::new(config).expect("Failed to create storage client");
+
+        // Test with a typical local file path
+        let local_path = "/opt/raven/blah/blah/test.mp4";
+        let herd_id = 123;
+        let device_id = 456;
+
+        let remote_path = client
+            .generate_remote_file_path(local_path, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path, "123/456/test.mp4");
+
+        // Test with different file extension
+        let local_path2 = "/some/other/path/image.jpg";
+        let remote_path2 = client
+            .generate_remote_file_path(local_path2, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path2, "123/456/image.jpg");
+
+        // Test with just a filename
+        let local_path3 = "video.mov";
+        let remote_path3 = client
+            .generate_remote_file_path(local_path3, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path3, "123/456/video.mov");
+
+        // Test with invalid path (empty string should fail)
+        let result = client.generate_remote_file_path("", herd_id, device_id);
+        assert!(result.is_err());
+
+        // Test with path that has no filename (directory only)
+        let result2 = client.generate_remote_file_path("/some/path/", herd_id, device_id);
+        assert!(result2.is_ok()); // This actually succeeds with empty filename
+
+        // Test with path that truly has no filename
+        let result3 = client.generate_remote_file_path("/", herd_id, device_id);
+        assert!(result3.is_err());
+    }
+
+    #[test]
+    fn test_standalone_generate_remote_path() {
+        // Test the standalone function directly
+        let local_path = "/opt/raven/blah/blah/test.mp4";
+        let herd_id = 123;
+        let device_id = 456;
+
+        let remote_path = generate_remote_path(local_path, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path, "123/456/test.mp4");
+
+        // Test with different file extension
+        let local_path2 = "/some/other/path/image.jpg";
+        let remote_path2 = generate_remote_path(local_path2, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path2, "123/456/image.jpg");
+
+        // Test with just a filename
+        let local_path3 = "video.mov";
+        let remote_path3 = generate_remote_path(local_path3, herd_id, device_id)
+            .expect("Failed to generate remote path");
+
+        assert_eq!(remote_path3, "123/456/video.mov");
+
+        // Test with invalid path (empty string should fail)
+        let result = generate_remote_path("", herd_id, device_id);
+        assert!(result.is_err());
+
+        // Test with path that truly has no filename
+        let result2 = generate_remote_path("/", herd_id, device_id);
+        assert!(result2.is_err());
+
+        // Verify both methods produce the same result
+        setup_storage_test_env();
+        let config = create_test_storage_config();
+        let client = StorageClient::new(config).expect("Failed to create storage client");
+
+        let standalone_result = generate_remote_path(local_path, herd_id, device_id)
+            .expect("Standalone function failed");
+        let method_result = client
+            .generate_remote_file_path(local_path, herd_id, device_id)
+            .expect("Method failed");
+
+        assert_eq!(
+            standalone_result, method_result,
+            "Standalone function and method should produce identical results"
+        );
     }
 }
