@@ -53,6 +53,7 @@ export * from "./hooks/useScoutRealtimeEvents";
 export * from "./hooks/useScoutRealtimeTags";
 export * from "./hooks/useScoutRealtimeSessions";
 export * from "./hooks/useScoutRealtimePlans";
+export * from "./hooks/useScoutRealtimePins";
 export * from "./hooks/useScoutRefresh";
 
 // Providers
