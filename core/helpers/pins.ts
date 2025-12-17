@@ -7,7 +7,7 @@ export async function get_pins_for_herd(
   client: SupabaseClient<Database>,
   herd_id: number,
 ): Promise<IWebResponseCompatible<IPin[]>> {
-  // Call get_pins_for_herd with rpc
+  // Call get_pins_for_herd with rpc - returns pins_pretty_location with extracted coordinates
   const { data, error } = await client.rpc("get_pins_for_herd", {
     herd_id_caller: herd_id,
   });
@@ -41,14 +41,8 @@ export async function get_pin_by_id(
     return IWebResponse.error<IPin | null>("Pin not found").to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinWithCoords: IPin = {
-    ...data,
-    latitude: data.latitude ? parseFloat(data.latitude.toString()) : 0,
-    longitude: data.longitude ? parseFloat(data.longitude.toString()) : 0,
-  };
-
-  return IWebResponse.success(pinWithCoords).to_compatible();
+  // Raw table data - no coordinate extraction (use get_pins_for_herd for coordinates)
+  return IWebResponse.success(data as any).to_compatible();
 }
 
 export async function create_pin(
@@ -71,14 +65,41 @@ export async function create_pin(
     ).to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinWithCoords: IPin = {
-    ...data,
-    latitude: data.latitude ? parseFloat(data.latitude.toString()) : 0,
-    longitude: data.longitude ? parseFloat(data.longitude.toString()) : 0,
-  };
+  // Raw table data - coordinates extracted by RPC function or realtime broadcasts
+  return IWebResponse.success(data as any).to_compatible();
+}
 
-  return IWebResponse.success(pinWithCoords).to_compatible();
+export async function create_pin_with_coordinates(
+  client: SupabaseClient<Database>,
+  latitude: number,
+  longitude: number,
+  pinData: Omit<PinInsert, "location">,
+): Promise<IWebResponseCompatible<IPin | null>> {
+  // Create pin with PostGIS Point from lat/lng coordinates
+  const { data, error } = await client
+    .from("pins")
+    .insert([
+      {
+        ...pinData,
+        // Use PostGIS ST_MakePoint to create geography from coordinates
+        // Note: PostGIS Point format is (longitude, latitude)
+        location: `SRID=4326;POINT(${longitude} ${latitude})`,
+      },
+    ])
+    .select("*")
+    .single();
+
+  if (error) {
+    return IWebResponse.error<IPin | null>(error.message).to_compatible();
+  }
+
+  if (!data) {
+    return IWebResponse.error<IPin | null>(
+      "Failed to create pin",
+    ).to_compatible();
+  }
+
+  return IWebResponse.success(data as any).to_compatible();
 }
 
 export async function update_pin(
@@ -109,14 +130,46 @@ export async function update_pin(
     ).to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinWithCoords: IPin = {
-    ...data,
-    latitude: data.latitude ? parseFloat(data.latitude.toString()) : 0,
-    longitude: data.longitude ? parseFloat(data.longitude.toString()) : 0,
+  // Raw table data - coordinates extracted by RPC function or realtime broadcasts
+  return IWebResponse.success(data as any).to_compatible();
+}
+
+export async function update_pin_location(
+  client: SupabaseClient<Database>,
+  pin_id: number,
+  latitude: number,
+  longitude: number,
+  updatedPin?: Partial<Omit<PinInsert, "location">>,
+): Promise<IWebResponseCompatible<IPin | null>> {
+  const updateData = {
+    ...updatedPin,
+    // Use PostGIS format to update location
+    location: `SRID=4326;POINT(${longitude} ${latitude})`,
   };
 
-  return IWebResponse.success(pinWithCoords).to_compatible();
+  // Remove fields that shouldn't be updated
+  delete (updateData as any).id;
+  delete (updateData as any).created_at;
+  delete (updateData as any).created_by;
+
+  const { data, error } = await client
+    .from("pins")
+    .update(updateData)
+    .eq("id", pin_id)
+    .select("*")
+    .single();
+
+  if (error) {
+    return IWebResponse.error<IPin | null>(error.message).to_compatible();
+  }
+
+  if (!data) {
+    return IWebResponse.error<IPin | null>(
+      "Pin not found or update failed",
+    ).to_compatible();
+  }
+
+  return IWebResponse.success(data as any).to_compatible();
 }
 
 export async function delete_pin(
@@ -140,14 +193,8 @@ export async function delete_pin(
     ).to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinWithCoords: IPin = {
-    ...data,
-    latitude: data.latitude ? parseFloat(data.latitude.toString()) : 0,
-    longitude: data.longitude ? parseFloat(data.longitude.toString()) : 0,
-  };
-
-  return IWebResponse.success(pinWithCoords).to_compatible();
+  // Raw table data - coordinates extracted by realtime broadcasts
+  return IWebResponse.success(data as any).to_compatible();
 }
 
 export async function get_pins_by_created_by(
@@ -168,14 +215,8 @@ export async function get_pins_by_created_by(
     return IWebResponse.error<IPin[]>("No pins found for user").to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinsWithCoords: IPin[] = data.map((pin) => ({
-    ...pin,
-    latitude: pin.latitude ? parseFloat(pin.latitude.toString()) : 0,
-    longitude: pin.longitude ? parseFloat(pin.longitude.toString()) : 0,
-  }));
-
-  return IWebResponse.success(pinsWithCoords).to_compatible();
+  // Raw table data without extracted coordinates - use get_pins_for_herd for coordinates
+  return IWebResponse.success(data as any[]).to_compatible();
 }
 
 export async function get_pins_by_color(
@@ -200,12 +241,6 @@ export async function get_pins_by_color(
     ).to_compatible();
   }
 
-  // Convert to pretty location format with coordinates
-  const pinsWithCoords: IPin[] = data.map((pin) => ({
-    ...pin,
-    latitude: pin.latitude ? parseFloat(pin.latitude.toString()) : 0,
-    longitude: pin.longitude ? parseFloat(pin.longitude.toString()) : 0,
-  }));
-
-  return IWebResponse.success(pinsWithCoords).to_compatible();
+  // Raw table data without extracted coordinates - use get_pins_for_herd for coordinates
+  return IWebResponse.success(data as any[]).to_compatible();
 }

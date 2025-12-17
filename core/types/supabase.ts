@@ -590,8 +590,7 @@ export type Database = {
           description: string | null
           herd_id: number
           id: number
-          latitude: unknown
-          longitude: unknown
+          location: unknown
           name: string
         }
         Insert: {
@@ -602,8 +601,7 @@ export type Database = {
           description?: string | null
           herd_id: number
           id?: number
-          latitude: unknown
-          longitude: unknown
+          location?: unknown
           name: string
         }
         Update: {
@@ -614,8 +612,7 @@ export type Database = {
           description?: string | null
           herd_id?: number
           id?: number
-          latitude?: unknown
-          longitude?: unknown
+          location?: unknown
           name?: string
         }
         Relationships: [
@@ -1572,6 +1569,7 @@ export type Database = {
       pins_pretty_location: {
         id: number | null
         created_at: string | null
+        location: unknown
         altitude_relative_to_ground: number | null
         color: string | null
         name: string | null
