@@ -29,12 +29,11 @@ type BroadcastPayload = {
 export function useScoutRealtimeSessions(
   scoutSupabase: SupabaseClient<Database>,
   shouldUpdateGlobalStateOnChanges: boolean,
-): RealtimeData<ISessionWithCoordinates>[] {
+): [RealtimeData<ISessionWithCoordinates> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
-  const [newSessionItems, setNewSessionItems] = useState<
-    RealtimeData<ISessionWithCoordinates>[]
-  >([]);
+  const [latestSessionUpdate, setLatestSessionUpdate] =
+    useState<RealtimeData<ISessionWithCoordinates> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -85,14 +84,14 @@ export function useScoutRealtimeSessions(
         JSON.stringify(realtimeData),
       );
 
-      setNewSessionItems((prev) => [realtimeData, ...prev]);
+      setLatestSessionUpdate(realtimeData);
     },
     [dispatch],
   );
 
-  // Clear new items when herd changes
-  const clearNewItems = useCallback(() => {
-    setNewSessionItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestSessionUpdate(null);
   }, []);
 
   const cleanupChannels = () => {
@@ -116,8 +115,8 @@ export function useScoutRealtimeSessions(
   useEffect(() => {
     cleanupChannels();
 
-    // Clear previous items when switching herds
-    clearNewItems();
+    // Clear previous update when switching herds
+    clearLatestUpdate();
 
     // Create sessions channel for active herd
     if (activeHerdId) {
@@ -126,7 +125,7 @@ export function useScoutRealtimeSessions(
     }
 
     return cleanupChannels;
-  }, [activeHerdId, clearNewItems]);
+  }, [activeHerdId, clearLatestUpdate]);
 
-  return newSessionItems;
+  return [latestSessionUpdate, clearLatestUpdate];
 }

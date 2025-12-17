@@ -25,12 +25,11 @@ type BroadcastPayload = {
 export function useScoutRealtimeEvents(
   scoutSupabase: SupabaseClient<Database>,
   shouldUpdateGlobalStateOnChanges: boolean,
-): RealtimeData<IEventAndTagsPrettyLocation>[] {
+): [RealtimeData<IEventAndTagsPrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
-  const [newEventItems, setNewEventItems] = useState<
-    RealtimeData<IEventAndTagsPrettyLocation>[]
-  >([]);
+  const [latestEventUpdate, setLatestEventUpdate] =
+    useState<RealtimeData<IEventAndTagsPrettyLocation> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -102,14 +101,14 @@ export function useScoutRealtimeEvents(
         JSON.stringify(realtimeData),
       );
 
-      setNewEventItems((prev) => [realtimeData, ...prev]);
+      setLatestEventUpdate(realtimeData);
     },
     [dispatch, activeHerdId],
   );
 
-  // Clear new items when herd changes
-  const clearNewItems = useCallback(() => {
-    setNewEventItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestEventUpdate(null);
   }, []);
 
   const cleanupChannels = () => {
@@ -133,8 +132,8 @@ export function useScoutRealtimeEvents(
   useEffect(() => {
     cleanupChannels();
 
-    // Clear previous items when switching herds
-    clearNewItems();
+    // Clear previous update when switching herds
+    clearLatestUpdate();
 
     // Create events channel for active herd
     if (activeHerdId) {
@@ -143,7 +142,7 @@ export function useScoutRealtimeEvents(
     }
 
     return cleanupChannels;
-  }, [activeHerdId, clearNewItems]);
+  }, [activeHerdId, clearLatestUpdate]);
 
-  return newEventItems;
+  return [latestEventUpdate, clearLatestUpdate];
 }

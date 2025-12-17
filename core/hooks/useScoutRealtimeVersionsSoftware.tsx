@@ -20,11 +20,10 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeVersionsSoftware(
   scoutSupabase: SupabaseClient<Database>,
-): RealtimeData<IVersionsSoftware>[] {
+): [RealtimeData<IVersionsSoftware> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const [newVersionsItems, setNewVersionsItems] = useState<
-    RealtimeData<IVersionsSoftware>[]
-  >([]);
+  const [latestVersionUpdate, setLatestVersionUpdate] =
+    useState<RealtimeData<IVersionsSoftware> | null>(null);
 
   // Handle versions software broadcasts
   const handleVersionsSoftwareBroadcast = useCallback(
@@ -61,14 +60,14 @@ export function useScoutRealtimeVersionsSoftware(
         operation,
       };
 
-      setNewVersionsItems((prev) => [realtimeData, ...prev]);
+      setLatestVersionUpdate(realtimeData);
     },
     [],
   );
 
-  // Clear new items
-  const clearNewItems = useCallback(() => {
-    setNewVersionsItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestVersionUpdate(null);
   }, []);
 
   useEffect(() => {
@@ -78,8 +77,8 @@ export function useScoutRealtimeVersionsSoftware(
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
     channels.current = [];
 
-    // Clear previous items when setting up
-    clearNewItems();
+    // Clear previous update when setting up
+    clearLatestUpdate();
 
     // Create versions_software channel
     const channel = scoutSupabase
@@ -103,7 +102,7 @@ export function useScoutRealtimeVersionsSoftware(
       channels.current.forEach((ch) => scoutSupabase.removeChannel(ch));
       channels.current = [];
     };
-  }, [scoutSupabase, handleVersionsSoftwareBroadcast, clearNewItems]);
+  }, [scoutSupabase, handleVersionsSoftwareBroadcast, clearLatestUpdate]);
 
-  return newVersionsItems;
+  return [latestVersionUpdate, clearLatestUpdate];
 }

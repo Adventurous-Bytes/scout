@@ -25,10 +25,11 @@ type BroadcastPayload = {
 export function useScoutRealtimePlans(
   scoutSupabase: SupabaseClient<Database>,
   shouldUpdateGlobalStateOnChanges: boolean,
-): RealtimeData<IPlan>[] {
+): [RealtimeData<IPlan> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
-  const [newPlanItems, setNewPlanItems] = useState<RealtimeData<IPlan>[]>([]);
+  const [latestPlanUpdate, setLatestPlanUpdate] =
+    useState<RealtimeData<IPlan> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -79,14 +80,14 @@ export function useScoutRealtimePlans(
         JSON.stringify(realtimeData),
       );
 
-      setNewPlanItems((prev) => [realtimeData, ...prev]);
+      setLatestPlanUpdate(realtimeData);
     },
     [dispatch],
   );
 
-  // Clear new items when herd changes
-  const clearNewItems = useCallback(() => {
-    setNewPlanItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestPlanUpdate(null);
   }, []);
 
   const cleanupChannels = () => {
@@ -110,8 +111,8 @@ export function useScoutRealtimePlans(
   useEffect(() => {
     cleanupChannels();
 
-    // Clear previous items when switching herds
-    clearNewItems();
+    // Clear previous update when switching herds
+    clearLatestUpdate();
 
     // Create plans channel for active herd
     if (activeHerdId) {
@@ -120,7 +121,7 @@ export function useScoutRealtimePlans(
     }
 
     return cleanupChannels;
-  }, [activeHerdId, clearNewItems]);
+  }, [activeHerdId, clearLatestUpdate]);
 
-  return newPlanItems;
+  return [latestPlanUpdate, clearLatestUpdate];
 }

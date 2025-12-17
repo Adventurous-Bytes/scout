@@ -24,12 +24,11 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeDevices(
   scoutSupabase: SupabaseClient<Database>,
-): RealtimeData<IDevicePrettyLocation>[] {
+): [RealtimeData<IDevicePrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
-  const [newDeviceItems, setNewDeviceItems] = useState<
-    RealtimeData<IDevicePrettyLocation>[]
-  >([]);
+  const [latestDeviceUpdate, setLatestDeviceUpdate] =
+    useState<RealtimeData<IDevicePrettyLocation> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -80,14 +79,14 @@ export function useScoutRealtimeDevices(
         JSON.stringify(realtimeData),
       );
 
-      setNewDeviceItems((prev) => [realtimeData, ...prev]);
+      setLatestDeviceUpdate(realtimeData);
     },
     [dispatch],
   );
 
-  // Clear new items when herd changes
-  const clearNewItems = useCallback(() => {
-    setNewDeviceItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestDeviceUpdate(null);
   }, []);
 
   const cleanupChannels = () => {
@@ -111,8 +110,8 @@ export function useScoutRealtimeDevices(
   useEffect(() => {
     cleanupChannels();
 
-    // Clear previous items when switching herds
-    clearNewItems();
+    // Clear previous update when switching herds
+    clearLatestUpdate();
 
     // Create devices channel for active herd
     if (activeHerdId) {
@@ -121,7 +120,7 @@ export function useScoutRealtimeDevices(
     }
 
     return cleanupChannels;
-  }, [activeHerdId, clearNewItems]);
+  }, [activeHerdId, clearLatestUpdate]);
 
-  return newDeviceItems;
+  return [latestDeviceUpdate, clearLatestUpdate];
 }

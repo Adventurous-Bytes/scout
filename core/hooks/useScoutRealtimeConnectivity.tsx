@@ -22,11 +22,10 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeConnectivity(
   scoutSupabase: SupabaseClient<Database>,
-): RealtimeData<IConnectivityWithCoordinates>[] {
+): [RealtimeData<IConnectivityWithCoordinates> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const [newConnectivityItems, setNewConnectivityItems] = useState<
-    RealtimeData<IConnectivityWithCoordinates>[]
-  >([]);
+  const [latestConnectivityUpdate, setLatestConnectivityUpdate] =
+    useState<RealtimeData<IConnectivityWithCoordinates> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
@@ -95,14 +94,14 @@ export function useScoutRealtimeConnectivity(
         operation,
       };
 
-      setNewConnectivityItems((prev) => [realtimeData, ...prev]);
+      setLatestConnectivityUpdate(realtimeData);
     },
     [],
   );
 
-  // Clear new items when gps device IDs change (herd change)
-  const clearNewItems = useCallback(() => {
-    setNewConnectivityItems([]);
+  // Clear latest update
+  const clearLatestUpdate = useCallback(() => {
+    setLatestConnectivityUpdate(null);
   }, []);
 
   useEffect(() => {
@@ -112,8 +111,8 @@ export function useScoutRealtimeConnectivity(
     channels.current.forEach((channel) => scoutSupabase.removeChannel(channel));
     channels.current = [];
 
-    // Clear previous items when switching herds
-    clearNewItems();
+    // Clear previous update when switching herds
+    clearLatestUpdate();
 
     // Create connectivity channel
     const channel = scoutSupabase
@@ -132,8 +131,8 @@ export function useScoutRealtimeConnectivity(
     gpsDeviceIds,
     activeHerdId,
     handleConnectivityBroadcast,
-    clearNewItems,
+    clearLatestUpdate,
   ]);
 
-  return newConnectivityItems;
+  return [latestConnectivityUpdate, clearLatestUpdate];
 }

@@ -1,12 +1,10 @@
 "use client";
 
-import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { addTag, deleteTag, updateTag } from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
-import { ITagPrettyLocation } from "../types/db";
+import { IPin } from "../types/db";
 import { RootState } from "../store/scout";
 import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
 
@@ -17,79 +15,76 @@ type BroadcastPayload = {
     operation: "INSERT" | "UPDATE" | "DELETE";
     table: string;
     schema: string;
-    record?: ITagPrettyLocation;
-    old_record?: ITagPrettyLocation;
+    record?: IPin;
+    old_record?: IPin;
   };
 };
 
-export function useScoutRealtimeTags(
+export function useScoutRealtimePins(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges: boolean,
-): [RealtimeData<ITagPrettyLocation> | null, () => void] {
+  shouldUpdateGlobalStateOnChanges?: boolean,
+): [RealtimeData<IPin> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const dispatch = useAppDispatch();
-  const [latestTagUpdate, setLatestTagUpdate] =
-    useState<RealtimeData<ITagPrettyLocation> | null>(null);
+  const [latestPinUpdate, setLatestPinUpdate] =
+    useState<RealtimeData<IPin> | null>(null);
 
   const activeHerdId = useSelector(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  // Tag broadcast handler
-  const handleTagBroadcast = useCallback(
+  // Pin broadcast handler
+  const handlePinBroadcast = useCallback(
     (payload: BroadcastPayload) => {
-      console.log("[Tags] Broadcast received:", payload.payload.operation);
+      console.log("[Pins] Broadcast received:", payload.payload.operation);
 
       const data = payload.payload;
 
-      const tagData = data.record || data.old_record;
-      if (!tagData) return;
+      const pinData = data.record || data.old_record;
+      if (!pinData) return;
 
       let operation: EnumRealtimeOperation;
       switch (data.operation) {
         case "INSERT":
           operation = EnumRealtimeOperation.INSERT;
           if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] New tag received:", data.record);
-            dispatch(addTag(data.record));
+            console.log("[Pins] New pin received:", data.record);
+            // TODO: dispatch(addPinToStore(data.record));
           }
           break;
         case "UPDATE":
           operation = EnumRealtimeOperation.UPDATE;
           if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] Tag updated:", data.record);
-            dispatch(updateTag(data.record));
+            // TODO: dispatch(updatePinInStore(data.record));
           }
           break;
         case "DELETE":
           operation = EnumRealtimeOperation.DELETE;
           if (data.old_record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] Tag deleted:", data.old_record);
-            dispatch(deleteTag(data.old_record));
+            // TODO: dispatch(deletePinFromStore(data.old_record));
           }
           break;
         default:
           return;
       }
 
-      const realtimeData: RealtimeData<ITagPrettyLocation> = {
-        data: tagData,
+      const realtimeData: RealtimeData<IPin> = {
+        data: pinData,
         operation,
       };
 
       console.log(
-        `[scout-core realtime] TAG ${data.operation} received:`,
+        `[scout-core realtime] PIN ${data.operation} received for pin "${pinData.name}" (${pinData.id}):`,
         JSON.stringify(realtimeData),
       );
 
-      setLatestTagUpdate(realtimeData);
+      setLatestPinUpdate(realtimeData);
     },
-    [dispatch],
+    [shouldUpdateGlobalStateOnChanges],
   );
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {
-    setLatestTagUpdate(null);
+    setLatestPinUpdate(null);
   }, []);
 
   const cleanupChannels = () => {
@@ -97,15 +92,17 @@ export function useScoutRealtimeTags(
     channels.current = [];
   };
 
-  const createTagsChannel = (herdId: string): RealtimeChannel => {
+  const createPinsChannel = (herdId: string): RealtimeChannel => {
     return scoutSupabase
-      .channel(`${herdId}-tags`, { config: { private: true } })
-      .on("broadcast", { event: "*" }, handleTagBroadcast)
+      .channel(`${herdId}-pins`, { config: { private: true } })
+      .on("broadcast", { event: "*" }, handlePinBroadcast)
       .subscribe((status) => {
         if (status === "SUBSCRIBED") {
-          console.log(`[Tags] ✅ Connected to herd ${herdId}`);
+          console.log(`[Pins] ✅ Connected to herd ${herdId} pins broadcasts`);
         } else if (status === "CHANNEL_ERROR") {
-          console.warn(`[Tags] 🟡 Failed to connect to herd ${herdId}`);
+          console.warn(
+            `[Pins] 🟡 Failed to connect to herd ${herdId} pins broadcasts`,
+          );
         }
       });
   };
@@ -116,14 +113,14 @@ export function useScoutRealtimeTags(
     // Clear previous update when switching herds
     clearLatestUpdate();
 
-    // Create tags channel for active herd
+    // Create pins channel for active herd
     if (activeHerdId) {
-      const channel = createTagsChannel(activeHerdId);
+      const channel = createPinsChannel(activeHerdId);
       channels.current.push(channel);
     }
 
     return cleanupChannels;
   }, [activeHerdId, clearLatestUpdate]);
 
-  return [latestTagUpdate, clearLatestUpdate];
+  return [latestPinUpdate, clearLatestUpdate];
 }
