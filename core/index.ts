@@ -26,6 +26,7 @@ export * from "./helpers/events";
 export * from "./helpers/gps";
 export * from "./helpers/herds";
 export * from "./helpers/location";
+export * from "./helpers/pins";
 export * from "./helpers/plans";
 export * from "./helpers/layers";
 export * from "./helpers/sessions";

@@ -15,6 +15,7 @@ export type IDevice =
   Database["public"]["CompositeTypes"]["device_pretty_location"] & {
     api_keys_scout?: IApiKeyScout[];
   };
+export type IPin = Database["public"]["CompositeTypes"]["pins_pretty_location"];
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
 export type ITag = Database["public"]["Tables"]["tags"]["Row"];
 export type ITagPrettyLocation =
@@ -49,6 +50,7 @@ export type VersionsSoftwareInsert =
   Database["public"]["Tables"]["versions_software"]["Insert"];
 export type ArtifactInsert =
   Database["public"]["Tables"]["artifacts"]["Insert"];
+export type PinInsert = Database["public"]["Tables"]["pins"]["Insert"];
 
 // Re-export composite types
 export type IEventWithTags =

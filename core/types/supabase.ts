@@ -581,6 +581,60 @@ export type Database = {
           },
         ]
       }
+      pins: {
+        Row: {
+          altitude_relative_to_ground: number
+          color: string
+          created_at: string
+          created_by: string | null
+          description: string | null
+          herd_id: number
+          id: number
+          latitude: unknown
+          longitude: unknown
+          name: string
+        }
+        Insert: {
+          altitude_relative_to_ground: number
+          color: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          herd_id: number
+          id?: number
+          latitude: unknown
+          longitude: unknown
+          name: string
+        }
+        Update: {
+          altitude_relative_to_ground?: number
+          color?: string
+          created_at?: string
+          created_by?: string | null
+          description?: string | null
+          herd_id?: number
+          id?: number
+          latitude?: unknown
+          longitude?: unknown
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pins_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pins_herd_id_fkey"
+            columns: ["herd_id"]
+            isOneToOne: false
+            referencedRelation: "herds"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       plans: {
         Row: {
           herd_id: number
@@ -1295,6 +1349,16 @@ export type Database = {
           total_heartbeats: number
         }[]
       }
+      get_pins_for_herd: {
+        Args: { herd_id_caller: number }
+        Returns: Database["public"]["CompositeTypes"]["pins_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "pins_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_sessions_with_coordinates: {
         Args: { herd_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
@@ -1504,6 +1568,18 @@ export type Database = {
         timestamp_observation: string | null
         is_public: boolean | null
         tags: Database["public"]["Tables"]["tags"]["Row"][] | null
+      }
+      pins_pretty_location: {
+        id: number | null
+        created_at: string | null
+        altitude_relative_to_ground: number | null
+        color: string | null
+        name: string | null
+        description: string | null
+        herd_id: number | null
+        created_by: string | null
+        latitude: number | null
+        longitude: number | null
       }
       session_with_coordinates: {
         id: number | null
