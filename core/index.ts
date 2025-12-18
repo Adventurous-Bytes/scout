@@ -63,6 +63,7 @@ export * from "./providers";
 // Store
 export * from "./store/scout";
 export * from "./store/hooks";
+export * from "./store/api";
 
 // Supabase
 export * from "./supabase/middleware";
