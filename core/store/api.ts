@@ -40,6 +40,16 @@ export interface ArtifactsInfiniteResponse {
   hasMore: boolean;
 }
 
+// Custom serialize function to exclude supabase client
+const serializeQueryArgs = ({
+  queryArgs,
+  endpointDefinition,
+  endpointName,
+}: any) => {
+  const { supabase, ...serializableArgs } = queryArgs;
+  return JSON.stringify({ endpointName, args: serializableArgs });
+};
+
 // Create the API slice
 export const scoutApi = createApi({
   reducerPath: "scoutApi",
@@ -53,6 +63,7 @@ export const scoutApi = createApi({
       SessionsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ herdId, limit = 20, cursor, supabase }) {
         try {
           if (!herdId) {
@@ -118,6 +129,7 @@ export const scoutApi = createApi({
       SessionsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ deviceId, limit = 20, cursor, supabase }) {
         try {
           if (!deviceId) {
@@ -186,6 +198,7 @@ export const scoutApi = createApi({
       EventsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ herdId, limit = 20, cursor, supabase }) {
         try {
           if (!herdId) {
@@ -251,6 +264,7 @@ export const scoutApi = createApi({
       EventsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ deviceId, limit = 20, cursor, supabase }) {
         try {
           if (!deviceId) {
@@ -319,6 +333,7 @@ export const scoutApi = createApi({
       ArtifactsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ herdId, limit = 20, cursor, supabase }) {
         try {
           if (!herdId) {
@@ -421,6 +436,7 @@ export const scoutApi = createApi({
       ArtifactsInfiniteResponse,
       InfiniteQueryArgs & { supabase: SupabaseClient }
     >({
+      serializeQueryArgs,
       async queryFn({ deviceId, limit = 20, cursor, supabase }) {
         try {
           if (!deviceId) {
