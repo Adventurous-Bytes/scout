@@ -9,10 +9,7 @@ export enum EnumScoutStateStatus {
   DONE_LOADING = "DONE_LOADING",
 }
 
-export interface ScoutState {
-  herd_modules: IHerdModule[];
-  status: EnumScoutStateStatus;
-  herd_modules_loading_state: EnumHerdModulesLoadingState;
+export interface LoadingPerformance {
   herd_modules_loaded_in_ms: number | null;
   // Detailed timing measurements for each portion of the loading process
   herd_modules_api_server_processing_ms: number | null;
@@ -20,6 +17,13 @@ export interface ScoutState {
   user_api_duration_ms: number | null;
   data_processing_duration_ms: number | null;
   cache_load_duration_ms: number | null;
+}
+
+export interface ScoutState {
+  herd_modules: IHerdModule[];
+  status: EnumScoutStateStatus;
+  herd_modules_loading_state: EnumHerdModulesLoadingState;
+  loading_performance: LoadingPerformance;
   active_herd_id: string | null;
   active_device_id: string | null;
   lastRefreshed: number;
@@ -39,13 +43,14 @@ const initialState: ScoutState = {
   herd_modules: [],
   status: EnumScoutStateStatus.LOADING,
   herd_modules_loading_state: EnumHerdModulesLoadingState.NOT_LOADING,
-  herd_modules_loaded_in_ms: null,
-  // Initialize timing variables
-  herd_modules_api_server_processing_ms: null,
-  herd_modules_api_total_request_ms: null,
-  user_api_duration_ms: null,
-  data_processing_duration_ms: null,
-  cache_load_duration_ms: null,
+  loading_performance: {
+    herd_modules_loaded_in_ms: null,
+    herd_modules_api_server_processing_ms: null,
+    herd_modules_api_total_request_ms: null,
+    user_api_duration_ms: null,
+    data_processing_duration_ms: null,
+    cache_load_duration_ms: null,
+  },
   lastRefreshed: 0,
   active_herd_id: null,
   active_device_id: null,
@@ -70,23 +75,31 @@ export const scoutSlice = createSlice({
     setHerdModulesLoadingState: (state, action) => {
       state.herd_modules_loading_state = action.payload;
     },
+    setLoadingPerformance: (state, action) => {
+      state.loading_performance = {
+        ...state.loading_performance,
+        ...action.payload,
+      };
+    },
     setHerdModulesLoadedInMs: (state, action) => {
-      state.herd_modules_loaded_in_ms = action.payload;
+      state.loading_performance.herd_modules_loaded_in_ms = action.payload;
     },
     setHerdModulesApiServerProcessingDuration: (state, action) => {
-      state.herd_modules_api_server_processing_ms = action.payload;
+      state.loading_performance.herd_modules_api_server_processing_ms =
+        action.payload;
     },
     setHerdModulesApiTotalRequestDuration: (state, action) => {
-      state.herd_modules_api_total_request_ms = action.payload;
+      state.loading_performance.herd_modules_api_total_request_ms =
+        action.payload;
     },
     setUserApiDuration: (state, action) => {
-      state.user_api_duration_ms = action.payload;
+      state.loading_performance.user_api_duration_ms = action.payload;
     },
     setDataProcessingDuration: (state, action) => {
-      state.data_processing_duration_ms = action.payload;
+      state.loading_performance.data_processing_duration_ms = action.payload;
     },
     setCacheLoadDuration: (state, action) => {
-      state.cache_load_duration_ms = action.payload;
+      state.loading_performance.cache_load_duration_ms = action.payload;
     },
     setActiveHerdId: (state, action) => {
       state.active_herd_id = action.payload;
@@ -101,42 +114,16 @@ export const scoutSlice = createSlice({
     setDataSourceInfo: (state, action) => {
       state.data_source_info = action.payload;
     },
-    replaceEventsForHerdModule: (state, action) => {
-      const { herd_id, events } = action.payload;
+    updateSessionSummariesForHerdModule: (state, action) => {
+      const { herd_id, session_summaries } = action.payload;
       const herd_module = state.herd_modules.find(
         (hm) => hm.herd.id.toString() === herd_id,
       );
       if (herd_module) {
-        herd_module.events = events;
+        herd_module.session_summaries = session_summaries;
       }
     },
-    appendEventsToHerdModule: (state, action) => {
-      const { herd_id, events } = action.payload;
-      const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id,
-      );
-      if (herd_module) {
-        herd_module.events = [...herd_module.events, ...events];
-      }
-    },
-    replaceArtifactsForHerdModule: (state, action) => {
-      const { herd_id, artifacts } = action.payload;
-      const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id,
-      );
-      if (herd_module) {
-        herd_module.artifacts = artifacts;
-      }
-    },
-    appendArtifactsToHerdModule: (state, action) => {
-      const { herd_id, artifacts } = action.payload;
-      const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id,
-      );
-      if (herd_module) {
-        herd_module.artifacts = [...herd_module.artifacts, ...artifacts];
-      }
-    },
+
     appendPlansToHerdModule: (state, action) => {
       const { herd_id, plan } = action.payload;
       const herd_module = state.herd_modules.find(
@@ -167,67 +154,11 @@ export const scoutSlice = createSlice({
         herd_module.devices = [...herd_module.devices, device];
       }
     },
-    addTag(state, action) {
-      for (const herd_module of state.herd_modules) {
-        for (const event of herd_module.events) {
-          if (event.id === action.payload.event_id) {
-            if (event.tags == undefined || event.tags == null) {
-              event.tags = [];
-            }
-            event.tags.push(action.payload);
-            return;
-          }
-        }
-      }
-    },
-    deleteTag(state, action) {
-      console.log("[Redux] deleteTag action called with:", action.payload);
-      console.log("[Redux] deleteTag - Looking for tag ID:", action.payload.id);
-
-      for (const herd_module of state.herd_modules) {
-        for (const event of herd_module.events) {
-          if (!event.tags) {
-            continue;
-          }
-          console.log(
-            `[Redux] deleteTag - Checking event ${event.id}, has ${event.tags.length} tags`,
-          );
-          for (const tag of event.tags) {
-            if (tag.id === action.payload.id) {
-              console.log(
-                `[Redux] deleteTag - Found tag ${tag.id} in event ${event.id}, removing it`,
-              );
-              event.tags = event.tags.filter((t) => t.id !== tag.id);
-              console.log(
-                `[Redux] deleteTag - After removal, event ${event.id} has ${event.tags.length} tags`,
-              );
-              return;
-            }
-          }
-        }
-      }
-      console.log("[Redux] deleteTag - Tag not found in any event");
-    },
-    updateTag(state, action) {
-      for (const herd_module of state.herd_modules) {
-        for (const event of herd_module.events) {
-          if (!event.tags) {
-            continue;
-          }
-          for (const tag of event.tags) {
-            if (tag.id === action.payload.id) {
-              tag.x = action.payload.x;
-              tag.y = action.payload.y;
-              tag.width = action.payload.width;
-              tag.height = action.payload.height;
-              tag.conf = action.payload.conf;
-              tag.class_name = action.payload.class_name;
-              return;
-            }
-          }
-        }
-      }
-    },
+    // NOTE: Tag management will need to be updated to work with RTK Query
+    // These actions are commented out until we implement tag management with RTK Query
+    // addTag(state, action) { ... },
+    // deleteTag(state, action) { ... },
+    // updateTag(state, action) { ... },
     addDevice(state, action) {
       for (const herd_module of state.herd_modules) {
         if (herd_module.herd.id === action.payload.herd_id) {
@@ -286,67 +217,8 @@ export const scoutSlice = createSlice({
         }
       }
     },
-    // receive a payload with the herd_id and the events that we wish to update the values of
-    updateEventValuesForHerdModule: (state, action) => {
-      const { herd_id, events } = action.payload;
-      const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id,
-      );
-      if (herd_module) {
-        herd_module.events = herd_module.events.map((event) => {
-          const updated_event = events.find(
-            (e: IEventWithTags) => e.id === event.id,
-          );
-          if (updated_event) {
-            return updated_event;
-          }
-          return event;
-        });
-      }
-      state.herd_modules = [...state.herd_modules];
-    },
-    updatePageIndexForHerdModule: (state, action) => {
-      const { herd_id, new_page_index } = action.payload;
-      const herd_module = state.herd_modules.find(
-        (hm) => hm.herd.id.toString() === herd_id,
-      );
-      if (herd_module) {
-        herd_module.events_page_index = new_page_index;
-      }
-    },
-    addSessionToStore: (state, action) => {
-      const session = action.payload;
-      // Find the herd module that contains the device for this session
-      for (const herd_module of state.herd_modules) {
-        const device = herd_module.devices.find(
-          (d) => d.id === session.device_id,
-        );
-        if (device) {
-          herd_module.sessions = [session, ...herd_module.sessions];
-          return;
-        }
-      }
-    },
-    deleteSessionFromStore: (state, action) => {
-      const sessionId = action.payload.id;
-      for (const herd_module of state.herd_modules) {
-        herd_module.sessions = herd_module.sessions.filter(
-          (session) => session.id !== sessionId,
-        );
-      }
-    },
-    updateSessionInStore: (state, action) => {
-      const updatedSession = action.payload;
-      for (const herd_module of state.herd_modules) {
-        const sessionIndex = herd_module.sessions.findIndex(
-          (session) => session.id === updatedSession.id,
-        );
-        if (sessionIndex !== -1) {
-          herd_module.sessions[sessionIndex] = updatedSession;
-          return;
-        }
-      }
-    },
+    // NOTE: Events, sessions, and artifacts are now handled by RTK Query
+    // These actions have been removed as they're no longer needed
     setUser: (state, action) => {
       state.user = action.payload;
     },
@@ -361,6 +233,7 @@ export const {
   setHerdModules,
   setStatus,
   setHerdModulesLoadingState,
+  setLoadingPerformance,
   setHerdModulesLoadedInMs,
   setHerdModulesApiServerProcessingDuration,
   setHerdModulesApiTotalRequestDuration,
@@ -371,17 +244,9 @@ export const {
   setActiveDeviceId,
   setDataSource,
   setDataSourceInfo,
-  appendEventsToHerdModule,
-  replaceEventsForHerdModule,
-  appendArtifactsToHerdModule,
-  replaceArtifactsForHerdModule,
-  updateEventValuesForHerdModule,
-  updatePageIndexForHerdModule,
+  updateSessionSummariesForHerdModule,
   appendPlansToHerdModule,
   setUser,
-  addTag,
-  deleteTag,
-  updateTag,
   addNewDeviceToHerdModule,
   updateDeviceForHerdModule,
   addDevice,
@@ -390,9 +255,6 @@ export const {
   addPlan,
   deletePlan,
   updatePlan,
-  addSessionToStore,
-  deleteSessionFromStore,
-  updateSessionInStore,
   setActiveHerdGpsTrackersConnectivity,
 } = scoutSlice.actions;
 

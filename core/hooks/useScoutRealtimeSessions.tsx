@@ -1,18 +1,14 @@
 "use client";
 
-import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
+import { useAppDispatch } from "../store/hooks";
 import { useEffect, useRef, useCallback, useState } from "react";
-import {
-  addSessionToStore,
-  deleteSessionFromStore,
-  updateSessionInStore,
-} from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { ISessionWithCoordinates } from "../types/db";
 import { RootState } from "../store/scout";
 import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
+import { scoutApi } from "../store/api";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -28,7 +24,7 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeSessions(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges: boolean,
+  invalidateRTKQuery: boolean = true,
 ): [RealtimeData<ISessionWithCoordinates> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
@@ -53,21 +49,40 @@ export function useScoutRealtimeSessions(
       switch (data.operation) {
         case "INSERT":
           operation = EnumRealtimeOperation.INSERT;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Sessions] New session received:", data.record);
-            dispatch(addSessionToStore(data.record));
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Sessions] New session received, invalidating RTK Query cache:",
+              data.record,
+            );
+            // Invalidate all sessions queries to refetch fresh data
+            dispatch(scoutApi.util.invalidateTags(["Session"]));
           }
           break;
         case "UPDATE":
           operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            dispatch(updateSessionInStore(data.record));
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Sessions] Session updated, invalidating RTK Query cache:",
+              data.record,
+            );
+            // Invalidate specific session and list queries
+            dispatch(
+              scoutApi.util.invalidateTags([
+                { type: "Session", id: data.record.id || "unknown" },
+                { type: "Session", id: "LIST" },
+              ]),
+            );
           }
           break;
         case "DELETE":
           operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record && shouldUpdateGlobalStateOnChanges) {
-            dispatch(deleteSessionFromStore(data.old_record));
+          if (data.old_record && invalidateRTKQuery) {
+            console.log(
+              "[Sessions] Session deleted, invalidating RTK Query cache:",
+              data.old_record,
+            );
+            // Invalidate all sessions queries since item was deleted
+            dispatch(scoutApi.util.invalidateTags(["Session"]));
           }
           break;
         default:
@@ -86,7 +101,7 @@ export function useScoutRealtimeSessions(
 
       setLatestSessionUpdate(realtimeData);
     },
-    [dispatch],
+    [invalidateRTKQuery, dispatch],
   );
 
   // Clear latest update
@@ -125,7 +140,7 @@ export function useScoutRealtimeSessions(
     }
 
     return cleanupChannels;
-  }, [activeHerdId, clearLatestUpdate]);
+  }, [activeHerdId, clearLatestUpdate, handleSessionBroadcast]);
 
   return [latestSessionUpdate, clearLatestUpdate];
 }

@@ -43,6 +43,26 @@ export type IArtifactWithMediaUrl = IArtifact & {
   media_url?: string | null;
 };
 
+// Session summary data structure
+export interface ISessionSummary {
+  total_session_time_minutes: number;
+  total_session_time_night_minutes: number;
+  total_session_time_day_minutes: number;
+  total_sessions: number;
+  first_session_timestamp: string | null;
+  last_session_timestamp: string | null;
+  total_distance_meters: number;
+  average_distance_meters: number;
+  session_time_by_version: Record<string, number>;
+  summary_generated_at: string;
+  filters_applied: {
+    start_date: string | null;
+    end_date: string | null;
+    device_id: number | null;
+    herd_id: number | null;
+  };
+}
+
 // Insert types
 export type ComponentInsert =
   Database["public"]["Tables"]["components"]["Insert"];

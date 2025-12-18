@@ -12,7 +12,6 @@ import { server_get_users_with_herd_access } from "../helpers/users";
 import {
   IDevice,
   IEventWithTags,
-  IEventAndTagsPrettyLocation,
   IHerd,
   IPlan,
   ILayer,
@@ -21,6 +20,7 @@ import {
   IZoneWithActions,
   ISessionWithCoordinates,
   IArtifactWithMediaUrl,
+  ISessionSummary,
 } from "../types/db";
 
 import { EnumWebResponse } from "./requests";
@@ -31,6 +31,7 @@ import {
   server_get_artifacts_by_herd,
   server_get_total_artifacts_by_herd,
 } from "../helpers/artifacts";
+import { server_get_session_summaries_by_herd } from "../helpers/session_summaries";
 export enum EnumHerdModulesLoadingState {
   NOT_LOADING = "NOT_LOADING",
   LOADING = "LOADING",
@@ -41,73 +42,49 @@ export enum EnumHerdModulesLoadingState {
 export class HerdModule {
   herd: IHerd;
   devices: IDevice[];
-  events: IEventWithTags[];
   zones: IZoneWithActions[];
-  sessions: ISessionWithCoordinates[];
-  artifacts: IArtifactWithMediaUrl[];
   timestamp_last_refreshed: number;
   user_roles: IUserAndRole[] | null = null;
-  events_page_index: number = 0;
-  total_events: number = 0;
-  total_events_with_filters: number = 0;
-  total_artifacts: number = 0;
   labels: string[] = [];
   plans: IPlan[] = [];
   layers: ILayer[] = [];
   providers: IProvider[] = [];
+  session_summaries: ISessionSummary | null = null;
   constructor(
     herd: IHerd,
     devices: IDevice[],
-    events: IEventWithTags[],
     timestamp_last_refreshed: number,
     user_roles: IUserAndRole[] | null = null,
-    events_page_index: number = 0,
-    total_events: number = 0,
-    total_events_with_filters: number = 0,
     labels: string[] = [],
     plans: IPlan[] = [],
     zones: IZoneWithActions[] = [],
-    sessions: ISessionWithCoordinates[] = [],
     layers: ILayer[] = [],
     providers: IProvider[] = [],
-    artifacts: IArtifactWithMediaUrl[] = [],
-    total_artifacts: number = 0,
+    session_summaries: ISessionSummary | null = null,
   ) {
     this.herd = herd;
     this.devices = devices;
-    this.events = events;
     this.timestamp_last_refreshed = timestamp_last_refreshed;
     this.user_roles = user_roles;
-    this.events_page_index = events_page_index;
-    this.total_events = total_events;
-    this.total_events_with_filters = total_events_with_filters;
     this.labels = labels;
     this.plans = plans;
     this.zones = zones;
-    this.sessions = sessions;
     this.layers = layers;
     this.providers = providers;
-    this.artifacts = artifacts;
-    this.total_artifacts = total_artifacts;
+    this.session_summaries = session_summaries;
   }
   to_serializable(): IHerdModule {
     return {
       herd: this.herd,
       devices: this.devices,
-      events: this.events,
       timestamp_last_refreshed: this.timestamp_last_refreshed,
       user_roles: this.user_roles,
-      events_page_index: this.events_page_index,
-      total_events: this.total_events,
-      total_events_with_filters: this.total_events_with_filters,
       labels: this.labels,
       plans: this.plans,
       zones: this.zones,
-      sessions: this.sessions,
       layers: this.layers,
       providers: this.providers,
-      artifacts: this.artifacts,
-      total_artifacts: this.total_artifacts,
+      session_summaries: this.session_summaries,
     };
   }
   static async from_herd(
@@ -170,6 +147,10 @@ export class HerdModule {
           );
           return { status: EnumWebResponse.ERROR, data: null };
         }),
+        server_get_session_summaries_by_herd(herd.id, client).catch((error) => {
+          console.warn(`[HerdModule] Failed to get session summaries:`, error);
+          return { status: EnumWebResponse.ERROR, data: null };
+        }),
       ]);
 
       // Load devices
@@ -187,7 +168,7 @@ export class HerdModule {
         !deviceResponse.data
       ) {
         console.warn(`[HerdModule] No devices found for herd ${herd.id}`);
-        return new HerdModule(herd, [], [], Date.now());
+        return new HerdModule(herd, [], Date.now());
       }
       const new_devices = deviceResponse.data;
 
@@ -219,6 +200,7 @@ export class HerdModule {
         res_providers,
         res_artifacts,
         total_artifact_count,
+        session_summaries_result,
       ] = herdLevelResults;
 
       const zones =
@@ -260,6 +242,12 @@ export class HerdModule {
           ? total_artifact_count.value.data
           : 0;
 
+      const session_summaries =
+        session_summaries_result.status === "fulfilled" &&
+        session_summaries_result.value?.data
+          ? session_summaries_result.value.data
+          : null;
+
       // TODO: store in DB and retrieve on load?
       const newLabels = LABELS;
 
@@ -272,20 +260,14 @@ export class HerdModule {
       return new HerdModule(
         herd,
         new_devices,
-        [],
         Date.now(),
         user_roles,
-        0,
-        total_events,
-        total_events,
         newLabels,
         plans,
         zones,
-        sessions,
         layers,
         providers,
-        artifacts,
-        total_artifacts,
+        session_summaries,
       );
     } catch (error) {
       const endTime = Date.now();
@@ -298,20 +280,14 @@ export class HerdModule {
       return new HerdModule(
         herd,
         [],
-        [],
         Date.now(),
         null,
-        0,
-        0,
-        0,
         [],
         [],
         [],
         [],
         [],
-        [],
-        [],
-        0,
+        null,
       );
     }
   }
@@ -320,20 +296,14 @@ export class HerdModule {
 export interface IHerdModule {
   herd: IHerd;
   devices: IDevice[];
-  events: IEventWithTags[];
   timestamp_last_refreshed: number;
   user_roles: IUserAndRole[] | null;
-  events_page_index: number;
-  total_events: number;
-  total_events_with_filters: number;
   labels: string[];
   plans: IPlan[];
   zones: IZoneWithActions[];
-  sessions: ISessionWithCoordinates[];
   layers: ILayer[];
   providers: IProvider[];
-  artifacts: IArtifactWithMediaUrl[];
-  total_artifacts: number;
+  session_summaries: ISessionSummary | null;
 }
 
 export interface IHerdModulesResponse {

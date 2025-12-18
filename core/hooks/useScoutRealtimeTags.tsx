@@ -3,12 +3,13 @@
 import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { addTag, deleteTag, updateTag } from "../store/scout";
+
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { ITagPrettyLocation } from "../types/db";
 import { RootState } from "../store/scout";
 import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
+import { scoutApi } from "../store/api";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -24,7 +25,7 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeTags(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges: boolean,
+  invalidateRTKQuery: boolean = true,
 ): [RealtimeData<ITagPrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
@@ -49,23 +50,35 @@ export function useScoutRealtimeTags(
       switch (data.operation) {
         case "INSERT":
           operation = EnumRealtimeOperation.INSERT;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] New tag received:", data.record);
-            dispatch(addTag(data.record));
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Tags] New tag received, invalidating RTK Query cache:",
+              data.record,
+            );
+            // Tags are part of events, so invalidate events queries
+            dispatch(scoutApi.util.invalidateTags(["Event"]));
           }
           break;
         case "UPDATE":
           operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] Tag updated:", data.record);
-            dispatch(updateTag(data.record));
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Tags] Tag updated, invalidating RTK Query cache:",
+              data.record,
+            );
+            // Invalidate events queries since tags are embedded in events
+            dispatch(scoutApi.util.invalidateTags(["Event"]));
           }
           break;
         case "DELETE":
           operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Tags] Tag deleted:", data.old_record);
-            dispatch(deleteTag(data.old_record));
+          if (data.old_record && invalidateRTKQuery) {
+            console.log(
+              "[Tags] Tag deleted, invalidating RTK Query cache:",
+              data.old_record,
+            );
+            // Invalidate events queries since tags are embedded in events
+            dispatch(scoutApi.util.invalidateTags(["Event"]));
           }
           break;
         default:
@@ -84,7 +97,7 @@ export function useScoutRealtimeTags(
 
       setLatestTagUpdate(realtimeData);
     },
-    [dispatch],
+    [dispatch, invalidateRTKQuery],
   );
 
   // Clear latest update

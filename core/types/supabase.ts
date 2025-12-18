@@ -1214,6 +1214,56 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_artifacts_infinite_by_device: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          device_id_caller: number
+          limit_caller?: number
+        }
+        Returns: {
+          created_at: string
+          device_id: number
+          file_path: string
+          id: number
+          modality: string | null
+          session_id: number | null
+          timestamp_observation: string | null
+          timestamp_observation_end: string
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "artifacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_artifacts_infinite_by_herd: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          herd_id_caller: number
+          limit_caller?: number
+        }
+        Returns: {
+          created_at: string
+          device_id: number
+          file_path: string
+          id: number
+          modality: string | null
+          session_id: number | null
+          timestamp_observation: string | null
+          timestamp_observation_end: string
+          updated_at: string | null
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "artifacts"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_connectivity_with_coordinates: {
         Args: { session_id_caller: number }
         Returns: Database["public"]["CompositeTypes"]["connectivity_with_coordinates"][]
@@ -1316,6 +1366,36 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_events_infinite_by_device: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          device_id_caller: number
+          limit_caller?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_events_infinite_by_herd: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          herd_id_caller: number
+          limit_caller?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["event_and_tags_pretty_location"][]
+        SetofOptions: {
+          from: "*"
+          to: "event_and_tags_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_events_with_tags_for_herd: {
         Args: {
           herd_id_caller: number
@@ -1352,6 +1432,45 @@ export type Database = {
         SetofOptions: {
           from: "*"
           to: "pins_pretty_location"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_session_summaries: {
+        Args: {
+          device_id_caller?: number
+          end_date_caller?: string
+          herd_id_caller?: number
+          start_date_caller?: string
+        }
+        Returns: Json
+      }
+      get_sessions_infinite_by_device: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          device_id_caller: number
+          limit_caller?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "session_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
+      get_sessions_infinite_by_herd: {
+        Args: {
+          cursor_id?: number
+          cursor_timestamp?: string
+          herd_id_caller: number
+          limit_caller?: number
+        }
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "session_with_coordinates"
           isOneToOne: false
           isSetofReturn: true
         }

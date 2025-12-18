@@ -3,12 +3,13 @@
 import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { updateEventValuesForHerdModule } from "../store/scout";
+
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { IEventAndTagsPrettyLocation } from "../types/db";
 import { RootState } from "../store/scout";
 import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
+import { scoutApi } from "../store/api";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -24,7 +25,7 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeEvents(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges: boolean,
+  invalidateRTKQuery: boolean = true,
 ): [RealtimeData<IEventAndTagsPrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const dispatch = useAppDispatch();
@@ -46,45 +47,43 @@ export function useScoutRealtimeEvents(
       if (!eventData) return;
 
       let operation: EnumRealtimeOperation;
-      // TODO: UNCOMMENT GLOBAL STORE OPERATIONS IF OKAY WITH FREQUENT
       switch (data.operation) {
         case "INSERT":
           operation = EnumRealtimeOperation.INSERT;
-          if (data.record && activeHerdId && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Events] New event received:", data.record);
-            // For events, we need to update the event values in the herd module
-            dispatch(
-              updateEventValuesForHerdModule({
-                herd_id: activeHerdId,
-                events: [data.record],
-              }),
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Events] New event received, invalidating RTK Query cache:",
+              data.record,
             );
+            // Invalidate all events queries to refetch fresh data
+            dispatch(scoutApi.util.invalidateTags(["Event"]));
           }
           break;
         case "UPDATE":
           operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && activeHerdId && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Events] Event updated:", data.record);
+          if (data.record && invalidateRTKQuery) {
+            console.log(
+              "[Events] Event updated, invalidating RTK Query cache:",
+              data.record,
+            );
+            // Invalidate specific event and list queries
             dispatch(
-              updateEventValuesForHerdModule({
-                herd_id: activeHerdId,
-                events: [data.record],
-              }),
+              scoutApi.util.invalidateTags([
+                { type: "Event", id: data.record.id || "unknown" },
+                { type: "Event", id: "LIST" },
+              ]),
             );
           }
           break;
         case "DELETE":
           operation = EnumRealtimeOperation.DELETE;
-          if (
-            data.old_record &&
-            activeHerdId &&
-            shouldUpdateGlobalStateOnChanges
-          ) {
-            console.log("[Events] Event deleted:", data.old_record);
-            // TODO: WRITE DELETION STORE ACTION
+          if (data.old_record && invalidateRTKQuery) {
             console.log(
-              "[Events] Event deletion detected - manual refresh may be needed",
+              "[Events] Event deleted, invalidating RTK Query cache:",
+              data.old_record,
             );
+            // Invalidate all events queries since item was deleted
+            dispatch(scoutApi.util.invalidateTags(["Event"]));
           }
           break;
         default:
@@ -103,7 +102,7 @@ export function useScoutRealtimeEvents(
 
       setLatestEventUpdate(realtimeData);
     },
-    [dispatch, activeHerdId],
+    [dispatch, invalidateRTKQuery],
   );
 
   // Clear latest update

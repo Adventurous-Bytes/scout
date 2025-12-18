@@ -10,3 +10,21 @@ export { useScoutRealtimeTags } from "./useScoutRealtimeTags";
 export { useScoutRealtimeSessions } from "./useScoutRealtimeSessions";
 export { useScoutRealtimePlans } from "./useScoutRealtimePlans";
 export { useScoutRealtimePins } from "./useScoutRealtimePins";
+
+// RTK Query infinite scroll hooks
+export {
+  useInfiniteSessionsByHerd,
+  useInfiniteSessionsByDevice,
+  useInfiniteEventsByHerd,
+  useInfiniteEventsByDevice,
+  useInfiniteArtifactsByHerd,
+  useInfiniteArtifactsByDevice,
+  useIntersectionObserver,
+} from "./useInfiniteQuery";
+
+// Session summaries and performance hooks
+export {
+  useLoadingPerformance,
+  useSessionSummariesByHerd,
+  useHasSessionSummaries,
+} from "../store/hooks";

@@ -55,6 +55,7 @@ export * from "./hooks/useScoutRealtimeSessions";
 export * from "./hooks/useScoutRealtimePlans";
 export * from "./hooks/useScoutRealtimePins";
 export * from "./hooks/useScoutRefresh";
+export * from "./hooks/useInfiniteQuery";
 
 // Providers
 export * from "./providers";

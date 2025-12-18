@@ -351,8 +351,11 @@ export class ScoutCache {
     const totalRequests = this.stats.hits + this.stats.misses;
     const hitRate = totalRequests > 0 ? this.stats.hits / totalRequests : 0;
 
+    // Calculate size based on herd modules count (no longer including events/sessions/artifacts arrays)
+    const size = result.data?.length || 0;
+
     return {
-      size: result.data?.length || 0,
+      size,
       lastUpdated: result.data ? Date.now() - result.age : 0,
       isStale: result.isStale,
       hitRate: Math.round(hitRate * 100) / 100,
