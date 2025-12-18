@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
   useGetSessionsInfiniteByHerdQuery,
@@ -7,11 +7,8 @@ import {
   useGetEventsInfiniteByDeviceQuery,
   useGetArtifactsInfiniteByHerdQuery,
   useGetArtifactsInfiniteByDeviceQuery,
-  InfiniteQueryArgs,
 } from "../store/api";
 import {
-  ISession,
-  IEventWithTags,
   IArtifactWithMediaUrl,
   ISessionWithCoordinates,
   IEventAndTagsPrettyLocation,
@@ -51,6 +48,7 @@ export const useInfiniteSessionsByHerd = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevHerdIdRef = useRef<number>();
 
   const currentQuery = useGetSessionsInfiniteByHerdQuery(
     {
@@ -60,9 +58,23 @@ export const useInfiniteSessionsByHerd = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !herdId,
     },
   );
+
+  // Reset state when herdId changes
+  useEffect(() => {
+    if (
+      prevHerdIdRef.current !== undefined &&
+      prevHerdIdRef.current !== herdId &&
+      options.enabled &&
+      herdId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevHerdIdRef.current = herdId;
+  }, [herdId, options.enabled]);
 
   // Update pages when new data arrives
   useEffect(() => {
@@ -134,6 +146,7 @@ export const useInfiniteSessionsByDevice = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevDeviceIdRef = useRef<number>();
 
   const currentQuery = useGetSessionsInfiniteByDeviceQuery(
     {
@@ -143,9 +156,23 @@ export const useInfiniteSessionsByDevice = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !deviceId,
     },
   );
+
+  // Reset state when deviceId changes
+  useEffect(() => {
+    if (
+      prevDeviceIdRef.current !== undefined &&
+      prevDeviceIdRef.current !== deviceId &&
+      options.enabled &&
+      deviceId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevDeviceIdRef.current = deviceId;
+  }, [deviceId, options.enabled]);
 
   useEffect(() => {
     if (currentQuery.data && !currentQuery.isLoading) {
@@ -219,6 +246,7 @@ export const useInfiniteEventsByHerd = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevHerdIdRef = useRef<number>();
 
   const currentQuery = useGetEventsInfiniteByHerdQuery(
     {
@@ -228,9 +256,23 @@ export const useInfiniteEventsByHerd = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !herdId,
     },
   );
+
+  // Reset state when herdId changes
+  useEffect(() => {
+    if (
+      prevHerdIdRef.current !== undefined &&
+      prevHerdIdRef.current !== herdId &&
+      options.enabled &&
+      herdId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevHerdIdRef.current = herdId;
+  }, [herdId, options.enabled]);
 
   useEffect(() => {
     if (currentQuery.data && !currentQuery.isLoading) {
@@ -300,6 +342,7 @@ export const useInfiniteEventsByDevice = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevDeviceIdRef = useRef<number>();
 
   const currentQuery = useGetEventsInfiniteByDeviceQuery(
     {
@@ -309,9 +352,23 @@ export const useInfiniteEventsByDevice = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !deviceId,
     },
   );
+
+  // Reset state when deviceId changes
+  useEffect(() => {
+    if (
+      prevDeviceIdRef.current !== undefined &&
+      prevDeviceIdRef.current !== deviceId &&
+      options.enabled &&
+      deviceId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevDeviceIdRef.current = deviceId;
+  }, [deviceId, options.enabled]);
 
   useEffect(() => {
     if (currentQuery.data && !currentQuery.isLoading) {
@@ -385,6 +442,7 @@ export const useInfiniteArtifactsByHerd = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevHerdIdRef = useRef<number>();
 
   const currentQuery = useGetArtifactsInfiniteByHerdQuery(
     {
@@ -394,9 +452,23 @@ export const useInfiniteArtifactsByHerd = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !herdId,
     },
   );
+
+  // Reset state when herdId changes
+  useEffect(() => {
+    if (
+      prevHerdIdRef.current !== undefined &&
+      prevHerdIdRef.current !== herdId &&
+      options.enabled &&
+      herdId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevHerdIdRef.current = herdId;
+  }, [herdId, options.enabled]);
 
   useEffect(() => {
     if (currentQuery.data && !currentQuery.isLoading) {
@@ -466,6 +538,7 @@ export const useInfiniteArtifactsByDevice = (
     timestamp: string;
     id: number;
   } | null>(null);
+  const prevDeviceIdRef = useRef<number>();
 
   const currentQuery = useGetArtifactsInfiniteByDeviceQuery(
     {
@@ -475,9 +548,23 @@ export const useInfiniteArtifactsByDevice = (
       supabase: options.supabase,
     },
     {
-      skip: !options.enabled,
+      skip: !options.enabled || !deviceId,
     },
   );
+
+  // Reset state when deviceId changes
+  useEffect(() => {
+    if (
+      prevDeviceIdRef.current !== undefined &&
+      prevDeviceIdRef.current !== deviceId &&
+      options.enabled &&
+      deviceId
+    ) {
+      setPages([]);
+      setCurrentCursor(null);
+    }
+    prevDeviceIdRef.current = deviceId;
+  }, [deviceId, options.enabled]);
 
   useEffect(() => {
     if (currentQuery.data && !currentQuery.isLoading) {
