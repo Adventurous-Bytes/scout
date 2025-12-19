@@ -95,3 +95,35 @@ export async function server_get_session_usage_over_time_by_device(
     data as unknown as ISessionUsageOverTime,
   ).to_compatible();
 }
+
+// Get events with tags by session id using RPC function
+export async function server_get_events_and_tags_by_session_id(
+  sessionId: number,
+  limit: number = 50,
+  offset: number = 0,
+): Promise<IWebResponseCompatible<IEventAndTagsPrettyLocation[]>> {
+  const supabase = await newServerClient();
+
+  const { data, error } = await supabase.rpc(
+    "get_events_and_tags_for_session",
+    {
+      session_id_caller: sessionId,
+      limit_caller: limit,
+      offset_caller: offset,
+    },
+  );
+
+  if (error) {
+    console.warn(
+      "Error fetching events and tags by session id:",
+      error.message,
+    );
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: [],
+    };
+  }
+
+  return IWebResponse.success(data || []).to_compatible();
+}
