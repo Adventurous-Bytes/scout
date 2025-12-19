@@ -1,7 +1,11 @@
 "use server";
 
 import { newServerClient } from "../supabase/server";
-import { ISessionWithCoordinates, ISessionUsageOverTime } from "../types/db";
+import {
+  ISessionWithCoordinates,
+  ISessionUsageOverTime,
+  IEventAndTagsPrettyLocation,
+} from "../types/db";
 import {
   EnumWebResponse,
   IWebResponse,
