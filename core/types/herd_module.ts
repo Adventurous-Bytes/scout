@@ -2,36 +2,31 @@ import { SupabaseClient } from "@supabase/supabase-js";
 
 import { LABELS } from "../constants/annotator";
 import { get_devices_by_herd } from "../helpers/devices";
-import { server_get_total_events_by_herd } from "../helpers/events";
-import { EnumSessionsVisibility } from "./events";
 import { server_get_plans_by_herd } from "../helpers/plans";
 import { server_get_layers_by_herd } from "../helpers/layers";
 import { server_get_providers_by_herd } from "../helpers/providers";
-import { server_get_events_and_tags_for_devices_batch } from "../helpers/tags";
 import { server_get_users_with_herd_access } from "../helpers/users";
 import {
   IDevice,
-  IEventWithTags,
   IHerd,
   IPlan,
   ILayer,
   IProvider,
   IUserAndRole,
   IZoneWithActions,
-  ISessionWithCoordinates,
-  IArtifactWithMediaUrl,
   ISessionSummary,
+  ISessionUsageOverTime,
 } from "../types/db";
 
 import { EnumWebResponse } from "./requests";
 import { server_get_more_zones_and_actions_for_herd } from "../helpers/zones";
 import { server_list_api_keys_batch } from "../api_keys/actions";
-import { server_get_sessions_by_herd_id } from "../helpers/sessions";
 import {
   server_get_artifacts_by_herd,
   server_get_total_artifacts_by_herd,
 } from "../helpers/artifacts";
 import { server_get_session_summaries_by_herd } from "../helpers/session_summaries";
+import { server_get_session_usage_over_time_by_herd } from "../helpers/sessions";
 export enum EnumHerdModulesLoadingState {
   NOT_LOADING = "NOT_LOADING",
   LOADING = "LOADING",
@@ -50,6 +45,7 @@ export class HerdModule {
   layers: ILayer[] = [];
   providers: IProvider[] = [];
   session_summaries: ISessionSummary | null = null;
+  session_usage: ISessionUsageOverTime | null = null;
   constructor(
     herd: IHerd,
     devices: IDevice[],
@@ -61,6 +57,7 @@ export class HerdModule {
     layers: ILayer[] = [],
     providers: IProvider[] = [],
     session_summaries: ISessionSummary | null = null,
+    session_usage: ISessionUsageOverTime | null = null,
   ) {
     this.herd = herd;
     this.devices = devices;
@@ -72,6 +69,7 @@ export class HerdModule {
     this.layers = layers;
     this.providers = providers;
     this.session_summaries = session_summaries;
+    this.session_usage = session_usage;
   }
   to_serializable(): IHerdModule {
     return {
@@ -85,6 +83,7 @@ export class HerdModule {
       layers: this.layers,
       providers: this.providers,
       session_summaries: this.session_summaries,
+      session_usage: this.session_usage,
     };
   }
   static async from_herd(
@@ -109,24 +108,10 @@ export class HerdModule {
           console.warn(`[HerdModule] Failed to get user roles:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
-        server_get_total_events_by_herd(
-          herd.id,
-          EnumSessionsVisibility.Exclude,
-        ).catch((error) => {
-          console.warn(`[HerdModule] Failed to get total events count:`, error);
-          return { status: EnumWebResponse.ERROR, data: null };
-        }),
+
         server_get_plans_by_herd(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get plans:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
-        }),
-        server_get_sessions_by_herd_id(herd.id).catch((error) => {
-          console.warn(`[HerdModule] Failed to get sessions:`, error);
-          return {
-            status: EnumWebResponse.ERROR,
-            data: [],
-            msg: error.message,
-          };
         }),
         server_get_layers_by_herd(herd.id).catch((error) => {
           console.warn(`[HerdModule] Failed to get layers:`, error);
@@ -136,21 +121,16 @@ export class HerdModule {
           console.warn(`[HerdModule] Failed to get providers:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
-        server_get_artifacts_by_herd(herd.id, 50, 0).catch((error) => {
-          console.warn(`[HerdModule] Failed to get artifacts:`, error);
-          return { status: EnumWebResponse.ERROR, data: null };
-        }),
-        server_get_total_artifacts_by_herd(herd.id).catch((error) => {
-          console.warn(
-            `[HerdModule] Failed to get total artifacts count:`,
-            error,
-          );
-          return { status: EnumWebResponse.ERROR, data: null };
-        }),
         server_get_session_summaries_by_herd(herd.id, client).catch((error) => {
           console.warn(`[HerdModule] Failed to get session summaries:`, error);
           return { status: EnumWebResponse.ERROR, data: null };
         }),
+        server_get_session_usage_over_time_by_herd(herd.id, client).catch(
+          (error) => {
+            console.warn(`[HerdModule] Failed to get session usage:`, error);
+            return { status: EnumWebResponse.ERROR, data: null };
+          },
+        ),
       ]);
 
       // Load devices
@@ -193,14 +173,11 @@ export class HerdModule {
       const [
         res_zones,
         res_user_roles,
-        total_event_count,
         res_plans,
-        res_sessions,
         res_layers,
         res_providers,
-        res_artifacts,
-        total_artifact_count,
         session_summaries_result,
+        session_usage_result,
       ] = herdLevelResults;
 
       const zones =
@@ -211,18 +188,9 @@ export class HerdModule {
         res_user_roles.status === "fulfilled" && res_user_roles.value?.data
           ? res_user_roles.value.data
           : null;
-      const total_events =
-        total_event_count.status === "fulfilled" &&
-        total_event_count.value?.data
-          ? total_event_count.value.data
-          : 0;
       const plans =
         res_plans.status === "fulfilled" && res_plans.value?.data
           ? res_plans.value.data
-          : [];
-      const sessions =
-        res_sessions.status === "fulfilled" && res_sessions.value?.data
-          ? res_sessions.value.data
           : [];
       const layers =
         res_layers.status === "fulfilled" && res_layers.value?.data
@@ -232,20 +200,17 @@ export class HerdModule {
         res_providers.status === "fulfilled" && res_providers.value?.data
           ? res_providers.value.data
           : [];
-      const artifacts =
-        res_artifacts.status === "fulfilled" && res_artifacts.value?.data
-          ? res_artifacts.value.data
-          : [];
-      const total_artifacts =
-        total_artifact_count.status === "fulfilled" &&
-        total_artifact_count.value?.data
-          ? total_artifact_count.value.data
-          : 0;
 
       const session_summaries =
         session_summaries_result.status === "fulfilled" &&
         session_summaries_result.value?.data
           ? session_summaries_result.value.data
+          : null;
+
+      const session_usage =
+        session_usage_result.status === "fulfilled" &&
+        session_usage_result.value?.data
+          ? session_usage_result.value.data
           : null;
 
       // TODO: store in DB and retrieve on load?
@@ -268,6 +233,7 @@ export class HerdModule {
         layers,
         providers,
         session_summaries,
+        session_usage,
       );
     } catch (error) {
       const endTime = Date.now();
@@ -288,6 +254,7 @@ export class HerdModule {
         [],
         [],
         null,
+        null,
       );
     }
   }
@@ -304,6 +271,7 @@ export interface IHerdModule {
   layers: ILayer[];
   providers: IProvider[];
   session_summaries: ISessionSummary | null;
+  session_usage: ISessionUsageOverTime | null;
 }
 
 export interface IHerdModulesResponse {

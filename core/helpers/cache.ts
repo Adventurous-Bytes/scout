@@ -1,7 +1,7 @@
 import { IHerdModule } from "../types/herd_module";
 
 const DB_NAME = "ScoutCache";
-const DB_VERSION = 4; // Increment to invalidate old cache versions
+const DB_VERSION = 5; // Increment to invalidate old cache versions
 const HERD_MODULES_STORE = "herd_modules";
 const CACHE_METADATA_STORE = "cache_metadata";
 

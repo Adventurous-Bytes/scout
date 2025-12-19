@@ -63,6 +63,10 @@ export interface ISessionSummary {
   };
 }
 
+// Session usage over time - use generated types from Supabase
+export type ISessionUsageOverTime =
+  Database["public"]["Functions"]["get_session_usage_over_time"]["Returns"];
+
 // Insert types
 export type ComponentInsert =
   Database["public"]["Tables"]["components"]["Insert"];

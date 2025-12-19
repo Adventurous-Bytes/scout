@@ -1436,7 +1436,26 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_session_by_id: {
+        Args: { session_id_caller: number }
+        Returns: Database["public"]["CompositeTypes"]["session_with_coordinates"][]
+        SetofOptions: {
+          from: "*"
+          to: "session_with_coordinates"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       get_session_summaries: {
+        Args: {
+          device_id_caller?: number
+          end_date_caller?: string
+          herd_id_caller?: number
+          start_date_caller?: string
+        }
+        Returns: Json
+      }
+      get_session_usage_over_time: {
         Args: {
           device_id_caller?: number
           end_date_caller?: string
