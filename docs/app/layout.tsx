@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   },
   description:
     "Documentation for Scout - Monitor and maintain remote hardware with real-time synchronization.",
-  metadataBase: new URL("https://docs.scout.com"),
+  metadataBase: new URL("https://docs.adventurelabs.com"),
   icons: {
     icon: [
       { url: "/icon-light.svg", type: "image/svg+xml" },
