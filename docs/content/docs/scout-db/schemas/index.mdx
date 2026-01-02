@@ -1,0 +1,166 @@
+---
+title: Database Schema Overview
+description: Overview of the Scout database schema with entity relationship diagram
+---
+
+# Database Schema Overview
+
+The Scout database consists of interconnected tables that manage devices, events, users, and spatial data. The diagram below shows the table relationships.
+
+```mermaid
+erDiagram
+    users {
+        uuid id PK
+    }
+    
+    herds {
+        bigint id PK
+        uuid created_by FK
+    }
+    
+    devices {
+        bigint id PK
+        uuid created_by FK
+        bigint herd_id FK
+    }
+    
+    sessions {
+        bigint id PK
+        bigint device_id FK
+    }
+    
+    events {
+        bigint id PK
+        bigint device_id FK
+        bigint session_id FK
+    }
+    
+    connectivity {
+        bigint id PK
+        bigint session_id FK
+        bigint device_id FK
+    }
+    
+    tags {
+        bigint id PK
+        bigint event_id FK
+    }
+    
+    heartbeats {
+        bigint id PK
+        bigint device_id FK
+    }
+    
+    artifacts {
+        bigint id PK
+        bigint session_id FK
+        bigint device_id FK
+    }
+    
+    zones {
+        bigint id PK
+        bigint herd_id FK
+    }
+    
+    actions {
+        bigint id PK
+        bigint zone_id FK
+    }
+    
+    pins {
+        bigint id PK
+        bigint herd_id FK
+        uuid created_by FK
+    }
+    
+    plans {
+        bigint id PK
+        bigint herd_id FK
+    }
+    
+    chat {
+        bigint id PK
+        uuid sender FK
+        bigint herd_id FK
+    }
+    
+    components {
+        bigint id PK
+        bigint device_id FK
+        bigint certificate_id FK
+    }
+    
+    certificates {
+        bigint id PK
+    }
+    
+    operators {
+        bigint id PK
+        bigint session_id FK
+        uuid user_id FK
+    }
+    
+    providers {
+        bigint id PK
+        bigint herd_id FK
+    }
+    
+    layers {
+        bigint id PK
+        bigint herd_id FK
+    }
+    
+    users_roles_per_herd {
+        bigint id PK
+        uuid user_id FK
+        bigint herd_id FK
+    }
+    
+    versions_software {
+        bigint id PK
+    }
+
+    %% Relationships
+    users ||--o{ herds : creates
+    users ||--o{ devices : creates
+    users ||--o{ pins : creates
+    users ||--o{ chat : sends
+    users ||--o{ operators : performs
+    users ||--o{ users_roles_per_herd : belongs_to
+    
+    herds ||--o{ devices : contains
+    herds ||--o{ zones : defines
+    herds ||--o{ pins : has
+    herds ||--o{ plans : has
+    herds ||--o{ chat : contains
+    herds ||--o{ providers : configured_for
+    herds ||--o{ layers : has
+    herds ||--o{ users_roles_per_herd : grants_access
+    
+    devices ||--o{ sessions : generates
+    devices ||--o{ events : produces
+    devices ||--o{ connectivity : reports
+    devices ||--o{ heartbeats : sends
+    devices ||--o{ artifacts : stores
+    devices ||--o{ components : has
+    
+    sessions ||--o{ connectivity : contains
+    sessions ||--o{ events : includes
+    sessions ||--o{ artifacts : generates
+    sessions ||--o{ operators : operated_by
+    
+    events ||--o{ tags : contains
+    
+    zones ||--o{ actions : triggers
+    
+    certificates ||--o{ components : validates
+```
+
+## Key Relationships
+
+- **Users** create and manage **Herds**, **Devices**, and **Pins**
+- **Herds** contain multiple **Devices** and define access permissions
+- **Devices** generate **Sessions**, **Events**, and **Connectivity** data
+- **Events** can contain **Tags** for object detection results
+- **Zones** trigger automated **Actions** for spatial monitoring
+- **Components** are validated by **Certificates** for device compliance
