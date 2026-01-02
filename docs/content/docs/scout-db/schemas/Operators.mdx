@@ -1,0 +1,12 @@
+---
+title: Operators
+description: Table for recording operator actions and sessions with timestamp tracking
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| timestamp | timestamp with time zone | |
+| session_id | bigint | |
+| user_id | uuid | NOT NULL |
+| action | text | |

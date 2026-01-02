@@ -1,0 +1,11 @@
+---
+title: Actions
+description: Table for storing automated actions triggered by zone events
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| zone_id | bigint | NOT NULL |
+| trigger | text[] | NOT NULL |
+| opcode | integer | NOT NULL |

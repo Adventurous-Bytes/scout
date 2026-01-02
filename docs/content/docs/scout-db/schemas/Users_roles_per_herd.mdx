@@ -1,0 +1,11 @@
+---
+title: Users_roles_per_herd
+description: Table for storing user role assignments per herd with role-based access control
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| user_id | uuid | NOT NULL |
+| herd_id | bigint | NOT NULL |
+| role | public.role | NOT NULL |

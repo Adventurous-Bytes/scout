@@ -1,0 +1,10 @@
+---
+title: Zones
+description: Table for storing geometric regions with associated actions for spatial triggers
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| region | extensions.geometry | NOT NULL |
+| herd_id | bigint | NOT NULL |

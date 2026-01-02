@@ -1,0 +1,19 @@
+---
+title: Devices
+description: Table for storing device information including location, type, and configuration
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| created_by | uuid | NOT NULL |
+| herd_id | bigint | NOT NULL |
+| name | text | NOT NULL |
+| description | text | NOT NULL |
+| domain_name | text | |
+| altitude | double precision | |
+| heading | double precision | |
+| location | extensions.geography(Point,4326) | |
+| video_publisher_token | text | |
+| video_subscriber_token | text | |
+| device_type | public.device_type | DEFAULT 'unknown' NOT NULL |

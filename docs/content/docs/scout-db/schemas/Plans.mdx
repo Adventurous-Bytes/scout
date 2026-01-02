@@ -1,0 +1,12 @@
+---
+title: Plans
+description: Table for storing plans with instructions for herds
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) |
+| name | text | NOT NULL |
+| instructions | text | NOT NULL |
+| herd_id | bigint | NOT NULL |
+| plan_type | public.plan_type | DEFAULT 'mission' NOT NULL |

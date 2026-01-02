@@ -1,0 +1,20 @@
+---
+title: Events
+description: Table for storing individual events sent by devices with media and location data
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| message | text | |
+| media_url | text | |
+| altitude | double precision | DEFAULT 0 NOT NULL |
+| heading | double precision | DEFAULT 0 NOT NULL |
+| media_type | public.media_type | DEFAULT 'image' NOT NULL |
+| device_id | bigint | NOT NULL |
+| timestamp_observation | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| is_public | boolean | DEFAULT false NOT NULL |
+| location | extensions.geography(Point,4326) | DEFAULT '0101000020E610000000000000000000000000000000000000' |
+| earthranger_url | text | |
+| file_path | text | |
+| session_id | bigint | |

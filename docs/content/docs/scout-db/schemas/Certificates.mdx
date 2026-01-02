@@ -1,0 +1,13 @@
+---
+title: Certificates
+description: Table for storing certificates with issuer, expiration and tracking information
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| issuer | text | NOT NULL |
+| expiration | timestamp with time zone | |
+| type | text | NOT NULL |
+| tracking_number | text | |
+| updated_at | timestamp with time zone | DEFAULT now() |

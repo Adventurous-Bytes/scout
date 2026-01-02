@@ -1,0 +1,10 @@
+---
+title: Layers
+description: Table for storing GeoJSON feature layers associated with herds
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| features | json | NOT NULL |
+| herd_id | bigint | NOT NULL |

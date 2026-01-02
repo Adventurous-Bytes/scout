@@ -1,0 +1,17 @@
+---
+title: Tags
+description: Table for storing object detection tags and annotations with confidence scores and locations
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| x | double precision | NOT NULL |
+| y | double precision | NOT NULL |
+| width | double precision | NOT NULL |
+| conf | double precision | NOT NULL |
+| observation_type | public.tag_observation_type | NOT NULL |
+| event_id | bigint | NOT NULL |
+| class_name | text | NOT NULL |
+| height | double precision | DEFAULT 0 NOT NULL |
+| location | extensions.geography | |

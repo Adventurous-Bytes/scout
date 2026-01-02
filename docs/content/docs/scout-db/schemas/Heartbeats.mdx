@@ -1,0 +1,10 @@
+---
+title: Heartbeats
+description: Table for recording device heartbeat timestamps to monitor device connectivity
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| timestamp | timestamp with time zone | NOT NULL |
+| device_id | bigint | NOT NULL |

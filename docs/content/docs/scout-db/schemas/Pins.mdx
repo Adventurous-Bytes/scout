@@ -1,0 +1,15 @@
+---
+title: Pins
+description: Table for storing map pins with location, styling, and descriptive metadata
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| altitude_relative_to_ground | bigint | NOT NULL |
+| color | text | NOT NULL |
+| name | text | NOT NULL |
+| description | text | |
+| herd_id | bigint | NOT NULL |
+| created_by | uuid | |
+| location | extensions.geography(Point,4326) | DEFAULT '0101000020E610000000000000000000000000000000000000' |

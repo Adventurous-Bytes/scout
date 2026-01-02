@@ -1,0 +1,25 @@
+---
+title: Connectivity
+description: Table for recording network connectivity metrics and location data from devices
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| session_id | bigint | |
+| inserted_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| timestamp_start | timestamp with time zone | NOT NULL |
+| signal | double precision | NOT NULL |
+| noise | double precision | NOT NULL |
+| altitude | double precision | NOT NULL |
+| heading | double precision | NOT NULL |
+| location | extensions.geography | NOT NULL |
+| h14_index | text | NOT NULL |
+| h13_index | text | NOT NULL |
+| h12_index | text | NOT NULL |
+| h11_index | text | NOT NULL |
+| battery_percentage | real | |
+| device_id | bigint | |
+| frequency_hz | real | |
+| bandwidth_hz | real | |
+| associated_station | text | |
+| mode | text | |

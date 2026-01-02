@@ -1,0 +1,11 @@
+---
+title: Chat
+description: Table for storing chat messages between users in herds
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| message | text | NOT NULL |
+| sender | uuid | |
+| herd_id | bigint | NOT NULL |

@@ -1,0 +1,17 @@
+---
+title: Herds
+description: Table for storing team metadata
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| inserted_at | timestamp with time zone | DEFAULT timezone('utc'::text, now()) NOT NULL |
+| slug | text | NOT NULL |
+| description | text | NOT NULL |
+| created_by | uuid | NOT NULL |
+| is_public | boolean | DEFAULT false NOT NULL |
+| earthranger_domain | text | |
+| earthranger_token | text | |
+| video_publisher_token | text | |
+| video_subscriber_token | text | |
+| video_server_url | text | |

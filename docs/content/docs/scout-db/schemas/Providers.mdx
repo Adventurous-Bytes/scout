@@ -1,0 +1,12 @@
+---
+title: Providers
+description: Table for storing external service providers with API keys and configuration per herd
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| type | text | NOT NULL |
+| key | text | |
+| source | text | NOT NULL |
+| herd_id | bigint | NOT NULL |

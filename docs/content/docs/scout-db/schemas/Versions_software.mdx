@@ -1,0 +1,18 @@
+---
+title: Versions_software
+description: Table for storing software version information with release details and stability flags
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| version | text | NOT NULL |
+| hyperlink | text | |
+| description | text | NOT NULL |
+| title | text | |
+| system | text | NOT NULL |
+| updated_at | timestamp with time zone | DEFAULT now() |
+| commit_hash | text | |
+| stable | boolean | DEFAULT false NOT NULL |
+| pre | boolean | DEFAULT true NOT NULL |
+| min | boolean | DEFAULT false NOT NULL |

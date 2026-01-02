@@ -1,0 +1,15 @@
+---
+title: Artifacts
+description: Table for storing file artifacts associated with sessions and devices
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| file_path | text | NOT NULL |
+| session_id | bigint | |
+| timestamp_observation | timestamp with time zone | |
+| modality | text | |
+| device_id | bigint | NOT NULL |
+| updated_at | timestamp with time zone | DEFAULT now() |
+| timestamp_observation_end | timestamp with time zone | DEFAULT now() NOT NULL |
