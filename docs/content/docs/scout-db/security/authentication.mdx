@@ -1,20 +1,28 @@
 ---
-title: Authentication
-description: High level overview of authentication patterns 
+title: Client Authentication
+description: Authentication when interfacing with the web application
 ---
 
-Both devices and users need access to the database. While the implementation of how claims are verified differs, the security model of only being able to access data that belongs to the same herd is consistent.
+Client authentication has the following high level attributes:
 
-## Security Model
+- **Method:** One-time Password (OTP)
+- **Delivery:** Email
+- **Delivery Provider:** [Resend](https://resend.com/docs/send-with-supabase-smtp)
 
-### Device API Keys
-- Generated using HMAC with device-specific secrets
-- Validated through `private.key_uid()` function
-- Only allow access to artifacts belonging to the same device
-- Must verify device belongs to the herd being accessed
+### Session Based Authentication
 
-### User Authentication
-- Uses Supabase Auth JWT tokens
-- Roles managed through `users_roles_per_herd` table
-- Role hierarchy: viewer < editor < admin
-- Permissions checked through helper functions like `private.has_good_view_role()`
+A session is created when a user signs in. By default, it lasts indefinitely and a user can have an unlimited number of active sessions on multiple devices.
+
+A session is represented by an access token in the form of a JWT, and a refresh token which is a unique string.
+
+Access tokens are designed to be short lived, usually between 5 minutes and 1 hour while refresh tokens never expire but can only be used once. You can exchange a refresh token only once to get a new access and refresh token pair.
+
+A session terminates, depending on configuration, when:
+
+- The user clicks sign out.
+- The user changes their password or performs a security sensitive action.
+- It times out due to inactivity.
+- It reaches its maximum lifetime.
+- A user signs in on another device.
+
+[More Details](https://supabase.com/docs/guides/auth/sessions)
