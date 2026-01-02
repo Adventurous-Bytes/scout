@@ -20,8 +20,8 @@ export default function HomePage() {
         </h1>
       </div>
       <p className="max-w-2xl mx-auto text-lg text-fd-muted-foreground leading-relaxed">
-        Learn how to monitor and maintain remote hardware with Scout&apos;s
-        powerful real-time synchronization platform.
+        Learn how to persist data across distributed systems with Scout&apos;s
+        realtime sync engine.
       </p>
       <div className="mt-12 grid grid-cols-1 gap-6 text-left md:grid-cols-3 max-w-5xl mx-auto">
         <DocumentationItem

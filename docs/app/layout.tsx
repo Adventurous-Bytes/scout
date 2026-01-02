@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     default: "Scout Docs",
   },
   description:
-    "Documentation for Scout - Monitor and maintain remote hardware with real-time synchronization.",
+    "Documentation for Scout - a realtime sync engine for persisting data across distributed systems and teams.",
   metadataBase: new URL("https://docs.adventurelabs.com"),
   icons: {
     icon: [
@@ -42,7 +42,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Scout Documentation",
     description:
-      "Learn how to build with Scout for hardware monitoring and real-time state management.",
+      "Learn how to persist data across distributed systems and teams with Scout.",
     images: ["/apple-touch-icon.png"],
   },
 };
