@@ -1,0 +1,6 @@
+{
+  "title": "Scout RS",
+  "description": "Rust client for synchronizing local state with a remote database",
+  "root": true,
+  "icon": "CloudSync"
+}

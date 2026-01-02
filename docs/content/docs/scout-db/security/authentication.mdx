@@ -1,0 +1,20 @@
+---
+title: Authentication
+description: High level overview of authentication patterns 
+---
+
+Both devices and users need access to the database. While the implementation of how claims are verified differs, the security model of only being able to access data that belongs to the same herd is consistent.
+
+## Security Model
+
+### Device API Keys
+- Generated using HMAC with device-specific secrets
+- Validated through `private.key_uid()` function
+- Only allow access to artifacts belonging to the same device
+- Must verify device belongs to the herd being accessed
+
+### User Authentication
+- Uses Supabase Auth JWT tokens
+- Roles managed through `users_roles_per_herd` table
+- Role hierarchy: viewer < editor < admin
+- Permissions checked through helper functions like `private.has_good_view_role()`

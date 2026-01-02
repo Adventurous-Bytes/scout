@@ -1,0 +1,24 @@
+# robots.txt for Scout Documentation
+
+User-agent: *
+Allow: /
+
+# Sitemap
+Sitemap: https://docs.scout.com/sitemap.xml
+
+# Crawl delay (optional, helps with server load)
+Crawl-delay: 1
+
+# Disallow crawling of API routes
+Disallow: /api/
+
+# Allow all documentation pages
+Allow: /docs/
+Allow: /
+
+# Common SEO optimizations
+# Allow search engines to crawl CSS and JS files for better page analysis
+Allow: /_next/static/
+Allow: /favicon.ico
+Allow: /icon.svg
+Allow: /apple-touch-icon.png

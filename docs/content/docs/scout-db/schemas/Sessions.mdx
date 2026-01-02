@@ -1,0 +1,22 @@
+---
+title: Sessions
+description: Table for recording time bound slices of data
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| device_id | bigint | NOT NULL |
+| timestamp_start | timestamp with time zone | NOT NULL |
+| timestamp_end | timestamp with time zone | |
+| inserted_at | timestamp with time zone | DEFAULT "now"() NOT NULL |
+| software_version | text | NOT NULL |
+| locations | extensions.geography | |
+| altitude_max | double precision | NOT NULL |
+| altitude_min | double precision | NOT NULL |
+| altitude_average | double precision | NOT NULL |
+| velocity_max | double precision | NOT NULL |
+| velocity_min | double precision | NOT NULL |
+| velocity_average | double precision | NOT NULL |
+| distance_total | double precision | NOT NULL |
+| distance_max_from_start | double precision | NOT NULL |
+| earthranger_url | text | |

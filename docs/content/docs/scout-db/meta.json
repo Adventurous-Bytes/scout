@@ -1,0 +1,6 @@
+{
+  "title": "Scout DB",
+  "description": "Database management and configuration for Scout",
+  "root": true,
+  "icon": "Database"
+}

@@ -1,0 +1,40 @@
+---
+title: Storage Access Control
+description: Policies for interacting with stored files.
+---
+
+Storage object interactions must respect our multi-tenant architecture. We use RLS policies to ensure that access is granted based on herd membership, user role, and device ownership.
+
+## SQL Policies 
+
+### 1. Helper Functions
+
+```sql
+-- Extract herd_id from storage object path (format: {herd_id}/{device_id}/filename)
+private.get_herd_id_from_path(object_name text) RETURNS bigint
+
+-- Extract device_id from storage object path (format: {herd_id}/{device_id}/filename)
+private.get_device_id_from_path(object_name text) RETURNS bigint
+```
+
+### 2. Access Policies
+
+#### View Access
+- **Policy**: "Artifact view access: Users with view role for herd"
+- **Allows**: 
+  - Users with view role for the herd to view all objects in that herd
+  - Device API keys to view their own artifacts if device belongs to herd
+
+#### Upload Access
+- **Policy**: "Artifact upload access: Device API keys to own folder"
+- **Allows**: Device API keys to upload only to their own device folder (object path: `{herd_id}/{device_id}/`)
+
+#### Update Access
+- **Policy**: "Artifact update access: Device API keys to own files"
+- **Allows**: Device API keys to overwrite their own artifacts
+
+#### Delete Access
+- **Policy**: "Artifact delete access: Device API keys or users with edit role"
+- **Allows**:
+  - Device API keys to delete their own artifacts
+  - Users with edit role for the herd to delete any artifact in that herd

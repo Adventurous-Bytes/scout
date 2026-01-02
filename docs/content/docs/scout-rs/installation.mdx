@@ -1,0 +1,31 @@
+---
+title: Installation
+description: How to install and set up Scout RS in your Rust project
+---
+
+## Installing Rust Toolchain
+Scout is written in Rust, so that we can leverage the language's type safety and tooling. To get started with Rust, you should install the Rust toolchain with the following command. This Rust toolchain will help you run Rust programs and tap into helpful utilities like cargo.
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+For more information on Rust, visit the Rust Bible](https://doc.rust-lang.org/book/).
+
+## Installing Scout_Rs
+
+To install Scout, you can use the following command. This will install the latest version of Scout. You can find the exact version in your `Cargo.toml` file.
+
+```bash
+cargo install scout_rs
+```
+
+Add Scout RS to your `Cargo.toml` file:
+```bash
+cargo add scout-rs
+```
+or
+```toml
+[dependencies]
+scout-rs = "0.91.0"
+```
