@@ -3,6 +3,11 @@ import { IPart, PartInsert } from "../types/db";
 import { IWebResponse, IWebResponseCompatible } from "../types/requests";
 import { SupabaseClient } from "@supabase/supabase-js";
 
+/**
+ * Retrieves all active parts for a specific device
+ * @param client - Supabase client instance
+ * @param device_id - ID of the device to get parts for
+ */
 export async function get_parts_by_device_id(
   client: SupabaseClient<Database>,
   device_id: number,
@@ -27,6 +32,11 @@ export async function get_parts_by_device_id(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves a single active part by its ID
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to retrieve
+ */
 export async function get_part_by_id(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -49,6 +59,11 @@ export async function get_part_by_id(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all active parts with a specific serial number
+ * @param client - Supabase client instance
+ * @param serial_number - Serial number to search for
+ */
 export async function get_parts_by_serial_number(
   client: SupabaseClient<Database>,
   serial_number: string,
@@ -73,6 +88,11 @@ export async function get_parts_by_serial_number(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all active parts with a specific product number
+ * @param client - Supabase client instance
+ * @param product_number - Product number to search for
+ */
 export async function get_parts_by_product_number(
   client: SupabaseClient<Database>,
   product_number: string,
@@ -97,6 +117,11 @@ export async function get_parts_by_product_number(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all active parts with a specific status
+ * @param client - Supabase client instance
+ * @param status - Component status to filter by
+ */
 export async function get_parts_by_status(
   client: SupabaseClient<Database>,
   status: Database["public"]["Enums"]["component_status"],
@@ -121,6 +146,11 @@ export async function get_parts_by_status(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Creates a new part with validation
+ * @param client - Supabase client instance
+ * @param newPart - Part data to create
+ */
 export async function create_part(
   client: SupabaseClient<Database>,
   newPart: PartInsert,
@@ -163,6 +193,12 @@ export async function create_part(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Updates an existing part
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to update
+ * @param updatedPart - Partial part data to update
+ */
 export async function update_part(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -193,6 +229,11 @@ export async function update_part(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Soft deletes a part by setting deleted_at timestamp
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to delete
+ */
 export async function delete_part(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -219,6 +260,12 @@ export async function delete_part(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Updates the status of a specific part
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to update
+ * @param status - New status to set
+ */
 export async function update_part_status(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -245,6 +292,11 @@ export async function update_part_status(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all active parts associated with a certificate
+ * @param client - Supabase client instance
+ * @param certificate_id - ID of the certificate to search for
+ */
 export async function get_parts_by_certificate_id(
   client: SupabaseClient<Database>,
   certificate_id: number,
@@ -269,6 +321,11 @@ export async function get_parts_by_certificate_id(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all active parts for devices in a specific herd
+ * @param client - Supabase client instance
+ * @param herd_id - ID of the herd to get parts for
+ */
 export async function get_parts_by_herd_id(
   client: SupabaseClient<Database>,
   herd_id: number,
@@ -298,6 +355,11 @@ export async function get_parts_by_herd_id(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Restores a soft-deleted part by clearing deleted_at timestamp
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to restore
+ */
 export async function restore_part(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -324,6 +386,11 @@ export async function restore_part(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Permanently deletes a soft-deleted part from database
+ * @param client - Supabase client instance
+ * @param part_id - ID of the part to permanently delete
+ */
 export async function hard_delete_part(
   client: SupabaseClient<Database>,
   part_id: number,
@@ -350,6 +417,11 @@ export async function hard_delete_part(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves all soft-deleted parts for a specific device
+ * @param client - Supabase client instance
+ * @param device_id - ID of the device to get deleted parts for
+ */
 export async function get_deleted_parts_by_device_id(
   client: SupabaseClient<Database>,
   device_id: number,
@@ -374,6 +446,12 @@ export async function get_deleted_parts_by_device_id(
   return IWebResponse.success(data).to_compatible();
 }
 
+/**
+ * Retrieves a part by its composite unique constraint (product + serial)
+ * @param client - Supabase client instance
+ * @param product_number - Product number to search for
+ * @param serial_number - Serial number to search for
+ */
 export async function get_parts_by_product_and_serial(
   client: SupabaseClient<Database>,
   product_number: string,
