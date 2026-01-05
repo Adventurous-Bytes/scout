@@ -1,0 +1,125 @@
+---
+title: Scout RS Interface
+description: Overview of SyncEngine functions, structs, and available methods
+---
+
+# SyncEngine API Reference
+
+## Core Structs
+
+### `SyncEngine`
+
+Main synchronization engine that manages local database operations and remote sync.
+
+**Properties:**
+- `scout_client: ScoutClient` - Client for remote API communication
+- `db_local_path: String` - Path to local NativeDB database
+- `interval_flush_sessions_ms: Option<u64>` - Auto-sync interval in milliseconds
+- `max_num_items_per_sync: Option<u64>` - Maximum items to sync per batch
+- `remove_failed_records: bool` - Whether to remove critically failed records
+- `ttl_secs: Option<u64>` - Time-to-live for automatic record cleanup
+- `storage_client: Option<StorageClient>` - Client for artifact file uploads
+
+### `BatchSync<T>`
+
+Batches items for efficient bulk synchronization operations.
+
+**Properties:**
+- `upsert: Vec<T>` - Items to upsert (insert or update)
+- `insert: Vec<T>` - Items to insert only
+
+### `EnumSyncAction`
+
+Defines synchronization actions for records.
+
+- `Upsert` - Insert or update record
+- `Insert` - Insert new record only
+- `Skip` - Skip synchronization
+
+## Constructor Methods
+
+### `SyncEngine::new()`
+Creates a new SyncEngine with custom configuration.
+
+**Parameters:**
+- `scout_client: ScoutClient` - Authenticated Scout client
+- `db_local_path: String` - Local database file path
+- `interval_flush_sessions_ms: Option<u64>` - Auto-sync interval
+- `max_num_items_per_sync: Option<u64>` - Batch size limit
+- `remove_failed_records: bool` - Enable failed record removal
+- `ttl_secs: Option<u64>` - TTL for automatic cleanup
+
+### `SyncEngine::with_defaults()`
+Creates SyncEngine with standard settings (20s interval, 100 item batches, safe mode).
+
+### `SyncEngine::with_failed_record_removal()`
+Creates SyncEngine that removes records with critical sync errors.
+
+### `SyncEngine::with_ttl_cleaning()`
+Creates SyncEngine with automatic record cleanup after specified duration.
+
+## Lifecycle Methods
+
+### `start()` → `Result<(), Error>`
+Starts automatic background synchronization with configured interval.
+
+### `stop()`
+Gracefully stops background synchronization process.
+
+### `flush()` → `Result<(), Error>`
+Manually triggers immediate synchronization of all pending records.
+
+## Data Management
+
+### `get_item<T>(local_id: &str)` → `Result<Option<T>, Error>`
+Retrieves a single item from local database by its local ID.
+
+### `upsert_items<T>(items: Vec<T>)` → `Result<(), Error>`
+Inserts or updates multiple items in local database.
+
+### `remove_items<T>(items: Vec<T>)` → `Result<(), Error>`
+Removes multiple items from local database.
+
+### `get_table_count<T>()` → `Result<usize, Error>`
+Returns count of records for a specific model type.
+
+## Cleanup Operations
+
+### `clean()` → `Result<(), Error>`
+Removes completed sessions and their descendants from local database. Uses safe cleaning (all descendants synced) or TTL-based cleanup.
+
+## Artifact Upload
+
+### `with_storage(config: StorageConfig)` → `Result<Self, Error>`
+Configures storage client for artifact file uploads.
+
+### `get_artifacts_pending_upload_count()` → `Result<usize, Error>`
+Returns count of artifacts awaiting file upload.
+
+### `get_artifacts_pending_upload()` → `Result<Vec<ArtifactLocal>, Error>`
+Returns list of artifacts that need file upload.
+
+### `generate_upload_urls(artifacts: &mut Vec<ArtifactLocal>)` → `Result<(), Error>`
+Generates signed upload URLs for artifacts (24-hour validity, reuses existing URLs).
+
+### `spawn_upload_artifact(artifact: ArtifactLocal, chunk_size: Option<usize>)`
+Uploads artifact file to storage in background task with progress tracking.
+
+### `get_artifacts_by_upload_status(uploaded: bool)` → `Result<Vec<ArtifactLocal>, Error>`
+Filters artifacts by upload completion status.
+
+## Utility Methods
+
+### `get_db_path()` → `&str`
+Returns path to local database file.
+
+### `generate_unique_id()` → `String`
+Generates UUID v4 string for new record IDs.
+
+### `log<T>(items: &Vec<T>)`
+Logs summary statistics for record collections.
+
+## Constants
+
+- `DEFAULT_INTERVAL_FLUSH_SESSIONS_MS: u64 = 20_000` - Default 20-second sync interval
+- `DEFAULT_MAX_NUM_ITEMS_PER_SYNC: u64 = 100` - Default 100-item batch size
