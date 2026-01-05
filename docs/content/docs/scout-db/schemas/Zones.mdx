@@ -8,3 +8,10 @@ description: Table for storing geometric regions with associated actions for spa
 | inserted_at | timestamp with time zone | DEFAULT now() NOT NULL |
 | region | extensions.geometry | NOT NULL |
 | herd_id | bigint | NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within same herd OR users with view role in same herd
+- **Create/Update/Delete**: Device API keys within same herd OR users with edit role in same herd

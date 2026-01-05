@@ -9,3 +9,10 @@ description: Table for storing automated actions triggered by zone events
 | zone_id | bigint | NOT NULL |
 | trigger | text[] | NOT NULL |
 | opcode | integer | NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within same herd (via zone) OR users with view role in same herd
+- **Create/Update/Delete**: Device API keys within same herd (via zone) OR users with edit role in same herd

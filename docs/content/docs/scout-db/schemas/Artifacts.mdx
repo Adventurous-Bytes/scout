@@ -13,3 +13,10 @@ description: Table for storing file artifacts associated with sessions and devic
 | device_id | bigint | NOT NULL |
 | updated_at | timestamp with time zone | DEFAULT now() |
 | timestamp_observation_end | timestamp with time zone | DEFAULT now() NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API key that owns the artifact OR users with view role in same herd
+- **Create/Update/Delete**: Device API key that owns the artifact OR users with edit role in same herd

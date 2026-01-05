@@ -9,3 +9,10 @@ description: Table for storing user role assignments per herd with role-based ac
 | user_id | uuid | NOT NULL |
 | herd_id | bigint | NOT NULL |
 | role | public.role | NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Users can view their own role assignments OR users with admin role in same herd
+- **Create/Update/Delete**: Users with admin role in same herd only

@@ -15,3 +15,10 @@ description: Table for storing object detection tags and annotations with confid
 | class_name | text | NOT NULL |
 | height | double precision | DEFAULT 0 NOT NULL |
 | location | extensions.geography | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API key authorized for the event OR users with view role in same herd
+- **Create/Update/Delete**: Device API key authorized for the event OR users with edit role in same herd

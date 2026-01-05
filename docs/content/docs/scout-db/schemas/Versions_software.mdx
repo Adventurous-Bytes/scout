@@ -16,3 +16,10 @@ description: Table for storing software version information with release details
 | stable | boolean | DEFAULT false NOT NULL |
 | pre | boolean | DEFAULT true NOT NULL |
 | min | boolean | DEFAULT false NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Public read access (software versions are generally accessible)
+- **Create/Update/Delete**: Users with admin role only

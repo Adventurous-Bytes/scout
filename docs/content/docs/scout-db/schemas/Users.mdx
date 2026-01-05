@@ -6,3 +6,10 @@ description: Table for storing user profile data linked to Supabase Auth users
 |-------------|-----------|-------------|
 | id | uuid | NOT NULL |
 | username | text | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Anyone can view user profiles (public visibility)
+- **Create/Update/Delete**: No specific policies defined (handled by Supabase Auth)

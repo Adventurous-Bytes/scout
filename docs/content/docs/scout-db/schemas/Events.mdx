@@ -18,3 +18,10 @@ description: Table for storing individual events sent by devices with media and 
 | earthranger_url | text | |
 | file_path | text | |
 | session_id | bigint | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API key that owns the event OR users with view role in same herd
+- **Create/Update/Delete**: Device API key that owns the event OR users with edit role in same herd

@@ -20,3 +20,10 @@ description: Table for recording time bound slices of data
 | distance_total | double precision | NOT NULL |
 | distance_max_from_start | double precision | NOT NULL |
 | earthranger_url | text | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API key that owns the session OR users with view role in same herd
+- **Create/Update/Delete**: Device API key that owns the session OR users with edit role in same herd

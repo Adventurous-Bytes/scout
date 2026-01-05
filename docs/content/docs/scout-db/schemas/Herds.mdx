@@ -15,3 +15,10 @@ description: Table for storing team metadata
 | video_publisher_token | text | |
 | video_subscriber_token | text | |
 | video_server_url | text | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within herd OR users with view role in herd
+- **Create/Update/Delete**: Users with edit/admin role in herd

@@ -8,3 +8,10 @@ description: Table for storing GeoJSON feature layers associated with herds
 | created_at | timestamp with time zone | DEFAULT now() NOT NULL |
 | features | json | NOT NULL |
 | herd_id | bigint | NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within same herd OR users with view role in same herd
+- **Create/Update/Delete**: Users with edit role in same herd

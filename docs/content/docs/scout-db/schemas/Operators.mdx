@@ -10,3 +10,10 @@ description: Table for recording operator actions and sessions with timestamp tr
 | session_id | bigint | |
 | user_id | uuid | NOT NULL |
 | action | text | |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys (via session relationship) OR users with view role in same herd
+- **Create/Update/Delete**: Device API keys (via session relationship) OR users with edit role in same herd

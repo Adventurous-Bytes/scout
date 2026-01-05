@@ -9,3 +9,11 @@ description: Table for storing chat messages between users in herds
 | message | text | NOT NULL |
 | sender | uuid | |
 | herd_id | bigint | NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within same herd OR users with view role in same herd
+- **Create**: Device API keys within same herd OR users with view role (must set themselves as sender)
+- **Update/Delete**: Device API keys within same herd OR message owners only

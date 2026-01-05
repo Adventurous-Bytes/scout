@@ -10,3 +10,10 @@ description: Table for storing plans with instructions for herds
 | instructions | text | NOT NULL |
 | herd_id | bigint | NOT NULL |
 | plan_type | public.plan_type | DEFAULT 'mission' NOT NULL |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within same herd OR users with view role in same herd
+- **Create/Update/Delete**: Device API keys within same herd OR users with edit role in same herd

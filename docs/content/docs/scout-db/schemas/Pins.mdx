@@ -13,3 +13,11 @@ description: Table for storing map pins with location, styling, and descriptive 
 | herd_id | bigint | NOT NULL |
 | created_by | uuid | |
 | location | extensions.geography(Point,4326) | DEFAULT '0101000020E610000000000000000000000000000000000000' |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Users with view role in same herd
+- **Create**: Users with edit role who set themselves as creator
+- **Update/Delete**: Users with edit role in same herd
