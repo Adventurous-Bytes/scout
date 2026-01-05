@@ -3017,7 +3017,6 @@ async fn create_test_sync_engine() -> Result<scout_rs::sync::SyncEngine, Box<dyn
         scout_client,
         "/tmp/test_scout_integration.db".to_string(),
         None,
-        None,
         false,
         None,
     )?

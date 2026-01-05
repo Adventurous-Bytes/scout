@@ -68,17 +68,15 @@ static MODELS: Lazy<Models> = Lazy::new(|| {
 /// Features:
 /// - Batch operations for efficiency
 /// - Automatic ID relationship management
-/// - Configurable sync intervals and batch sizes
+/// - Configurable batch sizes
 /// - Resilient error handling with partial failure recovery
 pub struct SyncEngine {
     scout_client: ScoutClient,
     db_local_path: String,
     database: Database<'static>,
-    interval_flush_sessions_ms: Option<u64>,
     max_num_items_per_sync: Option<u64>,
     remove_failed_records: bool,
     ttl_secs: Option<u64>,
-    shutdown_tx: Option<tokio::sync::broadcast::Sender<()>>,
     storage_client: Option<StorageClient>,
 }
 
@@ -88,7 +86,6 @@ pub enum EnumSyncAction {
     Skip,
 }
 
-const DEFAULT_INTERVAL_FLUSH_SESSIONS_MS: u64 = 20_000;
 const DEFAULT_MAX_NUM_ITEMS_PER_SYNC: u64 = 100;
 
 pub struct BatchSync<T: ToInput + Syncable> {
@@ -119,13 +116,11 @@ impl SyncEngine {
     /// # Arguments
     /// * `scout_client` - Client for communicating with Scout server
     /// * `db_local_path` - Path to local database file
-    /// * `interval_flush_sessions_ms` - How often to sync (None = manual only)
     /// * `max_num_items_per_sync` - Maximum items per sync batch (None = unlimited)
     /// * `remove_failed_records` - Whether to remove failed records from the local database
     pub fn new(
         scout_client: ScoutClient,
         db_local_path: String,
-        interval_flush_sessions_ms: Option<u64>,
         max_num_items_per_sync: Option<u64>,
         remove_failed_records: bool,
         ttl_secs: Option<u64>,
@@ -137,24 +132,20 @@ impl SyncEngine {
             scout_client,
             db_local_path,
             database,
-            interval_flush_sessions_ms,
             max_num_items_per_sync,
             remove_failed_records,
             ttl_secs,
-            shutdown_tx: None,
             storage_client: None,
         })
     }
 
     /// Creates a default SyncEngine with common settings:
-    /// - 3 second sync interval
     /// - 100 items per sync batch
     /// - Remove failed records disabled (for safety)
     pub fn with_defaults(scout_client: ScoutClient, db_local_path: String) -> Result<Self> {
         Self::new(
             scout_client,
             db_local_path,
-            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             false, // Remove failed records disabled by default for safety
             None,  // TTL disabled by default
@@ -162,7 +153,6 @@ impl SyncEngine {
     }
 
     /// Creates a SyncEngine with remove_failed_records enabled:
-    /// - 3 second sync interval
     /// - 100 items per sync batch
     /// - Remove failed records enabled (removes records with critical errors)
     pub fn with_failed_record_removal(
@@ -172,7 +162,6 @@ impl SyncEngine {
         Self::new(
             scout_client,
             db_local_path,
-            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             true, // Remove failed records enabled
             None, // TTL disabled by default
@@ -180,7 +169,6 @@ impl SyncEngine {
     }
 
     /// Creates a SyncEngine with TTL-based cleaning enabled
-    /// - 3 second sync interval
     /// - 100 items per sync batch
     /// - Remove failed records disabled (for safety)
     /// - TTL cleaning enabled with specified duration
@@ -192,7 +180,6 @@ impl SyncEngine {
         Self::new(
             scout_client,
             db_local_path,
-            Some(DEFAULT_INTERVAL_FLUSH_SESSIONS_MS),
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             false, // Remove failed records disabled by default for safety
             Some(ttl_secs),
@@ -1201,63 +1188,6 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Starts the sync engine with automatic flushing at specified intervals.
-    /// This method runs indefinitely until an error occurs or the task is cancelled.
-    /// Use `spawn_background_sync` to run this in a background task.
-    pub async fn start(&mut self) -> Result<(), Error> {
-        if let Some(interval_ms) = self.interval_flush_sessions_ms {
-            tracing::info!(
-                "Starting sync engine with flush interval: {}ms, max items per sync: {:?}",
-                interval_ms,
-                self.max_num_items_per_sync
-            );
-
-            let (shutdown_tx, mut shutdown_rx) = tokio::sync::broadcast::channel(1);
-            self.shutdown_tx = Some(shutdown_tx);
-
-            let mut interval =
-                tokio::time::interval(tokio::time::Duration::from_millis(interval_ms));
-            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-
-            loop {
-                tokio::select! {
-                    _ = interval.tick() => {
-                        match self.flush().await {
-                            Ok(_) => {
-                                tracing::debug!("Periodic flush completed successfully");
-                            }
-                            Err(e) => {
-                                tracing::error!("Periodic flush failed: {}", e);
-                                // Continue running despite failures
-                            }
-                        }
-                    }
-                    _ = shutdown_rx.recv() => {
-                        tracing::info!("Sync engine shutting down gracefully");
-                        break;
-                    }
-                }
-            }
-            Ok(())
-        } else {
-            tracing::warn!("No flush interval specified, sync engine will not run automatically");
-            Ok(())
-        }
-    }
-
-    /// Stops any active auto-flushing session
-    pub fn stop(&mut self) {
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            if let Err(_) = shutdown_tx.send(()) {
-                tracing::warn!("No active sync session to stop");
-            } else {
-                tracing::info!("Sync engine stop signal sent");
-            }
-        } else {
-            tracing::warn!("No active sync session to stop");
-        }
-    }
-
     /// Gets an item from the database by local ID and returns a clone
     pub fn get_item<T: ToInput + Syncable + Clone>(
         &self,
@@ -1574,11 +1504,6 @@ impl SyncEngine {
         Ok(())
     }
 
-    /// Spawns the sync engine in a background task that runs indefinitely.
-    /// Returns a JoinHandle that can be used to await completion or cancel the task.
-    pub fn spawn_background_sync(mut self) -> tokio::task::JoinHandle<Result<(), Error>> {
-        tokio::spawn(async move { self.start().await })
-    }
     /// Returns the path to the local database file
     pub fn get_db_path(&self) -> &str {
         &self.db_local_path
@@ -2227,7 +2152,7 @@ mod tests {
         let database_config = DatabaseConfig::from_env()
             .map_err(|e| Error::msg(format!("System time error: {}", e)))?;
         let scout_client = ScoutClient::new(database_config);
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2263,7 +2188,7 @@ mod tests {
             "Client identification failed - check SCOUT_DEVICE_API_KEY and database connection",
         );
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2987,7 +2912,7 @@ mod tests {
         let mut scout_client = ScoutClient::new(invalid_config);
         scout_client.identify().await?; // This should fail
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -3971,7 +3896,7 @@ mod tests {
         );
 
         // Create sync engine with 1 second TTL for testing
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, false, Some(1))?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, false, Some(1))?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
@@ -4066,8 +3991,8 @@ mod tests {
                 .as_nanos()
         );
 
-        // Create sync engine with remove_failed_records enabled
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, true, None)?;
+        // Create sync engine with remove_failed_records enabled for testing
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true, None)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
@@ -4131,8 +4056,8 @@ mod tests {
                 .as_nanos()
         );
 
-        // Create sync engine with remove_failed_records enabled
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, None, true, None)?;
+        // Create sync engine with remove_failed_records enabled for testing
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true, None)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")

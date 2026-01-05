@@ -14,7 +14,6 @@ Main synchronization engine that manages local database operations and remote sy
 **Properties:**
 - `scout_client: ScoutClient` - Client for remote API communication
 - `db_local_path: String` - Path to local NativeDB database
-- `interval_flush_sessions_ms: Option<u64>` - Auto-sync interval in milliseconds
 - `max_num_items_per_sync: Option<u64>` - Maximum items to sync per batch
 - `remove_failed_records: bool` - Whether to remove critically failed records
 - `ttl_secs: Option<u64>` - Time-to-live for automatic record cleanup
@@ -44,13 +43,12 @@ Creates a new SyncEngine with custom configuration.
 **Parameters:**
 - `scout_client: ScoutClient` - Authenticated Scout client
 - `db_local_path: String` - Local database file path
-- `interval_flush_sessions_ms: Option<u64>` - Auto-sync interval
 - `max_num_items_per_sync: Option<u64>` - Batch size limit
 - `remove_failed_records: bool` - Enable failed record removal
 - `ttl_secs: Option<u64>` - TTL for automatic cleanup
 
 ### `SyncEngine::with_defaults()`
-Creates SyncEngine with standard settings (20s interval, 100 item batches, safe mode).
+Creates SyncEngine with standard settings (100 item batches, safe mode).
 
 ### `SyncEngine::with_failed_record_removal()`
 Creates SyncEngine that removes records with critical sync errors.
@@ -58,13 +56,7 @@ Creates SyncEngine that removes records with critical sync errors.
 ### `SyncEngine::with_ttl_cleaning()`
 Creates SyncEngine with automatic record cleanup after specified duration.
 
-## Lifecycle Methods
-
-### `start()` → `Result<(), Error>`
-Starts automatic background synchronization with configured interval.
-
-### `stop()`
-Gracefully stops background synchronization process.
+## Synchronization Methods
 
 ### `flush()` → `Result<(), Error>`
 Manually triggers immediate synchronization of all pending records.
@@ -121,5 +113,29 @@ Logs summary statistics for record collections.
 
 ## Constants
 
-- `DEFAULT_INTERVAL_FLUSH_SESSIONS_MS: u64 = 20_000` - Default 20-second sync interval
 - `DEFAULT_MAX_NUM_ITEMS_PER_SYNC: u64 = 100` - Default 100-item batch size
+
+## Usage Example
+
+```rust
+use scout_rs::sync::SyncEngine;
+use scout_rs::client::ScoutClient;
+
+// Create authenticated client
+let client = ScoutClient::new("api_key").identify().await?;
+
+// Create sync engine with defaults
+let mut sync_engine = SyncEngine::with_defaults(client, "local.db")?;
+
+// Configure storage for artifact uploads
+sync_engine = sync_engine.with_storage(storage_config)?;
+
+// Add some data to local database
+sync_engine.upsert_items(vec![session])?;
+
+// Manually trigger synchronization when needed
+sync_engine.flush().await?;
+
+// Clean up completed sessions periodically
+sync_engine.clean().await?;
+```
