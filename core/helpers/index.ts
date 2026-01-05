@@ -19,7 +19,7 @@ export * from "./web";
 export * from "./zones";
 export * from "./cache";
 export * from "./operators";
-export * from "./components";
+export * from "./parts";
 export * from "./versions_software";
 export * from "./artifacts";
 export * from "./pins";
