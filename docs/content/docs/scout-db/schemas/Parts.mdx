@@ -8,7 +8,7 @@ description: Table for storing device parts with serial numbers and certificates
 | created_at | timestamp with time zone | DEFAULT now() NOT NULL |
 | device_id | bigint | NOT NULL |
 | serial_number | text | NOT NULL |
-| product_number | text | |
+| product_number | text | NOT NULL|
 | certificate_id | bigint | |
 | status | public.component_status | DEFAULT 'active' NOT NULL |
 | updated_at | timestamp with time zone | DEFAULT now() |
