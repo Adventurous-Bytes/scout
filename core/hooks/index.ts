@@ -10,6 +10,7 @@ export { useScoutRealtimeTags } from "./useScoutRealtimeTags";
 export { useScoutRealtimeSessions } from "./useScoutRealtimeSessions";
 export { useScoutRealtimePlans } from "./useScoutRealtimePlans";
 export { useScoutRealtimePins } from "./useScoutRealtimePins";
+export { useScoutRealtimeParts } from "./useScoutRealtimeParts";
 
 // RTK Query infinite scroll hooks
 export {
