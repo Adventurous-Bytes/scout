@@ -1,0 +1,26 @@
+---
+title: Sync Engine
+description: Synchronize local state to remote state.
+---
+
+# Scout Sync Engine Guide
+
+The Scout Sync Engine is a robust synchronization system that manages bidirectional data flow between local SQLite storage and the remote Scout server. It handles hierarchical data relationships, batch operations, and provides resilient error handling.
+
+## Overview
+
+The sync engine maintains a strict hierarchical sync order to preserve data integrity:
+
+1. **Sessions** (parent entities)
+2. **Connectivity** entries (children of sessions)
+3. **Events** (children of sessions)
+4. **Tags** (children of events)
+
+This order ensures that parent entities are synced before their children, preventing foreign key constraint violations.
+
+## Key Features
+
+- **Batch Operations**: Efficiently syncs multiple items in single requests
+- **Automatic ID Management**: Handles local-to-remote ID mapping and relationship updates
+- **Partial Failure Recovery**: Continues syncing other entities even if one type fails
+- **Configurable Batching**: Control sync frequency and batch sizes
