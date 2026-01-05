@@ -6,6 +6,7 @@ import { server_get_plans_by_herd } from "../helpers/plans";
 import { server_get_layers_by_herd } from "../helpers/layers";
 import { server_get_providers_by_herd } from "../helpers/providers";
 import { server_get_users_with_herd_access } from "../helpers/users";
+import { get_parts_by_herd_id } from "../helpers/parts";
 import {
   IDevice,
   IHerd,
@@ -16,6 +17,7 @@ import {
   IZoneWithActions,
   ISessionSummary,
   ISessionUsageOverTime,
+  IPart,
 } from "../types/db";
 
 import { EnumWebResponse } from "./requests";
@@ -133,14 +135,13 @@ export class HerdModule {
         ),
       ]);
 
-      // Load devices
+      // Load devices and parts in parallel
       const devicesPromise = get_devices_by_herd(herd.id, client);
+      const partsPromise = get_parts_by_herd_id(client, herd.id);
 
-      // Wait for both devices and herd-level data
-      const [deviceResponse, herdLevelResults] = await Promise.all([
-        devicesPromise,
-        herdLevelPromises,
-      ]);
+      // Wait for devices, parts, and herd-level data
+      const [deviceResponse, partsResponse, herdLevelResults] =
+        await Promise.all([devicesPromise, partsPromise, herdLevelPromises]);
 
       // Check devices response
       if (
@@ -151,6 +152,20 @@ export class HerdModule {
         return new HerdModule(herd, [], Date.now());
       }
       const new_devices = deviceResponse.data;
+
+      // Get parts data (optional - don't fail if parts can't be loaded)
+      let parts_data: IPart[] = [];
+      if (
+        partsResponse.status !== EnumWebResponse.ERROR &&
+        partsResponse.data
+      ) {
+        parts_data = partsResponse.data;
+      } else {
+        console.warn(
+          `[HerdModule] Failed to load parts for herd ${herd.id}:`,
+          partsResponse.status,
+        );
+      }
 
       // Load API keys for devices if we have any
       if (new_devices.length > 0) {
@@ -166,6 +181,15 @@ export class HerdModule {
         } catch (error) {
           console.error(`[HerdModule] Failed to load API keys:`, error);
           // Continue without API keys
+        }
+      }
+
+      // Associate parts with devices
+      if (parts_data.length > 0) {
+        for (const device of new_devices) {
+          device.parts = parts_data.filter(
+            (part) => part.device_id === device.id,
+          );
         }
       }
 

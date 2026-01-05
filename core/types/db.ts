@@ -14,6 +14,7 @@ export type IUser = User;
 export type IDevice =
   Database["public"]["CompositeTypes"]["device_pretty_location"] & {
     api_keys_scout?: IApiKeyScout[];
+    parts?: IPart[];
   };
 export type IPin = Database["public"]["CompositeTypes"]["pins_pretty_location"];
 export type IEvent = Database["public"]["Tables"]["events"]["Row"];
@@ -33,7 +34,7 @@ export type IHeartbeat = Database["public"]["Tables"]["heartbeats"]["Row"];
 export type IOperator = Database["public"]["Tables"]["operators"]["Row"];
 
 export type IProvider = Database["public"]["Tables"]["providers"]["Row"];
-export type IComponent = Database["public"]["Tables"]["components"]["Row"];
+export type IPart = Database["public"]["Tables"]["parts"]["Row"];
 export type IVersionsSoftware =
   Database["public"]["Tables"]["versions_software"]["Row"];
 export type IArtifact = Database["public"]["Tables"]["artifacts"]["Row"];
@@ -68,8 +69,7 @@ export type ISessionUsageOverTime =
   Database["public"]["Functions"]["get_session_usage_over_time"]["Returns"];
 
 // Insert types
-export type ComponentInsert =
-  Database["public"]["Tables"]["components"]["Insert"];
+export type PartInsert = Database["public"]["Tables"]["parts"]["Insert"];
 export type VersionsSoftwareInsert =
   Database["public"]["Tables"]["versions_software"]["Insert"];
 export type ArtifactInsert =

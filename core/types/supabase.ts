@@ -173,54 +173,6 @@ export type Database = {
           },
         ]
       }
-      components: {
-        Row: {
-          certificate_id: number | null
-          created_at: string
-          device_id: number
-          id: number
-          product_number: string | null
-          serial_number: string
-          status: Database["public"]["Enums"]["component_status"]
-          updated_at: string | null
-        }
-        Insert: {
-          certificate_id?: number | null
-          created_at?: string
-          device_id: number
-          id?: number
-          product_number?: string | null
-          serial_number: string
-          status?: Database["public"]["Enums"]["component_status"]
-          updated_at?: string | null
-        }
-        Update: {
-          certificate_id?: number | null
-          created_at?: string
-          device_id?: number
-          id?: number
-          product_number?: string | null
-          serial_number?: string
-          status?: Database["public"]["Enums"]["component_status"]
-          updated_at?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "components_certificate_id_fkey"
-            columns: ["certificate_id"]
-            isOneToOne: false
-            referencedRelation: "certificates"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "components_device_id_fkey"
-            columns: ["device_id"]
-            isOneToOne: false
-            referencedRelation: "devices"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       connectivity: {
         Row: {
           altitude: number
@@ -577,6 +529,54 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      parts: {
+        Row: {
+          certificate_id: number | null
+          created_at: string
+          device_id: number
+          id: number
+          product_number: string | null
+          serial_number: string
+          status: Database["public"]["Enums"]["component_status"]
+          updated_at: string | null
+        }
+        Insert: {
+          certificate_id?: number | null
+          created_at?: string
+          device_id: number
+          id?: number
+          product_number?: string | null
+          serial_number: string
+          status?: Database["public"]["Enums"]["component_status"]
+          updated_at?: string | null
+        }
+        Update: {
+          certificate_id?: number | null
+          created_at?: string
+          device_id?: number
+          id?: number
+          product_number?: string | null
+          serial_number?: string
+          status?: Database["public"]["Enums"]["component_status"]
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "parts_certificate_id_fkey"
+            columns: ["certificate_id"]
+            isOneToOne: false
+            referencedRelation: "certificates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parts_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
             referencedColumns: ["id"]
           },
         ]
