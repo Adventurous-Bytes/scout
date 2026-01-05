@@ -1,6 +1,6 @@
 {
   "name": "@adventurelabs/scout-core",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Core utilities and helpers for Adventure Labs Scout applications",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
