@@ -1,0 +1,73 @@
+---
+title: Contributing
+description: Guide for contributing to Scout database development
+---
+
+# Contributing to Scout Database
+
+## Repository
+
+The Scout project is hosted at: https://github.com/Adventurous-Bytes/scout
+
+## Prerequisites
+
+1. Install a container runtime compatible with Docker APIs. For example, mac has [Docker Desktop](https://www.docker.com/products/docker-desktop).
+2. Download the [Supabase CLI](https://supabase.com/docs/guides/cli)
+3. Ensure you have access to a Scout database instance
+
+## Development Setup
+
+### Initial Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/Adventurous-Bytes/scout.git
+cd scout
+
+# Initialize Supabase
+supabase init
+supabase login
+
+# Link to the hosted database instance
+supabase link
+```
+
+### Database Development
+
+#### Creating Database Changes
+
+1. Make your schema changes locally using [SQL migration files](https://github.com/Adventurous-Bytes/scout/tree/main/database/migrations)
+2. Test your changes against the local development database
+3. Apply changes using the [supabase sql editor](https://supabase.com/features/sql-editor)
+
+#### Updating Database Schema
+
+```bash
+# Dump the current database schema
+supabase db dump -f database/dump.sql
+```
+
+#### Generating Types
+
+After schema changes, regenerate TypeScript types:
+
+```bash
+# Generate updated TypeScript types
+supabase gen types typescript --project-id "nfgpianoyribtvkqbjeq" --schema public > core/types/supabase.ts
+```
+
+## Contribution Workflow
+
+1. **Fork** the repository
+2. **Create** a feature branch from `main` - for example `feat/new-feature
+3. **Test** your changes in a Next.js application (TODO: make it easier to test in operating environment)
+4. **Update** [documentation](https://github.com/Adventurous-Bytes/scout/tree/main/docs) if needed
+5. **Submit** a pull request with clear description of changes and Testing
+
+## Database Guidelines
+
+- Always use migration files for schema changes
+- Include Row Level Security (RLS) policies for new tables
+- Follow existing naming conventions
+- Ensure schema stability by preserving existing interfaces
+- Document new tables in the schema documentation

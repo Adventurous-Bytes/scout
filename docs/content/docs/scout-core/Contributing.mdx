@@ -1,0 +1,58 @@
+---
+title: Contributing
+description: Guide for contributing to Scout Core web library development
+---
+
+# Contributing to Scout Core
+
+## Repository
+
+The Scout project is hosted at: https://github.com/Adventurous-Bytes/scout
+
+## Prerequisites
+
+1. Node.js (version 18 or higher)
+2. [`yarn`](https://classic.yarnpkg.com/lang/en/docs/install/#mac-stable) package manager
+3. Familiarity with react and redux
+
+## Development Setup
+
+### Initial Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/Adventurous-Bytes/scout.git
+cd scout
+
+# Install dependencies
+yarn
+
+# Set up environment variables
+cp .env.example .env.local
+# Edit .env.local with your configuration
+```
+
+
+#### Subsystems
+
+- **Hooks**: Located in `core/hooks/` for data fetching and real-time updates
+- **Types**: Located in `core/types/` for TypeScript definitions
+- **Helpers**: Located in `core/helpers/` for API interactions
+- **Store**: Located in `core/store/` for Redux state management
+
+#### Type Generation
+
+When the database schema changes, update types:
+
+```bash
+# Generate updated Supabase types
+supabase gen types typescript --project-id "nfgpianoyribtvkqbjeq" --schema public > core/types/supabase.ts
+```
+
+## Contribution Workflow
+
+1. **Fork** the repository
+2. **Create** a feature branch from `main` - for example `feat/new-feature
+3. **Test** your changes in a Next.js application (TODO: make it easier to test in operating environment)
+4. **Update** [documentation](https://github.com/Adventurous-Bytes/scout/tree/main/docs) if needed
+5. **Submit** a pull request with clear description of changes and Testing
