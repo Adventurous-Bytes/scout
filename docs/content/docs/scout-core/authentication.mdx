@@ -15,6 +15,7 @@ Client authentication has the following high level attributes:
 sequenceDiagram
     participant User
     participant Client as Web App
+    participant Edge as Edge Server (Middleware)
     participant Supabase as Supabase Auth
     participant Resend as Email Provider
     
@@ -30,9 +31,13 @@ sequenceDiagram
     
     Client->>User: Authenticated session
     
-    Note over User,Supabase: Session Management
-    Client->>Supabase: API requests with Access Token
-    alt Token expired
+    Note over User,Edge: Session Validation
+    Client->>Edge: Request with JWT in cookies
+    Note over Edge: Validate JWT locally<br/>No database call needed
+    alt JWT valid
+        Edge->>Client: Allow request
+    else JWT expired/invalid
+        Edge->>Client: Redirect to login
         Client->>Supabase: Exchange Refresh Token
         Supabase->>Client: New token pair
     end
