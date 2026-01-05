@@ -1,33 +1,42 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-export async function updateSession(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({
-    request,
-  });
+export interface IOptionsMiddlewareAuth {
+  allowed_email_domains?: string[];
+  allowed_page_paths_without_auth: string[];
+  login_page_path: string;
+}
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            request.cookies.set(name, value),
-          );
-          supabaseResponse = NextResponse.next({
-            request,
-          });
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options),
-          );
-        },
+export async function updateSession(
+  request: NextRequest,
+  options: IOptionsMiddlewareAuth,
+) {
+  // Validate environment variables
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error("Missing required Supabase environment variables");
+  }
+
+  let supabaseResponse = NextResponse.next({ request });
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) =>
+          request.cookies.set(name, value),
+        );
+        supabaseResponse = NextResponse.next({ request });
+        cookiesToSet.forEach(({ name, value, options }) =>
+          supabaseResponse.cookies.set(name, value, options),
+        );
       },
     },
-  );
+  });
 
   // IMPORTANT: Avoid writing any logic between createServerClient and
   // supabase.auth.getClaims(). A simple mistake could make it very hard to debug
@@ -35,14 +44,28 @@ export async function updateSession(request: NextRequest) {
 
   const { data: claims, error } = await supabase.auth.getClaims();
 
-  if (
-    (error || !claims?.claims?.sub) &&
-    !request.nextUrl.pathname.startsWith("/auth/login") &&
-    !request.nextUrl.pathname.startsWith("/auth")
-  ) {
-    // no valid claims, potentially respond by redirecting the user to the login page
+  // Check if current path is allowed without authentication
+  const isPublicPath = options.allowed_page_paths_without_auth.some((page) =>
+    request.nextUrl.pathname.startsWith(page),
+  );
+
+  if (isPublicPath) {
+    return supabaseResponse;
+  }
+
+  // Check authentication requirements
+  const hasValidClaims = !error && claims?.claims?.sub;
+  const hasValidEmail =
+    claims?.claims?.email &&
+    (!options.allowed_email_domains ||
+      options.allowed_email_domains.some((domain) =>
+        claims.claims.email!.endsWith(`@${domain}`),
+      ));
+
+  if (!hasValidClaims || (claims?.claims?.email && !hasValidEmail)) {
+    // no valid claims - respond by redirecting the user to the login page
     const url = request.nextUrl.clone();
-    url.pathname = "/auth/login";
+    url.pathname = options.login_page_path;
     return NextResponse.redirect(url);
   }
 
