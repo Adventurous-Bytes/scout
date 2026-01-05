@@ -1,0 +1,21 @@
+---
+title: Parts
+description: Table for storing device parts with serial numbers and certificates
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL |
+| created_at | timestamp with time zone | DEFAULT now() NOT NULL |
+| device_id | bigint | NOT NULL |
+| serial_number | text | NOT NULL |
+| product_number | text | |
+| certificate_id | bigint | |
+| status | public.component_status | DEFAULT 'active' NOT NULL |
+| updated_at | timestamp with time zone | DEFAULT now() |
+
+## Security Policies (RLS)
+
+This table has Row Level Security (RLS) enabled with the following policies:
+
+- **Read Access**: Device API keys within the same herd as the associated device OR users with view role in the same herd
+- **Create/Update/Delete**: Only admins or the device associated with the part can modify records
