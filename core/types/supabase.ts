@@ -537,9 +537,10 @@ export type Database = {
         Row: {
           certificate_id: number | null
           created_at: string
+          deleted_at: string | null
           device_id: number
           id: number
-          product_number: string | null
+          product_number: string
           serial_number: string
           status: Database["public"]["Enums"]["component_status"]
           updated_at: string | null
@@ -547,9 +548,10 @@ export type Database = {
         Insert: {
           certificate_id?: number | null
           created_at?: string
+          deleted_at?: string | null
           device_id: number
           id?: number
-          product_number?: string | null
+          product_number: string
           serial_number: string
           status?: Database["public"]["Enums"]["component_status"]
           updated_at?: string | null
@@ -557,9 +559,10 @@ export type Database = {
         Update: {
           certificate_id?: number | null
           created_at?: string
+          deleted_at?: string | null
           device_id?: number
           id?: number
-          product_number?: string | null
+          product_number?: string
           serial_number?: string
           status?: Database["public"]["Enums"]["component_status"]
           updated_at?: string | null
