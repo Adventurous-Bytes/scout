@@ -2,11 +2,7 @@
 
 import { newServerClient } from "../supabase/server";
 import { IArtifact, IArtifactWithMediaUrl } from "../types/db";
-import {
-  EnumWebResponse,
-  IWebResponse,
-  IWebResponseCompatible,
-} from "../types/requests";
+import { IWebResponse, IWebResponseCompatible } from "../types/requests";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { generateSignedUrlsBatch, generateSignedUrl } from "./storage";
 
