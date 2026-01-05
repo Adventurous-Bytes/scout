@@ -1,4 +1,2 @@
-/database/**
-!database/README.md
 /supabase/
 .DS_STORE
