@@ -25,7 +25,6 @@ export function useScoutRealtimeParts(
   scoutSupabase: SupabaseClient<Database>,
 ): [RealtimeData<IPart> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const dispatch = useAppDispatch();
   const [latestPartUpdate, setLatestPartUpdate] =
     useState<RealtimeData<IPart> | null>(null);
 
@@ -33,103 +32,45 @@ export function useScoutRealtimeParts(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  const herdModules = useSelector(
-    (state: RootState) => state.scout.herd_modules,
-  );
+  // Part broadcast handler - just pass data, don't mutate state
+  const handlePartBroadcast = useCallback((payload: BroadcastPayload) => {
+    console.log("[Parts] Broadcast received:", payload.payload.operation);
 
-  // Part broadcast handler
-  const handlePartBroadcast = useCallback(
-    (payload: BroadcastPayload) => {
-      console.log("[Parts] Broadcast received:", payload.payload.operation);
+    const data = payload.payload;
+    const partData = data.record || data.old_record;
+    if (!partData) return;
 
-      const data = payload.payload;
-      const partData = data.record || data.old_record;
-      if (!partData) return;
+    let operation: EnumRealtimeOperation;
 
-      let operation: EnumRealtimeOperation;
-
-      // Find the target herd module and device
-      const herdModule = herdModules.find(
-        (hm) => hm.herd.id.toString() === activeHerdId,
-      );
-
-      if (!herdModule) {
-        console.warn("[Parts] No herd module found for active herd");
+    switch (data.operation) {
+      case "INSERT":
+        operation = EnumRealtimeOperation.INSERT;
+        console.log("[Parts] New part received:", data.record);
+        break;
+      case "UPDATE":
+        operation = EnumRealtimeOperation.UPDATE;
+        console.log("[Parts] Part updated:", data.record);
+        break;
+      case "DELETE":
+        operation = EnumRealtimeOperation.DELETE;
+        console.log("[Parts] Part deleted:", data.old_record);
+        break;
+      default:
         return;
-      }
+    }
 
-      const targetDevice = herdModule.devices.find(
-        (device) => device.id === partData.device_id,
-      );
+    const realtimeData: RealtimeData<IPart> = {
+      data: partData,
+      operation,
+    };
 
-      if (!targetDevice) {
-        console.warn(`[Parts] No device found with ID: ${partData.device_id}`);
-        return;
-      }
+    console.log(
+      `[scout-core realtime] PART ${data.operation} received:`,
+      JSON.stringify(realtimeData),
+    );
 
-      // Ensure device has parts array
-      if (!targetDevice.parts) {
-        targetDevice.parts = [];
-      }
-
-      switch (data.operation) {
-        case "INSERT":
-          operation = EnumRealtimeOperation.INSERT;
-          if (data.record) {
-            console.log("[Parts] New part received:", data.record);
-            // Add part to device's parts array if not already present
-            const existingPartIndex = targetDevice.parts.findIndex(
-              (p) => p.id === data.record!.id,
-            );
-            if (existingPartIndex === -1) {
-              targetDevice.parts.push(data.record);
-            }
-          }
-          break;
-        case "UPDATE":
-          operation = EnumRealtimeOperation.UPDATE;
-          if (data.record) {
-            console.log("[Parts] Part updated:", data.record);
-            // Update existing part in device's parts array
-            const partIndex = targetDevice.parts.findIndex(
-              (p) => p.id === data.record!.id,
-            );
-            if (partIndex !== -1) {
-              targetDevice.parts[partIndex] = data.record;
-            } else {
-              // Part not found, add it
-              targetDevice.parts.push(data.record);
-            }
-          }
-          break;
-        case "DELETE":
-          operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record) {
-            console.log("[Parts] Part deleted:", data.old_record);
-            // Remove part from device's parts array
-            targetDevice.parts = targetDevice.parts.filter(
-              (p) => p.id !== data.old_record!.id,
-            );
-          }
-          break;
-        default:
-          return;
-      }
-
-      const realtimeData: RealtimeData<IPart> = {
-        data: partData,
-        operation,
-      };
-
-      console.log(
-        `[scout-core realtime] PART ${data.operation} received:`,
-        JSON.stringify(realtimeData),
-      );
-
-      setLatestPartUpdate(realtimeData);
-    },
-    [dispatch, activeHerdId, herdModules],
-  );
+    setLatestPartUpdate(realtimeData);
+  }, []);
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {

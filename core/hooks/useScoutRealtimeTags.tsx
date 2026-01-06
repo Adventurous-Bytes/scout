@@ -1,6 +1,5 @@
 "use client";
 
-import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
 
@@ -9,7 +8,6 @@ import { Database } from "../types/supabase";
 import { ITagPrettyLocation } from "../types/db";
 import { RootState } from "../store/scout";
 import { RealtimeData, EnumRealtimeOperation } from "../types/realtime";
-import { scoutApi } from "../store/api";
 
 type BroadcastPayload = {
   type: "broadcast";
@@ -25,10 +23,8 @@ type BroadcastPayload = {
 
 export function useScoutRealtimeTags(
   scoutSupabase: SupabaseClient<Database>,
-  invalidateRTKQuery: boolean = true,
 ): [RealtimeData<ITagPrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const dispatch = useAppDispatch();
   const [latestTagUpdate, setLatestTagUpdate] =
     useState<RealtimeData<ITagPrettyLocation> | null>(null);
 
@@ -36,69 +32,44 @@ export function useScoutRealtimeTags(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  // Tag broadcast handler
-  const handleTagBroadcast = useCallback(
-    (payload: BroadcastPayload) => {
-      console.log("[Tags] Broadcast received:", payload.payload.operation);
+  // Tag broadcast handler - just pass data, don't mutate state
+  const handleTagBroadcast = useCallback((payload: BroadcastPayload) => {
+    console.log("[Tags] Broadcast received:", payload.payload.operation);
 
-      const data = payload.payload;
+    const data = payload.payload;
+    const tagData = data.record || data.old_record;
+    if (!tagData) return;
 
-      const tagData = data.record || data.old_record;
-      if (!tagData) return;
+    let operation: EnumRealtimeOperation;
+    switch (data.operation) {
+      case "INSERT":
+        operation = EnumRealtimeOperation.INSERT;
+        console.log("[Tags] New tag received:", data.record);
+        break;
+      case "UPDATE":
+        operation = EnumRealtimeOperation.UPDATE;
+        console.log("[Tags] Tag updated:", data.record);
+        break;
+      case "DELETE":
+        operation = EnumRealtimeOperation.DELETE;
+        console.log("[Tags] Tag deleted:", data.old_record);
+        break;
+      default:
+        return;
+    }
 
-      let operation: EnumRealtimeOperation;
-      switch (data.operation) {
-        case "INSERT":
-          operation = EnumRealtimeOperation.INSERT;
-          if (data.record && invalidateRTKQuery) {
-            console.log(
-              "[Tags] New tag received, invalidating RTK Query cache:",
-              data.record,
-            );
-            // Tags are part of events, so invalidate events queries
-            dispatch(scoutApi.util.invalidateTags(["Event"]));
-          }
-          break;
-        case "UPDATE":
-          operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && invalidateRTKQuery) {
-            console.log(
-              "[Tags] Tag updated, invalidating RTK Query cache:",
-              data.record,
-            );
-            // Invalidate events queries since tags are embedded in events
-            dispatch(scoutApi.util.invalidateTags(["Event"]));
-          }
-          break;
-        case "DELETE":
-          operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record && invalidateRTKQuery) {
-            console.log(
-              "[Tags] Tag deleted, invalidating RTK Query cache:",
-              data.old_record,
-            );
-            // Invalidate events queries since tags are embedded in events
-            dispatch(scoutApi.util.invalidateTags(["Event"]));
-          }
-          break;
-        default:
-          return;
-      }
+    const realtimeData: RealtimeData<ITagPrettyLocation> = {
+      data: tagData,
+      operation,
+    };
 
-      const realtimeData: RealtimeData<ITagPrettyLocation> = {
-        data: tagData,
-        operation,
-      };
+    console.log(
+      `[scout-core realtime] TAG ${data.operation} received:`,
+      JSON.stringify(realtimeData),
+    );
 
-      console.log(
-        `[scout-core realtime] TAG ${data.operation} received:`,
-        JSON.stringify(realtimeData),
-      );
-
-      setLatestTagUpdate(realtimeData);
-    },
-    [dispatch, invalidateRTKQuery],
-  );
+    setLatestTagUpdate(realtimeData);
+  }, []);
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {

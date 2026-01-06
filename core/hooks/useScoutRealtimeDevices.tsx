@@ -1,9 +1,7 @@
 "use client";
 
-import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { addDevice, deleteDevice, updateDevice } from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { IDevicePrettyLocation } from "../types/db";
@@ -26,7 +24,6 @@ export function useScoutRealtimeDevices(
   scoutSupabase: SupabaseClient<Database>,
 ): [RealtimeData<IDevicePrettyLocation> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const dispatch = useAppDispatch();
   const [latestDeviceUpdate, setLatestDeviceUpdate] =
     useState<RealtimeData<IDevicePrettyLocation> | null>(null);
 
@@ -34,55 +31,44 @@ export function useScoutRealtimeDevices(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  // Device broadcast handler
-  const handleDeviceBroadcast = useCallback(
-    (payload: BroadcastPayload) => {
-      console.log("[Devices] Broadcast received:", payload.payload.operation);
+  // Device broadcast handler - just pass data, don't mutate state
+  const handleDeviceBroadcast = useCallback((payload: BroadcastPayload) => {
+    console.log("[Devices] Broadcast received:", payload.payload.operation);
 
-      const data = payload.payload;
+    const data = payload.payload;
+    const deviceData = data.record || data.old_record;
+    if (!deviceData) return;
 
-      const deviceData = data.record || data.old_record;
-      if (!deviceData) return;
+    let operation: EnumRealtimeOperation;
+    switch (data.operation) {
+      case "INSERT":
+        operation = EnumRealtimeOperation.INSERT;
+        console.log("[Devices] New device received:", data.record);
+        break;
+      case "UPDATE":
+        operation = EnumRealtimeOperation.UPDATE;
+        console.log("[Devices] Device updated:", data.record);
+        break;
+      case "DELETE":
+        operation = EnumRealtimeOperation.DELETE;
+        console.log("[Devices] Device deleted:", data.old_record);
+        break;
+      default:
+        return;
+    }
 
-      let operation: EnumRealtimeOperation;
-      switch (data.operation) {
-        case "INSERT":
-          operation = EnumRealtimeOperation.INSERT;
-          if (data.record) {
-            console.log("[Devices] New device received:", data.record);
-            dispatch(addDevice(data.record));
-          }
-          break;
-        case "UPDATE":
-          operation = EnumRealtimeOperation.UPDATE;
-          if (data.record) {
-            dispatch(updateDevice(data.record));
-          }
-          break;
-        case "DELETE":
-          operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record) {
-            dispatch(deleteDevice(data.old_record));
-          }
-          break;
-        default:
-          return;
-      }
+    const realtimeData: RealtimeData<IDevicePrettyLocation> = {
+      data: deviceData,
+      operation,
+    };
 
-      const realtimeData: RealtimeData<IDevicePrettyLocation> = {
-        data: deviceData,
-        operation,
-      };
+    console.log(
+      `[scout-core realtime] DEVICE ${data.operation} received:`,
+      JSON.stringify(realtimeData),
+    );
 
-      console.log(
-        `[scout-core realtime] DEVICE ${data.operation} received:`,
-        JSON.stringify(realtimeData),
-      );
-
-      setLatestDeviceUpdate(realtimeData);
-    },
-    [dispatch],
-  );
+    setLatestDeviceUpdate(realtimeData);
+  }, []);
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {

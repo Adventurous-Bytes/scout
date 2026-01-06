@@ -22,7 +22,6 @@ type BroadcastPayload = {
 
 export function useScoutRealtimePins(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges?: boolean,
 ): [RealtimeData<IPin> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
   const [latestPinUpdate, setLatestPinUpdate] =
@@ -32,55 +31,44 @@ export function useScoutRealtimePins(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  // Pin broadcast handler
-  const handlePinBroadcast = useCallback(
-    (payload: BroadcastPayload) => {
-      console.log("[Pins] Broadcast received:", payload.payload.operation);
+  // Pin broadcast handler - just pass data, don't mutate state
+  const handlePinBroadcast = useCallback((payload: BroadcastPayload) => {
+    console.log("[Pins] Broadcast received:", payload.payload.operation);
 
-      const data = payload.payload;
+    const data = payload.payload;
+    const pinData = data.record || data.old_record;
+    if (!pinData) return;
 
-      const pinData = data.record || data.old_record;
-      if (!pinData) return;
+    let operation: EnumRealtimeOperation;
+    switch (data.operation) {
+      case "INSERT":
+        operation = EnumRealtimeOperation.INSERT;
+        console.log("[Pins] New pin received:", data.record);
+        break;
+      case "UPDATE":
+        operation = EnumRealtimeOperation.UPDATE;
+        console.log("[Pins] Pin updated:", data.record);
+        break;
+      case "DELETE":
+        operation = EnumRealtimeOperation.DELETE;
+        console.log("[Pins] Pin deleted:", data.old_record);
+        break;
+      default:
+        return;
+    }
 
-      let operation: EnumRealtimeOperation;
-      switch (data.operation) {
-        case "INSERT":
-          operation = EnumRealtimeOperation.INSERT;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Pins] New pin received:", data.record);
-            // TODO: dispatch(addPinToStore(data.record));
-          }
-          break;
-        case "UPDATE":
-          operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            // TODO: dispatch(updatePinInStore(data.record));
-          }
-          break;
-        case "DELETE":
-          operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record && shouldUpdateGlobalStateOnChanges) {
-            // TODO: dispatch(deletePinFromStore(data.old_record));
-          }
-          break;
-        default:
-          return;
-      }
+    const realtimeData: RealtimeData<IPin> = {
+      data: pinData,
+      operation,
+    };
 
-      const realtimeData: RealtimeData<IPin> = {
-        data: pinData,
-        operation,
-      };
+    console.log(
+      `[scout-core realtime] PIN ${data.operation} received for pin "${pinData.name}" (${pinData.id}):`,
+      JSON.stringify(realtimeData),
+    );
 
-      console.log(
-        `[scout-core realtime] PIN ${data.operation} received for pin "${pinData.name}" (${pinData.id}):`,
-        JSON.stringify(realtimeData),
-      );
-
-      setLatestPinUpdate(realtimeData);
-    },
-    [shouldUpdateGlobalStateOnChanges],
-  );
+    setLatestPinUpdate(realtimeData);
+  }, []);
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {

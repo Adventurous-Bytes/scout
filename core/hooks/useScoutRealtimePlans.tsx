@@ -1,9 +1,7 @@
 "use client";
 
-import { useAppDispatch } from "../store/hooks";
 import { useSelector } from "react-redux";
 import { useEffect, useRef, useCallback, useState } from "react";
-import { addPlan, deletePlan, updatePlan } from "../store/scout";
 import { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
 import { IPlan } from "../types/db";
@@ -24,10 +22,8 @@ type BroadcastPayload = {
 
 export function useScoutRealtimePlans(
   scoutSupabase: SupabaseClient<Database>,
-  shouldUpdateGlobalStateOnChanges: boolean,
 ): [RealtimeData<IPlan> | null, () => void] {
   const channels = useRef<RealtimeChannel[]>([]);
-  const dispatch = useAppDispatch();
   const [latestPlanUpdate, setLatestPlanUpdate] =
     useState<RealtimeData<IPlan> | null>(null);
 
@@ -35,55 +31,44 @@ export function useScoutRealtimePlans(
     (state: RootState) => state.scout.active_herd_id,
   );
 
-  // Plan broadcast handler
-  const handlePlanBroadcast = useCallback(
-    (payload: BroadcastPayload) => {
-      console.log("[Plans] Broadcast received:", payload.payload.operation);
+  // Plan broadcast handler - just pass data, don't mutate state
+  const handlePlanBroadcast = useCallback((payload: BroadcastPayload) => {
+    console.log("[Plans] Broadcast received:", payload.payload.operation);
 
-      const data = payload.payload;
+    const data = payload.payload;
+    const planData = data.record || data.old_record;
+    if (!planData) return;
 
-      const planData = data.record || data.old_record;
-      if (!planData) return;
+    let operation: EnumRealtimeOperation;
+    switch (data.operation) {
+      case "INSERT":
+        operation = EnumRealtimeOperation.INSERT;
+        console.log("[Plans] New plan received:", data.record);
+        break;
+      case "UPDATE":
+        operation = EnumRealtimeOperation.UPDATE;
+        console.log("[Plans] Plan updated:", data.record);
+        break;
+      case "DELETE":
+        operation = EnumRealtimeOperation.DELETE;
+        console.log("[Plans] Plan deleted:", data.old_record);
+        break;
+      default:
+        return;
+    }
 
-      let operation: EnumRealtimeOperation;
-      switch (data.operation) {
-        case "INSERT":
-          operation = EnumRealtimeOperation.INSERT;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            console.log("[Plans] New plan received:", data.record);
-            dispatch(addPlan(data.record));
-          }
-          break;
-        case "UPDATE":
-          operation = EnumRealtimeOperation.UPDATE;
-          if (data.record && shouldUpdateGlobalStateOnChanges) {
-            dispatch(updatePlan(data.record));
-          }
-          break;
-        case "DELETE":
-          operation = EnumRealtimeOperation.DELETE;
-          if (data.old_record && shouldUpdateGlobalStateOnChanges) {
-            dispatch(deletePlan(data.old_record));
-          }
-          break;
-        default:
-          return;
-      }
+    const realtimeData: RealtimeData<IPlan> = {
+      data: planData,
+      operation,
+    };
 
-      const realtimeData: RealtimeData<IPlan> = {
-        data: planData,
-        operation,
-      };
+    console.log(
+      `[scout-core realtime] PLAN ${data.operation} received:`,
+      JSON.stringify(realtimeData),
+    );
 
-      console.log(
-        `[scout-core realtime] PLAN ${data.operation} received:`,
-        JSON.stringify(realtimeData),
-      );
-
-      setLatestPlanUpdate(realtimeData);
-    },
-    [dispatch],
-  );
+    setLatestPlanUpdate(realtimeData);
+  }, []);
 
   // Clear latest update
   const clearLatestUpdate = useCallback(() => {
