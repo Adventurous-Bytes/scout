@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::path::Path;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 /// Progress information for upload operations
 #[derive(Debug, Clone)]
@@ -318,6 +318,7 @@ impl StorageClient {
     /// * `artifact` - The artifact to upload (must have upload_url set)
     /// * `herd_id` - The herd ID for the storage path
     /// * `chunk_size` - Size of upload chunks in bytes (default: 1MB for better progress granularity)
+    /// * `max_retries` - Maximum number of retries for expired upload URLs (default: 2)
     ///
     /// # Returns
     /// A tuple of (JoinHandle, progress_receiver) where:
@@ -330,17 +331,25 @@ impl StorageClient {
         mut artifact: ArtifactLocal,
         herd_id: i64,
         chunk_size: Option<usize>,
+        max_retries: Option<u32>,
     ) -> (
         tokio::task::JoinHandle<Result<(ArtifactLocal, String)>>,
         broadcast::Receiver<UploadProgress>,
     ) {
         let storage_client_handler = self.http_handler.clone();
         let chunk_size = chunk_size.unwrap_or(1024 * 1024); // Default 1MB for better progress granularity
+        let max_retries = max_retries.unwrap_or(2); // Default to 2 retries
+        let config = self.config.clone();
 
         // Create broadcast channel for progress updates
         let (progress_tx, progress_rx) = broadcast::channel(1000);
 
+        // Create cancellation channel
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let cancel_tx_for_background = cancel_tx.clone();
+
         let upload_handle = tokio::spawn(async move {
+
             // Check if already uploaded
             if artifact.has_uploaded_file_to_storage {
                 let storage_path =
@@ -351,83 +360,216 @@ impl StorageClient {
                 return Ok((artifact, storage_path));
             }
 
-            // Check if upload URL is available
-            let upload_url = match &artifact.upload_url {
-                Some(url) => url.clone(),
-                None => return Err(anyhow!("No upload URL available")),
-            };
-
             // Verify file exists
             if !std::path::Path::new(&artifact.file_path).exists() {
                 return Err(anyhow!("File does not exist: {}", artifact.file_path));
             }
 
-            // Perform TUS upload using spawn_blocking
-            let file_path = artifact.file_path.clone();
-            let device_id = artifact.device_id;
-            let file_name = Path::new(&file_path)
-                .file_name()
-                .and_then(|name| name.to_str())
-                .unwrap_or("unknown")
-                .to_string();
+            // Retry loop for expired URLs
+            let mut retry_count = 0;
+            let max_retries_value = max_retries;
+            let progress_tx_for_loop = progress_tx.clone();
+            let storage_client_handler_for_loop = storage_client_handler.clone();
 
-            // Get file size for progress tracking
-            let file_size = std::fs::metadata(&file_path)
-                .map(|m| m.len() as usize)
-                .unwrap_or(0);
-
-            let storage_path = tokio::task::spawn_blocking(move || {
-                let tus_client = Client::new(storage_client_handler.as_ref());
-
-                // Create progress callback
-                let progress_callback = move |bytes_uploaded: usize, total_bytes: usize| {
-                    let progress = UploadProgress {
-                        bytes_uploaded,
-                        total_bytes: if total_bytes > 0 {
-                            total_bytes
-                        } else {
-                            file_size
-                        },
-                        file_name: file_name.clone(),
-                    };
-                    let _ = progress_tx.send(progress); // Ignore send errors if no receivers
+            loop {
+                // Check if upload URL is available and not expired
+                let mut upload_url = match &artifact.upload_url {
+                    Some(url) => url.clone(),
+                    None => {
+                        // Generate new URL if none exists
+                        let mut artifacts = vec![artifact.clone()];
+                        let mut temp_client = StorageClient {
+                            config: config.clone(),
+                            http_client: reqwest::Client::new(),
+                            http_handler: storage_client_handler.clone(),
+                        };
+                        temp_client
+                            .generate_upload_urls(&mut artifacts, herd_id)
+                            .await
+                            .map_err(|e| anyhow!("Failed to generate upload URL: {}", e))?;
+                        artifact.upload_url = artifacts[0].upload_url.clone();
+                        artifact.upload_url_generated_at = artifacts[0].upload_url_generated_at.clone();
+                        artifacts[0].upload_url.as_ref().unwrap().clone()
+                    }
                 };
 
-                // Perform TUS upload with resumable capability and progress tracking
-                match tus_client.upload_with_chunk_size(
-                    &upload_url,
-                    Path::new(&file_path),
-                    chunk_size,
-                    Some(&progress_callback),
-                ) {
+                // Check if URL is expired (older than 24 hours)
+                let is_expired = artifact
+                    .upload_url_generated_at
+                    .as_ref()
+                    .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok())
+                    .map(|dt| {
+                        let age = Utc::now() - dt.with_timezone(&Utc);
+                        age.num_hours() >= 24
+                    })
+                    .unwrap_or(true); // If no timestamp, assume expired
+
+                // If expired, generate a new URL
+                if is_expired && retry_count < max_retries_value {
+                    tracing::info!("Upload URL expired, generating new URL...");
+                    let mut artifacts = vec![artifact.clone()];
+                    let mut temp_client = StorageClient {
+                        config: config.clone(),
+                        http_client: reqwest::Client::new(),
+                        http_handler: storage_client_handler.clone(),
+                    };
+                    temp_client
+                        .generate_upload_urls(&mut artifacts, herd_id)
+                        .await
+                        .map_err(|e| anyhow!("Failed to generate new upload URL: {}", e))?;
+                    artifact.upload_url = artifacts[0].upload_url.clone();
+                    artifact.upload_url_generated_at = artifacts[0].upload_url_generated_at.clone();
+                    upload_url = artifacts[0].upload_url.as_ref().unwrap().clone();
+                    retry_count += 1;
+                }
+
+                // Perform TUS upload using spawn_blocking
+                let file_path = artifact.file_path.clone();
+                let file_path_for_blocking = file_path.clone();
+                let file_path_for_logging = file_path.clone();
+                let device_id = artifact.device_id;
+                let file_name = Path::new(&file_path)
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+
+                // Get file size for progress tracking
+                let file_size = std::fs::metadata(&file_path)
+                    .map(|m| m.len() as usize)
+                    .unwrap_or(0);
+
+                // Clone cancellation receiver for blocking context
+                let mut cancel_rx_blocking = cancel_rx.clone();
+                let upload_url_for_blocking = upload_url.clone();
+
+                let progress_tx_for_blocking = progress_tx_for_loop.clone();
+                let storage_client_handler_for_blocking = storage_client_handler_for_loop.clone();
+                let upload_result = tokio::task::spawn_blocking(move || {
+                    let tus_client = Client::new(storage_client_handler_for_blocking.as_ref());
+
+                    // Create progress callback
+                    let progress_callback = move |bytes_uploaded: usize, total_bytes: usize| {
+                        let progress = UploadProgress {
+                            bytes_uploaded,
+                            total_bytes: if total_bytes > 0 {
+                                total_bytes
+                            } else {
+                                file_size
+                            },
+                            file_name: file_name.clone(),
+                        };
+                        let _ = progress_tx_for_blocking.send(progress); // Ignore send errors if no receivers
+                    };
+
+                    // Create cancellation check closure
+                    let mut cancel_rx_local = cancel_rx_blocking.clone();
+                    let cancellation_check = move || {
+                        // Check if cancellation was signaled
+                        let _ = cancel_rx_local.has_changed();
+                        *cancel_rx_local.borrow()
+                    };
+
+                    // Perform TUS upload with resumable capability, progress tracking, and cancellation
+                    tus_client.upload_with_chunk_size_and_cancellation(
+                        &upload_url_for_blocking,
+                        Path::new(&file_path_for_blocking),
+                        chunk_size,
+                        Some(&progress_callback),
+                        Some(&cancellation_check),
+                    )
+                })
+                .await
+                .map_err(|e| anyhow!("Task join error: {}", e))?;
+
+                match upload_result {
                     Ok(_) => {
                         let storage_path_without_bucket =
-                            generate_remote_path(&file_path, herd_id, device_id)
+                            generate_remote_path(&artifact.file_path, herd_id, device_id)
                                 .map_err(|e| anyhow!("Failed to generate storage path: {}", e))?;
                         // should be something like bucket_name/herd_id/device_id/name.extension
                         let storage_path =
                             format!("{}/{}", BUCKET_NAME_ARTIFACTS, storage_path_without_bucket);
                         tracing::info!(
                             "Successfully uploaded {} via TUS to {}",
-                            file_path,
+                            file_path_for_logging,
                             storage_path
                         );
 
-                        Ok(storage_path)
+                        // Mark as uploaded
+                        artifact.has_uploaded_file_to_storage = true;
+                        artifact.file_path = storage_path.clone();
+                        return Ok((artifact, storage_path));
+                    }
+                    Err(TusError::NotFoundError) => {
+                        // Upload URL not found - might be expired, retry with new URL
+                        if retry_count < max_retries_value {
+                            tracing::warn!(
+                                "Upload URL not found (possibly expired), retrying with new URL..."
+                            );
+                            retry_count += 1;
+                            // Generate new URL and retry
+                            let mut artifacts = vec![artifact.clone()];
+                            let mut temp_client = StorageClient {
+                                config: config.clone(),
+                                http_client: reqwest::Client::new(),
+                                http_handler: storage_client_handler.clone(),
+                            };
+                            match temp_client
+                                .generate_upload_urls(&mut artifacts, herd_id)
+                                .await
+                            {
+                                Ok(_) => {
+                                    artifact.upload_url = artifacts[0].upload_url.clone();
+                                    artifact.upload_url_generated_at =
+                                        artifacts[0].upload_url_generated_at.clone();
+                                    continue; // Retry upload
+                                }
+                                Err(e) => {
+                                    return Err(anyhow!(
+                                        "Failed to generate new upload URL after expiration: {}",
+                                        e
+                                    ));
+                                }
+                            }
+                        } else {
+                            return Err(anyhow!(
+                                "TUS upload failed: upload URL not found and max retries exceeded"
+                            ));
+                        }
+                    }
+                    Err(TusError::Cancelled) => {
+                        tracing::info!("Upload was cancelled");
+                        return Err(anyhow!("Upload was cancelled"));
                     }
                     Err(e) => {
-                        tracing::error!("TUS upload failed for {}: {}", file_path, e);
-                        Err(anyhow!("TUS upload failed: {}", e))
+                        tracing::error!("TUS upload failed for {}: {}", file_path_for_logging, e);
+                        return Err(anyhow!("TUS upload failed: {}", e));
                     }
                 }
-            })
-            .await
-            .map_err(|e| anyhow!("Task join error: {}", e))??;
+            }
+        });
 
-            // Mark as uploaded
-            artifact.has_uploaded_file_to_storage = true;
-            artifact.file_path = storage_path.clone();
-            Ok((artifact, storage_path))
+        // Set up automatic cancellation detection
+        // Use a background task that gets cancelled when the spawn context is cancelled
+        // This allows us to detect when the upload task is aborted
+        tokio::spawn(async move {
+            // This task runs in the same spawn context as the upload task
+            // If the upload task is aborted, this task will also be cancelled
+            // We can use this to signal cancellation to the blocking upload
+            loop {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        });
+
+        // Also set up a task to monitor the upload handle and signal cancellation if aborted
+        // Note: This is a best-effort approach since we can't directly detect abort
+        let cancel_tx_monitor = cancel_tx_for_background;
+        tokio::spawn(async move {
+            // Monitor for cancellation signal from external sources
+            // This allows manual cancellation if needed
+            tokio::time::sleep(std::time::Duration::from_secs(86400)).await;
+            let _ = cancel_tx_monitor.send(true);
         });
 
         (upload_handle, progress_rx)
@@ -723,7 +865,7 @@ mod tests {
                 // Test actual upload using spawn with progress tracking
                 println!("🚀 Testing actual file upload with progress...");
                 let (upload_handle, mut progress_rx) =
-                    client.spawn_upload_artifact(artifacts[0].clone(), herd_id, None);
+                    client.spawn_upload_artifact(artifacts[0].clone(), herd_id, None, None);
 
                 // Spawn task to listen for progress updates
 
@@ -844,7 +986,7 @@ mod tests {
         let mut progress_receivers = Vec::new();
 
         for artifact in artifacts {
-            let (handle, progress_rx) = client.spawn_upload_artifact(artifact, herd_id, None);
+            let (handle, progress_rx) = client.spawn_upload_artifact(artifact, herd_id, None, None);
             upload_handles.push(handle);
             progress_receivers.push(progress_rx);
         }

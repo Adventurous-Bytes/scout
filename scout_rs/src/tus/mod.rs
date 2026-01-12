@@ -100,6 +100,24 @@ impl<'a> Client<'a> {
         chunk_size: usize,
         progress_callback: Option<&ProgressCallback>,
     ) -> Result<(), Error> {
+        self.upload_with_chunk_size_and_cancellation(
+            url,
+            path,
+            chunk_size,
+            progress_callback,
+            None,
+        )
+    }
+
+    /// Upload a file to the specified upload URL with the given chunk size, optional progress callback, and cancellation check.
+    pub fn upload_with_chunk_size_and_cancellation(
+        &self,
+        url: &str,
+        path: &Path,
+        chunk_size: usize,
+        progress_callback: Option<&ProgressCallback>,
+        cancellation_check: Option<&dyn Fn() -> bool>,
+    ) -> Result<(), Error> {
         let info = self.get_info(url)?;
         let file = File::open(path)?;
         let file_len = file.metadata()?.len();
@@ -117,6 +135,13 @@ impl<'a> Client<'a> {
         reader.seek(SeekFrom::Start(progress as u64))?;
 
         loop {
+            // Check for cancellation before processing each chunk
+            if let Some(check) = cancellation_check {
+                if check() {
+                    return Err(Error::Cancelled);
+                }
+            }
+
             let bytes_read = reader.read(&mut buffer)?;
             if bytes_read == 0 {
                 return Err(Error::FileReadError);
@@ -153,6 +178,13 @@ impl<'a> Client<'a> {
             // Call progress callback if provided
             if let Some(callback) = progress_callback {
                 callback(progress, file_len as usize);
+            }
+
+            // Check for cancellation after each chunk upload
+            if let Some(check) = cancellation_check {
+                if check() {
+                    return Err(Error::Cancelled);
+                }
             }
 
             if progress >= file_len as usize {
@@ -365,6 +397,8 @@ pub enum Error {
     FileTooLarge,
     /// An error occurred in the HTTP handler.
     HttpHandlerError(String),
+    /// The upload was cancelled.
+    Cancelled,
 }
 
 impl Display for Error {
@@ -380,6 +414,7 @@ impl Display for Error {
             Error::WrongUploadOffsetError => "The client tried to upload the file with an incorrect offset".to_string(),
             Error::FileTooLarge => "The specified file is larger that what is supported by the server".to_string(),
             Error::HttpHandlerError(message) => format!("An error occurred in the HTTP handler: {}", message),
+            Error::Cancelled => "The upload was cancelled".to_string(),
         };
 
         write!(f, "{}", message)?;

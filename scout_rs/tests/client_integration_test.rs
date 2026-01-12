@@ -2893,7 +2893,7 @@ async fn test_artifact_upload_integration_impl(_cleanup: &TestCleanup) {
 
     // Step 2: Spawn upload with progress monitoring
     let (upload_handle, mut progress_rx) = sync_engine
-        .spawn_upload_artifact(artifacts[0].clone(), Some(512 * 1024)) // 512KB chunks for more progress updates
+        .spawn_upload_artifact(artifacts[0].clone(), Some(512 * 1024), None) // 512KB chunks for more progress updates
         .expect("Failed to spawn upload");
 
     println!("🚀 Upload spawned with 512KB chunks for detailed progress...");
@@ -2976,7 +2976,7 @@ async fn test_artifact_upload_integration_impl(_cleanup: &TestCleanup) {
     test_artifact.upload_url = artifacts[0].upload_url.clone(); // Reuse URL
 
     let (cancel_handle, _cancel_progress_rx) = sync_engine
-        .spawn_upload_artifact(test_artifact, Some(1024 * 1024)) // 1MB chunks
+        .spawn_upload_artifact(test_artifact, Some(1024 * 1024), None) // 1MB chunks
         .expect("Failed to spawn test upload");
 
     // Cancel immediately
@@ -3454,7 +3454,7 @@ async fn test_resumable_upload_after_cancellation_impl(_cleanup: &TestCleanup) {
 
     // Step 2: Start upload with small chunks (256KB for more progress points)
     let (upload_handle1, mut progress_rx1) = sync_engine
-        .spawn_upload_artifact(artifacts[0].clone(), Some(256 * 1024))
+        .spawn_upload_artifact(artifacts[0].clone(), Some(256 * 1024), None)
         .expect("Failed to spawn first upload");
 
     println!("🚀 Starting first upload with 256KB chunks...");
@@ -3524,7 +3524,7 @@ async fn test_resumable_upload_after_cancellation_impl(_cleanup: &TestCleanup) {
 
     // Step 5: Resume upload with same URL - TUS should resume from where it left off
     let (upload_handle2, mut progress_rx2) = sync_engine
-        .spawn_upload_artifact(retrieved_artifact, Some(256 * 1024))
+        .spawn_upload_artifact(retrieved_artifact, Some(256 * 1024), None)
         .expect("Failed to spawn resumed upload");
 
     println!("🔄 Starting resumed upload...");

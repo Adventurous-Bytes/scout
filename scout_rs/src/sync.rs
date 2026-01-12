@@ -1638,10 +1638,12 @@ impl SyncEngine {
     /// # Arguments
     /// * `artifact` - The artifact to upload
     /// * `chunk_size` - Optional chunk size in bytes (default: 1MB)
+    /// * `max_retries` - Optional maximum number of retries for expired upload URLs (default: 2)
     pub fn spawn_upload_artifact(
         &self,
         artifact: ArtifactLocal,
         chunk_size: Option<usize>,
+        max_retries: Option<u32>,
     ) -> Result<
         (
             tokio::task::JoinHandle<Result<(ArtifactLocal, String)>>,
@@ -1662,7 +1664,7 @@ impl SyncEngine {
                 Error::msg("Herd ID not available. Call scout_client.identify() first.")
             })?;
 
-        Ok(storage_client.spawn_upload_artifact(artifact, herd_id, chunk_size))
+        Ok(storage_client.spawn_upload_artifact(artifact, herd_id, chunk_size, max_retries))
     }
 
     /// Get artifacts that need upload URLs
