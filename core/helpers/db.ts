@@ -1,11 +1,12 @@
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
+import { getSupabaseUrl, getSupabaseAnonKey } from "../constants/env";
 
 export function createClientWithApiKey(
   user_api_key: string
 ): SupabaseClient<Database> | null {
-  const supabase_url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabase_anon_key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const supabase_url = getSupabaseUrl();
+  const supabase_anon_key = getSupabaseAnonKey();
 
   if (!supabase_url || !supabase_anon_key) {
     return null;
