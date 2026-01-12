@@ -1,6 +1,6 @@
 [package]
 name = "scout_rs"
-version = "0.92.0"
+version = "0.93.0"
 edition = "2021"
 description = "A Rust client for the synchornizing state with the Scout database"
 license = "GPL-3.0"
