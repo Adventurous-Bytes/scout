@@ -4,3 +4,4 @@ pub mod models;
 pub mod storage;
 pub mod sync;
 pub mod tus;
+pub mod ui;

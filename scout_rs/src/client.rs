@@ -121,6 +121,7 @@ impl ScoutClient {
         let db_client = self.get_db_client()?;
 
         #[derive(Debug, serde::Deserialize)]
+        #[allow(dead_code)]
         struct SessionIdOnly {
             id: i64,
         }
@@ -1220,15 +1221,28 @@ impl ScoutClient {
     ) -> Result<ResponseScout<Vec<Artifact>>> {
         let db_client = self.get_db_client()?;
 
-        let results = db_client
-            .query(|client| {
-                client
-                    .from("artifacts")
-                    .select("*, sessions!inner(device_id), devices!inner(herd_id)")
-                    .eq("devices.herd_id", herd_id.to_string())
-                    .order("created_at.desc")
-            })
+        let client = db_client.get_client()?;
+        let response = client
+            .rpc(
+                "get_artifacts_for_herd",
+                serde_json::json!({
+                    "herd_id_caller": herd_id,
+                    "limit_caller": 1000,
+                    "offset_caller": 0
+                })
+                .to_string(),
+            )
+            .execute()
             .await?;
+
+        let body = response.text().await?;
+        let results: Vec<Artifact> = serde_json::from_str(&body).map_err(|e| {
+            anyhow!(
+                "Failed to parse artifacts response: {} - Response: {}",
+                e,
+                body
+            )
+        })?;
 
         Ok(Self::handle_query_result(results))
     }

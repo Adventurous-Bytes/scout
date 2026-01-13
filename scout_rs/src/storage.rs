@@ -378,7 +378,7 @@ impl StorageClient {
                     None => {
                         // Generate new URL if none exists
                         let mut artifacts = vec![artifact.clone()];
-                        let mut temp_client = StorageClient {
+                        let temp_client = StorageClient {
                             config: config.clone(),
                             http_client: reqwest::Client::new(),
                             http_handler: storage_client_handler.clone(),
@@ -408,7 +408,7 @@ impl StorageClient {
                 if is_expired && retry_count < max_retries_value {
                     tracing::info!("Upload URL expired, generating new URL...");
                     let mut artifacts = vec![artifact.clone()];
-                    let mut temp_client = StorageClient {
+                    let temp_client = StorageClient {
                         config: config.clone(),
                         http_client: reqwest::Client::new(),
                         http_handler: storage_client_handler.clone(),
@@ -440,7 +440,7 @@ impl StorageClient {
                     .unwrap_or(0);
 
                 // Clone cancellation receiver for blocking context
-                let mut cancel_rx_blocking = cancel_rx.clone();
+                let cancel_rx_blocking = cancel_rx.clone();
                 let upload_url_for_blocking = upload_url.clone();
 
                 let progress_tx_for_blocking = progress_tx_for_loop.clone();
@@ -463,7 +463,7 @@ impl StorageClient {
                     };
 
                     // Create cancellation check closure
-                    let mut cancel_rx_local = cancel_rx_blocking.clone();
+                    let cancel_rx_local = cancel_rx_blocking.clone();
                     let cancellation_check = move || {
                         // Check if cancellation was signaled
                         let _ = cancel_rx_local.has_changed();
@@ -510,7 +510,7 @@ impl StorageClient {
                             retry_count += 1;
                             // Generate new URL and retry
                             let mut artifacts = vec![artifact.clone()];
-                            let mut temp_client = StorageClient {
+                            let temp_client = StorageClient {
                                 config: config.clone(),
                                 http_client: reqwest::Client::new(),
                                 http_handler: storage_client_handler.clone(),
@@ -575,7 +575,130 @@ impl StorageClient {
         (upload_handle, progress_rx)
     }
 
-    /// Generate a TUS upload URL
+    /// Download an artifact from storage
+    ///
+    /// # Arguments
+    /// * `file_path` - The storage path (e.g., "artifacts/herd_id/device_id/filename.mp4")
+    /// * `output_path` - The local path where the file should be saved
+    ///
+    /// # Returns
+    /// Result<()> indicating success or failure
+    pub async fn download_artifact(
+        &self,
+        file_path: &str,
+        output_path: &std::path::Path,
+    ) -> Result<()> {
+        let (bucket_name, object_path) = if file_path.contains('/') {
+            let parts: Vec<&str> = file_path.splitn(2, '/').collect();
+            if parts.len() == 2 {
+                (parts[0], parts[1])
+            } else {
+                (BUCKET_NAME_ARTIFACTS, file_path)
+            }
+        } else {
+            (BUCKET_NAME_ARTIFACTS, file_path)
+        };
+
+        let download_url = format!(
+            "{}/storage/v1/object/public/{}/{}",
+            self.config.supabase_url, bucket_name, object_path
+        );
+
+        let response = self
+            .http_client
+            .get(&download_url)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to download artifact: {}", e))?;
+
+        if !response.status().is_success() {
+            return self.download_artifact_with_authenticated(file_path, output_path).await;
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| anyhow!("Failed to read download response: {}", e))?;
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow!("Failed to create output directory: {}", e))?;
+        }
+
+        std::fs::write(output_path, bytes)
+            .map_err(|e| anyhow!("Failed to write file: {}", e))?;
+
+        Ok(())
+    }
+
+    async fn download_artifact_with_authenticated(
+        &self,
+        file_path: &str,
+        output_path: &std::path::Path,
+    ) -> Result<()> {
+        let (bucket_name, object_path) = if file_path.contains('/') {
+            let parts: Vec<&str> = file_path.splitn(2, '/').collect();
+            if parts.len() == 2 {
+                (parts[0], parts[1])
+            } else {
+                (BUCKET_NAME_ARTIFACTS, file_path)
+            }
+        } else {
+            (BUCKET_NAME_ARTIFACTS, file_path)
+        };
+
+        let download_url = format!(
+            "{}/storage/v1/object/{}/{}",
+            self.config.supabase_url, bucket_name, object_path
+        );
+
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", self.config.supabase_anon_key)
+                .parse()
+                .map_err(|e| anyhow!("Failed to parse auth header: {}", e))?,
+        );
+        headers.insert(
+            "apikey",
+            self.config.supabase_anon_key
+                .parse()
+                .map_err(|e| anyhow!("Failed to parse apikey header: {}", e))?,
+        );
+
+        let response = self
+            .http_client
+            .get(&download_url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to download artifact: {}", e))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_body = response.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+            return Err(anyhow!(
+                "Failed to download artifact: {} - {}",
+                status,
+                error_body
+            ));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| anyhow!("Failed to read download response: {}", e))?;
+
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| anyhow!("Failed to create output directory: {}", e))?;
+        }
+
+        std::fs::write(output_path, bytes)
+            .map_err(|e| anyhow!("Failed to write file: {}", e))?;
+
+        Ok(())
+    }
     async fn generate_upload_url_for_artifact(
         &self,
         artifact: &ArtifactLocal,

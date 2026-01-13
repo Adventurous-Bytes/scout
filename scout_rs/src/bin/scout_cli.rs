@@ -1,8 +1,10 @@
 use clap::Parser;
 use scout_rs::client::ScoutClient;
 use scout_rs::db_client::DatabaseConfig;
-use scout_rs::models::{Event, Plan, ResponseScoutStatus, Tag};
+use scout_rs::models::{Artifact, Event, Plan, ResponseScoutStatus, Tag};
+use scout_rs::storage::{StorageClient, StorageConfig};
 use serde_json;
+use std::path::PathBuf;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None, rename_all = "snake_case")]
@@ -56,6 +58,10 @@ struct Args {
     /// Plan data as JSON (for create_plan and update_plan commands)
     #[arg(long, name = "plan_json")]
     plan_json: Option<String>,
+
+    /// Output directory for download_artifacts command (defaults to current directory)
+    #[arg(long, name = "output_dir")]
+    output_dir: Option<String>,
 }
 
 // example usage:
@@ -308,10 +314,113 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::process::exit(1);
             }
         }
+        "download_artifacts" => {
+            if let Err(e) = client.identify().await {
+                eprintln!("Failed to identify client: {}", e);
+                std::process::exit(1);
+            }
+
+            let device_response = client.get_device().await?;
+            if device_response.status != ResponseScoutStatus::Success {
+                eprintln!("Failed to get device information");
+                std::process::exit(1);
+            }
+
+            let device = device_response.data.ok_or_else(|| {
+                Box::<dyn std::error::Error>::from("Device information not available")
+            })?;
+
+            let herd_id = device.herd_id;
+
+            let artifacts_response = client.get_artifacts_by_herd(herd_id).await?;
+            if artifacts_response.status != ResponseScoutStatus::Success {
+                eprintln!("Failed to get artifacts: {:?}", artifacts_response.status);
+                std::process::exit(1);
+            }
+
+            let artifacts = artifacts_response.data.unwrap_or_default();
+
+            let uploaded_artifacts: Vec<Artifact> = artifacts
+                .into_iter()
+                .filter(|a| {
+                    !a.file_path.is_empty()
+                        && !a.file_path.starts_with("/")
+                        && !a.file_path.starts_with("C:")
+                        && !a.file_path.starts_with("\\")
+                })
+                .collect();
+
+            if uploaded_artifacts.is_empty() {
+                println!("No artifacts found for download.");
+                println!("Note: Only artifacts with storage file paths can be downloaded.");
+                return Ok(());
+            }
+
+            let output_dir = args
+                .output_dir
+                .unwrap_or_else(|| std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .to_string_lossy()
+                    .to_string());
+
+            let selected_artifacts = scout_rs::ui::run_artifact_selector(uploaded_artifacts, output_dir.clone())
+                .await?;
+
+            if selected_artifacts.is_empty() {
+                println!("No artifacts selected for download.");
+                return Ok(());
+            }
+
+            let config_db = DatabaseConfig::from_env()?;
+            let supabase_url = config_db.rest_url.replace("/rest/v1", "");
+
+            let storage_config = StorageConfig {
+                supabase_url: supabase_url.clone(),
+                supabase_anon_key: std::env::var("SUPABASE_PUBLIC_API_KEY")
+                    .map_err(|_| "SUPABASE_PUBLIC_API_KEY environment variable not set")?,
+                scout_api_key: std::env::var("SCOUT_DEVICE_API_KEY")
+                    .map_err(|_| "SCOUT_DEVICE_API_KEY environment variable not set")?,
+                bucket_name: "artifacts".to_string(),
+                allowed_extensions: vec![],
+            };
+
+            let storage_client = StorageClient::new(storage_config)?;
+
+            println!("\nDownloading {} artifacts to {}...", selected_artifacts.len(), output_dir);
+            
+            let output_path = PathBuf::from(&output_dir);
+            let mut success_count = 0;
+            let mut error_count = 0;
+
+            for artifact in &selected_artifacts {
+                let filename = std::path::Path::new(&artifact.file_path)
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown_file");
+                
+                let file_output_path = output_path.join(filename);
+                
+                print!("Downloading {}... ", filename);
+                std::io::Write::flush(&mut std::io::stdout())?;
+
+                match storage_client.download_artifact(&artifact.file_path, &file_output_path).await {
+                    Ok(_) => {
+                        println!("✓");
+                        success_count += 1;
+                    }
+                    Err(e) => {
+                        println!("✗ Error: {}", e);
+                        error_count += 1;
+                    }
+                }
+            }
+
+            println!("\nDownload complete: {} succeeded, {} failed", success_count, error_count);
+        }
         _ => {
             eprintln!("Unknown command: {}", args.command);
             eprintln!(
-                "Available commands: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event"
+                "Available commands: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event, download_artifacts"
             );
             std::process::exit(1);
         }
