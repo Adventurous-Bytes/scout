@@ -3,6 +3,7 @@ use scout_rs::client::ScoutClient;
 use scout_rs::db_client::DatabaseConfig;
 use scout_rs::models::{Artifact, Event, Plan, ResponseScoutStatus, Tag};
 use scout_rs::storage::{StorageClient, StorageConfig};
+use scout_rs::sync::SyncEngine;
 use serde_json;
 use std::path::PathBuf;
 
@@ -62,6 +63,14 @@ struct Args {
     /// Output directory for download_artifacts command (defaults to current directory)
     #[arg(long, name = "output_dir")]
     output_dir: Option<String>,
+
+    /// Database path for sync engine operations (export_sync_engine, wipe_sync_engine)
+    #[arg(long, name = "db_path")]
+    db_path: Option<String>,
+
+    /// Output path for export_sync_engine command
+    #[arg(long, name = "output_path")]
+    output_path: Option<String>,
 }
 
 // example usage:
@@ -417,10 +426,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             println!("\nDownload complete: {} succeeded, {} failed", success_count, error_count);
         }
+        "export_sync_engine" => {
+            let db_path = args.db_path.expect("db_path required for export_sync_engine");
+            let output_path = args.output_path.expect("output_path required for export_sync_engine");
+
+            let config_db = DatabaseConfig::from_env()?;
+            let scout_client = ScoutClient::new(config_db);
+            let sync_engine = SyncEngine::with_defaults(scout_client, db_path)?;
+
+            sync_engine.export_to_json(&output_path)?;
+            println!("Successfully exported sync engine data to {}", output_path);
+        }
+        "wipe_sync_engine" => {
+            let db_path = args.db_path.expect("db_path required for wipe_sync_engine");
+
+            let config_db = DatabaseConfig::from_env()?;
+            let scout_client = ScoutClient::new(config_db);
+            let mut sync_engine = SyncEngine::with_defaults(scout_client, db_path)?;
+
+            // Wipe all data (None means wipe everything)
+            sync_engine.wipe(None)?;
+            println!("Successfully wiped all data from sync engine");
+        }
         _ => {
             eprintln!("Unknown command: {}", args.command);
             eprintln!(
-                "Available commands: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event, download_artifacts"
+                "Available commands: get_device, get_herd, get_plans_by_herd, get_plan_by_id, create_plan, update_plan, delete_plan, post_event, update_event, delete_event, download_artifacts, export_sync_engine, wipe_sync_engine"
             );
             std::process::exit(1);
         }

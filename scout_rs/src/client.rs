@@ -11,6 +11,7 @@ pub struct ScoutClient {
     pub device: Option<DevicePrettyLocation>,
     pub herd: Option<Herd>,
     db_client: Option<ScoutDbClient>,
+    is_offline: bool,
 }
 
 impl ScoutClient {
@@ -24,11 +25,38 @@ impl ScoutClient {
             device: None,
             herd: None,
             db_client: None,
+            is_offline: false,
         }
     }
 
+    /// Initializes the client in offline mode with default placeholder values
+    /// This allows using the sync engine without database connectivity
+    pub fn initialize_offline(&mut self) {
+        self.is_offline = true;
+
+        // Create default device with placeholder values
+        let device = DevicePrettyLocation::default();
+        self.device = Some(device);
+
+        // Create default herd with placeholder values
+        let herd = Herd::default();
+        self.herd = Some(herd);
+    }
+
     /// Identifies the device and herd, then establishes direct database connection
+    /// If in offline mode, sets default values and returns Ok(())
     pub async fn identify(&mut self) -> Result<()> {
+        // If already in offline mode, just ensure defaults are set
+        if self.is_offline {
+            if self.device.is_none() {
+                self.device = Some(DevicePrettyLocation::default());
+            }
+            if self.herd.is_none() {
+                self.herd = Some(Herd::default());
+            }
+            return Ok(());
+        }
+
         let mut db_client = ScoutDbClient::new(self.config_db.clone());
         db_client.connect()?;
 
@@ -100,14 +128,21 @@ impl ScoutClient {
 
     /// Gets the database client, ensuring it's available
     fn get_db_client(&mut self) -> Result<&mut ScoutDbClient> {
+        if self.is_offline {
+            return Err(anyhow!(
+                "Database operations not available in offline mode. Call initialize_offline() to use offline mode."
+            ));
+        }
         self.db_client
             .as_mut()
             .ok_or_else(|| anyhow!("Database client not initialized. Call identify() first."))
     }
 
     /// Checks if the client has been identified and has a database connection
+    /// Returns true if identified normally or if in offline mode
     pub fn is_identified(&self) -> bool {
-        self.db_client.is_some() && self.device.is_some() && self.herd.is_some()
+        (self.db_client.is_some() && self.device.is_some() && self.herd.is_some())
+            || self.is_offline
     }
 
     // ===== HELPER METHODS =====

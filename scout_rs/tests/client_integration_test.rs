@@ -3645,3 +3645,127 @@ async fn test_resumable_upload_after_cancellation_impl(_cleanup: &TestCleanup) {
         }
     }
 }
+
+#[tokio::test]
+async fn test_initialize_offline() {
+    let mut client = create_test_client();
+
+    // Initialize offline mode
+    client.initialize_offline();
+
+    // Verify device and herd are set with default values
+    assert!(client.device.is_some(), "Device should be set in offline mode");
+    assert!(client.herd.is_some(), "Herd should be set in offline mode");
+
+    let device = client.device.as_ref().unwrap();
+    assert_eq!(device.herd_id, 0, "Device herd_id should be 0 in offline mode");
+    assert_eq!(device.id, None, "Device id should be None in offline mode");
+
+    let herd = client.herd.as_ref().unwrap();
+    assert_eq!(herd.id, None, "Herd id should be None in offline mode");
+
+    // Verify is_identified returns true
+    assert!(client.is_identified(), "Client should be identified in offline mode");
+
+    // Verify identify() succeeds in offline mode
+    let result = client.identify().await;
+    assert!(result.is_ok(), "identify() should succeed in offline mode");
+}
+
+#[tokio::test]
+async fn test_offline_mode_blocks_database_operations() {
+    let mut client = create_test_client();
+
+    // Initialize offline mode
+    client.initialize_offline();
+
+    // Verify get_device() works in offline mode (returns cached/default values)
+    let result = client.get_device().await;
+    assert!(result.is_ok(), "get_device() should work in offline mode (returns cached values)");
+    let device_response = result.unwrap();
+    assert_eq!(device_response.status, ResponseScoutStatus::Success);
+    assert!(device_response.data.is_some());
+    let device = device_response.data.unwrap();
+    assert_eq!(device.herd_id, 0, "Device should have default herd_id in offline mode");
+
+    // Verify database write operations are blocked
+    let session = Session::new(
+        0, // device_id
+        1704103200,
+        None,
+        "1.0.0".to_string(),
+        None,
+        100.0,
+        50.0,
+        75.0,
+        25.0,
+        10.0,
+        15.0,
+        1000.0,
+        500.0,
+    );
+
+    let result = client.create_session(&session).await;
+    assert!(result.is_err(), "create_session() should fail in offline mode");
+    assert!(
+        result.unwrap_err().to_string().contains("offline mode"),
+        "Error should mention offline mode"
+    );
+
+    // Verify database query operations are blocked
+    let result = client.get_sessions_by_herd(0).await;
+    assert!(result.is_err(), "get_sessions_by_herd() should fail in offline mode");
+    assert!(
+        result.unwrap_err().to_string().contains("offline mode"),
+        "Error should mention offline mode"
+    );
+
+    // Verify other database operations are blocked
+    let result = client.get_plans_by_herd(0).await;
+    assert!(result.is_err(), "get_plans_by_herd() should fail in offline mode");
+    assert!(
+        result.unwrap_err().to_string().contains("offline mode"),
+        "Error should mention offline mode"
+    );
+}
+
+#[tokio::test]
+async fn test_offline_mode_with_sync_engine() {
+    use scout_rs::sync::SyncEngine;
+    use tempfile::tempdir;
+
+    let mut client = create_test_client();
+    client.initialize_offline();
+
+    // Verify client is in offline mode before creating sync engine
+    assert!(client.is_identified(), "Client should be identified in offline mode");
+    let device = client.device.as_ref().unwrap();
+    assert_eq!(device.herd_id, 0, "Device should have default herd_id");
+
+    // Create a sync engine with offline client
+    let temp_dir = tempdir().unwrap();
+    let db_path = temp_dir
+        .path()
+        .join("test_offline.db")
+        .to_string_lossy()
+        .to_string();
+
+    let mut sync_engine = SyncEngine::with_defaults(client, db_path.clone())
+        .expect("Should be able to create sync engine with offline client");
+
+    // Verify sync engine can store data locally
+    use scout_rs::models::SessionLocal;
+    let mut session = SessionLocal::default();
+    session.set_id_local("offline_test_session".to_string());
+    session.device_id = 0; // Default device_id
+    session.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+    session.software_version = "test_offline".to_string();
+
+    // This should work - local database operations are fine
+    let result = sync_engine.upsert_items(vec![session]);
+    assert!(result.is_ok(), "Should be able to store data locally in offline mode");
+
+    // Verify data was stored
+    let count = sync_engine.get_table_count::<SessionLocal>().unwrap();
+    assert_eq!(count, 1, "Should have 1 session stored locally");
+}

@@ -1509,6 +1509,332 @@ impl SyncEngine {
         &self.db_local_path
     }
 
+    /// Exports all sync engine data to a JSON file
+    /// Returns an array where each element is a session with all its descendants
+    /// Useful for exporting data to clients that don't support native_db structure
+    pub fn export_to_json(&self, output_path: &str) -> Result<(), Error> {
+        use serde_json;
+        use std::fs;
+        use std::collections::HashMap;
+
+        tracing::info!("Exporting sync engine data to {}", output_path);
+
+        let r = self.database.r_transaction()?;
+
+        // Collect all sessions
+        let mut sessions = Vec::new();
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                sessions.push(session);
+            }
+        }
+
+        // Collect all events and group by session
+        let mut events_by_session: HashMap<String, Vec<EventLocal>> = HashMap::new();
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if let Some(session_id) = &event.ancestor_id_local {
+                    events_by_session
+                        .entry(session_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(event);
+                }
+            }
+        }
+
+        // Collect all tags and group by event
+        let mut tags_by_event: HashMap<String, Vec<TagLocal>> = HashMap::new();
+        for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+            if let Ok(tag) = raw_tag {
+                if let Some(event_id) = &tag.ancestor_id_local {
+                    tags_by_event
+                        .entry(event_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(tag);
+                }
+            }
+        }
+
+        // Collect all connectivity entries and group by session
+        let mut connectivity_by_session: HashMap<String, Vec<ConnectivityLocal>> = HashMap::new();
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(conn) = raw_connectivity {
+                if let Some(session_id) = &conn.ancestor_id_local {
+                    connectivity_by_session
+                        .entry(session_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(conn);
+                }
+            }
+        }
+
+        // Collect all operators and group by session
+        let mut operators_by_session: HashMap<String, Vec<data::v2::OperatorLocal>> = HashMap::new();
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
+            if let Ok(operator) = raw_operator {
+                if let Some(session_id) = &operator.ancestor_id_local {
+                    operators_by_session
+                        .entry(session_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(operator);
+                }
+            }
+        }
+
+        // Collect all artifacts and group by session
+        let mut artifacts_by_session: HashMap<String, Vec<ArtifactLocal>> = HashMap::new();
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if let Some(session_id) = &artifact.ancestor_id_local {
+                    artifacts_by_session
+                        .entry(session_id.clone())
+                        .or_insert_with(Vec::new)
+                        .push(artifact);
+                }
+            }
+        }
+
+        drop(r); // Close read transaction
+
+        // Build array of sessions with nested descendants
+        let mut export_array = Vec::new();
+        for session in sessions {
+            let session_local_id = session.id_local.as_deref().unwrap_or("");
+            
+            // Get events for this session
+            let events = events_by_session
+                .get(session_local_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Get tags for all events in this session
+            let mut tags = Vec::new();
+            for event in &events {
+                if let Some(event_id) = &event.id_local {
+                    if let Some(event_tags) = tags_by_event.get(event_id) {
+                        tags.extend(event_tags.clone());
+                    }
+                }
+            }
+
+            // Get connectivity for this session
+            let connectivity = connectivity_by_session
+                .get(session_local_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Get operators for this session
+            let operators = operators_by_session
+                .get(session_local_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Get artifacts for this session
+            let artifacts = artifacts_by_session
+                .get(session_local_id)
+                .cloned()
+                .unwrap_or_default();
+
+            // Create session entry with nested descendants
+            let session_entry = serde_json::json!({
+                "session": session,
+                "events": events,
+                "tags": tags,
+                "connectivity": connectivity,
+                "operators": operators,
+                "artifacts": artifacts
+            });
+
+            export_array.push(session_entry);
+        }
+
+        // Write to file
+        let json_string = serde_json::to_string_pretty(&export_array)?;
+        fs::write(output_path, json_string)?;
+
+        tracing::info!(
+            "Exported {} sessions with their descendants",
+            export_array.len()
+        );
+
+        Ok(())
+    }
+
+    /// Wipes data from the sync engine
+    /// If session_ids is Some, only wipes the specified sessions and their descendants
+    /// If session_ids is None or empty, wipes all data
+    /// Removes all items from all tables in dependency order
+    pub fn wipe(&mut self, session_ids: Option<Vec<String>>) -> Result<(), Error> {
+        let r = self.database.r_transaction()?;
+
+        let mut tags_to_remove = Vec::new();
+        let mut events_to_remove = Vec::new();
+        let mut connectivity_to_remove = Vec::new();
+        let mut operators_to_remove = Vec::new();
+        let mut artifacts_to_remove = Vec::new();
+        let mut sessions_to_remove = Vec::new();
+
+        // Determine which sessions to wipe
+        let session_ids_to_wipe: std::collections::HashSet<String> = if let Some(ids) = session_ids {
+            if ids.is_empty() {
+                // Empty vec means wipe all
+                let mut all_ids = std::collections::HashSet::new();
+                for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+                    if let Ok(session) = raw_session {
+                        if let Some(id) = session.id_local {
+                            all_ids.insert(id);
+                        }
+                    }
+                }
+                all_ids
+            } else {
+                ids.into_iter().collect()
+            }
+        } else {
+            // None means wipe all
+            let mut all_ids = std::collections::HashSet::new();
+            for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+                if let Ok(session) = raw_session {
+                    if let Some(id) = session.id_local {
+                        all_ids.insert(id);
+                    }
+                }
+            }
+            all_ids
+        };
+
+        if session_ids_to_wipe.is_empty() {
+            tracing::info!("No sessions to wipe");
+            return Ok(());
+        }
+
+        tracing::info!("Wiping {} session(s) and their descendants", session_ids_to_wipe.len());
+
+        // Collect sessions to remove
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if let Some(id) = &session.id_local {
+                    if session_ids_to_wipe.contains(id) {
+                        sessions_to_remove.push(session);
+                    }
+                }
+            }
+        }
+
+        // Collect events for specified sessions
+        for raw_event in r.scan().primary::<EventLocal>()?.all()? {
+            if let Ok(event) = raw_event {
+                if let Some(session_id) = &event.ancestor_id_local {
+                    if session_ids_to_wipe.contains(session_id) {
+                        events_to_remove.push(event);
+                    }
+                }
+            }
+        }
+
+        // Collect tags for events in specified sessions
+        for event in &events_to_remove {
+            if let Some(event_id) = &event.id_local {
+                for raw_tag in r.scan().primary::<TagLocal>()?.all()? {
+                    if let Ok(tag) = raw_tag {
+                        if tag.ancestor_id_local.as_deref() == Some(event_id) {
+                            tags_to_remove.push(tag);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Collect connectivity entries for specified sessions
+        for raw_connectivity in r.scan().primary::<ConnectivityLocal>()?.all()? {
+            if let Ok(connectivity) = raw_connectivity {
+                if let Some(session_id) = &connectivity.ancestor_id_local {
+                    if session_ids_to_wipe.contains(session_id) {
+                        connectivity_to_remove.push(connectivity);
+                    }
+                }
+            }
+        }
+
+        // Collect operators for specified sessions
+        for raw_operator in r.scan().primary::<data::v2::OperatorLocal>()?.all()? {
+            if let Ok(operator) = raw_operator {
+                if let Some(session_id) = &operator.ancestor_id_local {
+                    if session_ids_to_wipe.contains(session_id) {
+                        operators_to_remove.push(operator);
+                    }
+                }
+            }
+        }
+
+        // Collect artifacts for specified sessions
+        for raw_artifact in r.scan().primary::<ArtifactLocal>()?.all()? {
+            if let Ok(artifact) = raw_artifact {
+                if let Some(session_id) = &artifact.ancestor_id_local {
+                    if session_ids_to_wipe.contains(session_id) {
+                        artifacts_to_remove.push(artifact);
+                    }
+                }
+            }
+        }
+
+        drop(r); // Close read transaction
+
+        // Now remove all items using write transaction in dependency order
+        let rw = self.database.rw_transaction()?;
+
+        // Remove tags first (depend on events)
+        let tags_count = tags_to_remove.len();
+        for tag in tags_to_remove {
+            rw.remove(tag)?;
+        }
+
+        // Remove events (depend on sessions)
+        let events_count = events_to_remove.len();
+        for event in events_to_remove {
+            rw.remove(event)?;
+        }
+
+        // Remove connectivity entries (depend on sessions)
+        let connectivity_count = connectivity_to_remove.len();
+        for connectivity in connectivity_to_remove {
+            rw.remove(connectivity)?;
+        }
+
+        // Remove operators (depend on sessions)
+        let operators_count = operators_to_remove.len();
+        for operator in operators_to_remove {
+            rw.remove(operator)?;
+        }
+
+        // Remove artifacts (depend on sessions)
+        let artifacts_count = artifacts_to_remove.len();
+        for artifact in artifacts_to_remove {
+            rw.remove(artifact)?;
+        }
+
+        // Remove sessions last
+        let sessions_count = sessions_to_remove.len();
+        for session in sessions_to_remove {
+            rw.remove(session)?;
+        }
+
+        rw.commit()?;
+
+        tracing::info!(
+            "Wiped {} session(s): removed {} tags, {} events, {} connectivity, {} operators, {} artifacts, {} sessions",
+            session_ids_to_wipe.len(),
+            tags_count,
+            events_count,
+            connectivity_count,
+            operators_count,
+            artifacts_count,
+            sessions_count
+        );
+
+        Ok(())
+    }
+
     /// Generates a unique ID using timestamp and table count to avoid race conditions
     pub fn generate_unique_id<T: ToInput>(&self) -> Result<u64, Error> {
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -2105,6 +2431,7 @@ mod tests {
         models::{AncestorLocal, MediaType, SessionLocal, TagObservationType},
     };
 
+    use serde_json;
     use tempfile::tempdir;
 
     fn setup_test_env() {
@@ -4142,6 +4469,321 @@ mod tests {
         let _ = std::fs::remove_file(&temp_db);
 
         println!("✅ Test passed: Comprehensive remove failed records test completed");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_to_json() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create test data for all types
+        let mut session = SessionLocal::default();
+        session.set_id_local("export_test_session".to_string());
+        session.device_id = device_id;
+        session.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+        session.software_version = "test_export".to_string();
+
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("export_test_connectivity".to_string());
+        connectivity.device_id = Some(device_id);
+        connectivity.set_ancestor_id_local("export_test_session".to_string());
+        connectivity.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+        connectivity.location = Some("POINT(-155.15393 19.754824)".to_string());
+
+        let mut event = EventLocal::default();
+        event.set_id_local("export_test_event".to_string());
+        event.device_id = device_id;
+        event.set_ancestor_id_local("export_test_session".to_string());
+        event.timestamp_observation = "2023-01-01T10:10:00Z".to_string();
+        event.message = Some("Test export event".to_string());
+        event.media_type = MediaType::Image;
+
+        let mut tag = TagLocal::default();
+        tag.set_id_local("export_test_tag".to_string());
+        tag.set_ancestor_id_local("export_test_event".to_string());
+        tag.class_name = "test_export_tag".to_string();
+        tag.conf = 0.95;
+        tag.observation_type = TagObservationType::Manual;
+
+        let mut operator = data::v2::OperatorLocal::default();
+        operator.set_id_local("export_test_operator".to_string());
+        operator.set_ancestor_id_local("export_test_session".to_string());
+        operator.user_id = "test-user-id".to_string();
+        operator.action = "test_export_action".to_string();
+
+        let mut artifact = ArtifactLocal::default();
+        artifact.set_id_local("export_test_artifact".to_string());
+        artifact.set_ancestor_id_local("export_test_session".to_string());
+        artifact.file_path = "test/path.jpg".to_string();
+        artifact.modality = Some("image".to_string());
+
+        // Insert all items
+        sync_engine.upsert_items(vec![session])?;
+        sync_engine.upsert_items(vec![connectivity])?;
+        sync_engine.upsert_items(vec![event])?;
+        sync_engine.upsert_items(vec![tag])?;
+        sync_engine.upsert_items(vec![operator])?;
+        sync_engine.upsert_items(vec![artifact])?;
+
+        // Verify counts before export
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 1);
+
+        // Create temporary file for export
+        let temp_dir = tempdir()?;
+        let export_path = temp_dir
+            .path()
+            .join("export_test.json")
+            .to_string_lossy()
+            .to_string();
+
+        // Export to JSON
+        sync_engine.export_to_json(&export_path)?;
+
+        // Verify file exists
+        assert!(std::path::Path::new(&export_path).exists());
+
+        // Read and parse JSON
+        let json_content = std::fs::read_to_string(&export_path)?;
+        let export_array: Vec<serde_json::Value> = serde_json::from_str(&json_content)?;
+
+        // Verify array structure
+        assert_eq!(export_array.len(), 1);
+
+        // Verify session entry structure
+        let session_entry = &export_array[0];
+        assert!(session_entry.get("session").is_some());
+        assert!(session_entry.get("events").is_some());
+        assert!(session_entry.get("tags").is_some());
+        assert!(session_entry.get("connectivity").is_some());
+        assert!(session_entry.get("operators").is_some());
+        assert!(session_entry.get("artifacts").is_some());
+
+        // Verify data counts in JSON
+        assert_eq!(session_entry["events"].as_array().unwrap().len(), 1);
+        assert_eq!(session_entry["tags"].as_array().unwrap().len(), 1);
+        assert_eq!(session_entry["connectivity"].as_array().unwrap().len(), 1);
+        assert_eq!(session_entry["operators"].as_array().unwrap().len(), 1);
+        assert_eq!(session_entry["artifacts"].as_array().unwrap().len(), 1);
+
+        // Verify session data in JSON
+        let session_data = &session_entry["session"];
+        assert_eq!(
+            session_data["id_local"].as_str(),
+            Some("export_test_session")
+        );
+
+        // Verify event data in JSON
+        let event_data = &session_entry["events"][0];
+        assert_eq!(event_data["id_local"].as_str(), Some("export_test_event"));
+
+        // Verify tag data in JSON
+        let tag_data = &session_entry["tags"][0];
+        assert_eq!(tag_data["id_local"].as_str(), Some("export_test_tag"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wipe() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create test data for all types
+        let mut session = SessionLocal::default();
+        session.set_id_local("wipe_test_session".to_string());
+        session.device_id = device_id;
+        session.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+
+        let mut connectivity = ConnectivityLocal::default();
+        connectivity.set_id_local("wipe_test_connectivity".to_string());
+        connectivity.device_id = Some(device_id);
+        connectivity.set_ancestor_id_local("wipe_test_session".to_string());
+        connectivity.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+
+        let mut event = EventLocal::default();
+        event.set_id_local("wipe_test_event".to_string());
+        event.device_id = device_id;
+        event.set_ancestor_id_local("wipe_test_session".to_string());
+        event.timestamp_observation = "2023-01-01T10:10:00Z".to_string();
+        event.media_type = MediaType::Image;
+
+        let mut tag = TagLocal::default();
+        tag.set_id_local("wipe_test_tag".to_string());
+        tag.set_ancestor_id_local("wipe_test_event".to_string());
+        tag.class_name = "test_wipe_tag".to_string();
+        tag.observation_type = TagObservationType::Manual;
+
+        let mut operator = data::v2::OperatorLocal::default();
+        operator.set_id_local("wipe_test_operator".to_string());
+        operator.set_ancestor_id_local("wipe_test_session".to_string());
+        operator.user_id = "test-user-id".to_string();
+        operator.action = "test_wipe_action".to_string();
+
+        let mut artifact = ArtifactLocal::default();
+        artifact.set_id_local("wipe_test_artifact".to_string());
+        artifact.set_ancestor_id_local("wipe_test_session".to_string());
+        artifact.file_path = "test/path.jpg".to_string();
+
+        // Insert all items
+        sync_engine.upsert_items(vec![session])?;
+        sync_engine.upsert_items(vec![connectivity])?;
+        sync_engine.upsert_items(vec![event])?;
+        sync_engine.upsert_items(vec![tag])?;
+        sync_engine.upsert_items(vec![operator])?;
+        sync_engine.upsert_items(vec![artifact])?;
+
+        // Verify counts before wipe
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 1);
+
+        // Wipe all data
+        sync_engine.wipe(None)?;
+
+        // Verify all counts are 0 after wipe
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_export_to_json_empty_database() -> Result<()> {
+        let sync_engine = create_test_sync_engine()?;
+
+        // Create temporary file for export
+        let temp_dir = tempdir()?;
+        let export_path = temp_dir
+            .path()
+            .join("export_empty_test.json")
+            .to_string_lossy()
+            .to_string();
+
+        // Export empty database to JSON
+        sync_engine.export_to_json(&export_path)?;
+
+        // Verify file exists
+        assert!(std::path::Path::new(&export_path).exists());
+
+        // Read and parse JSON
+        let json_content = std::fs::read_to_string(&export_path)?;
+        let export_array: Vec<serde_json::Value> = serde_json::from_str(&json_content)?;
+
+        // Verify array is empty
+        assert_eq!(export_array.len(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wipe_empty_database() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        // Verify all counts are 0 initially
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 0);
+
+        // Wipe empty database (should not error)
+        sync_engine.wipe(None)?;
+
+        // Verify all counts are still 0
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ConnectivityLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<TagLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<data::v2::OperatorLocal>()?, 0);
+        assert_eq!(sync_engine.get_table_count::<ArtifactLocal>()?, 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_wipe_specific_sessions() -> Result<()> {
+        let mut sync_engine = create_test_sync_engine()?;
+
+        let device_id = std::env::var("SCOUT_DEVICE_ID")
+            .expect("SCOUT_DEVICE_ID required")
+            .parse()
+            .expect("SCOUT_DEVICE_ID must be valid integer");
+
+        // Create two sessions with their descendants
+        let mut session1 = SessionLocal::default();
+        session1.set_id_local("wipe_specific_session1".to_string());
+        session1.device_id = device_id;
+        session1.timestamp_start = "2023-01-01T00:00:00Z".to_string();
+
+        let mut session2 = SessionLocal::default();
+        session2.set_id_local("wipe_specific_session2".to_string());
+        session2.device_id = device_id;
+        session2.timestamp_start = "2023-01-01T01:00:00Z".to_string();
+
+        let mut event1 = EventLocal::default();
+        event1.set_id_local("wipe_specific_event1".to_string());
+        event1.device_id = device_id;
+        event1.set_ancestor_id_local("wipe_specific_session1".to_string());
+        event1.timestamp_observation = "2023-01-01T10:10:00Z".to_string();
+        event1.media_type = MediaType::Image;
+
+        let mut event2 = EventLocal::default();
+        event2.set_id_local("wipe_specific_event2".to_string());
+        event2.device_id = device_id;
+        event2.set_ancestor_id_local("wipe_specific_session2".to_string());
+        event2.timestamp_observation = "2023-01-01T11:10:00Z".to_string();
+        event2.media_type = MediaType::Image;
+
+        // Insert all items
+        sync_engine.upsert_items(vec![session1, session2])?;
+        sync_engine.upsert_items(vec![event1, event2])?;
+
+        // Verify counts before wipe
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 2);
+
+        // Wipe only session1
+        sync_engine.wipe(Some(vec!["wipe_specific_session1".to_string()]))?;
+
+        // Verify session1 and its event are gone, but session2 remains
+        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
+        assert_eq!(sync_engine.get_table_count::<EventLocal>()?, 1);
+
+        // Verify session2 still exists
+        let r = sync_engine.database.r_transaction()?;
+        let mut found_session2 = false;
+        for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
+            if let Ok(session) = raw_session {
+                if session.id_local.as_deref() == Some("wipe_specific_session2") {
+                    found_session2 = true;
+                    break;
+                }
+            }
+        }
+        assert!(found_session2, "Session2 should still exist after wiping session1");
+
         Ok(())
     }
 }
