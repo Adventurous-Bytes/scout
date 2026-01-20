@@ -12,6 +12,14 @@ supabase login
 supabase link
 ```
 
+## Updating Database Password
+
+If you've reset your database password, you need to re-link the project with the new password. Use single quotes to prevent shell interpretation of special characters:
+
+```bash
+supabase link --project-ref nfgpianoyribtvkqbjeq --password 'your-new-password'
+```
+
 ## Dump
 
 ```bash
