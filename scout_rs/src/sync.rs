@@ -946,51 +946,62 @@ impl SyncEngine {
             EnumSyncAction::Insert, // Process items without remote IDs for creation
         )?;
 
-        // Combine both upsert and insert items
-        let mut all_artifacts = artifacts_batch.upsert;
-        all_artifacts.extend(artifacts_batch.insert);
+        // Process insert and upsert batches separately to ensure consistent field presence
+        if !artifacts_batch.insert.is_empty() {
+            self.process_artifact_insert_batch(artifacts_batch.insert).await?;
+        }
+        if !artifacts_batch.upsert.is_empty() {
+            self.process_artifact_upsert_batch(artifacts_batch.upsert).await?;
+        }
 
-        let total_artifacts = all_artifacts.len();
+        Ok(())
+    }
+
+    /// Processes a batch of artifacts for insertion (new items without remote IDs)
+    async fn process_artifact_insert_batch(
+        &mut self,
+        mut artifacts: Vec<ArtifactLocal>,
+    ) -> Result<(), Error> {
+        if artifacts.is_empty() {
+            return Ok(());
+        }
 
         // Filter to only include artifacts that have uploaded their files to storage
-        all_artifacts.retain(|artifact| artifact.has_uploaded_file_to_storage);
+        let total_artifacts = artifacts.len();
+        artifacts.retain(|artifact| artifact.has_uploaded_file_to_storage);
 
-        let uploaded_artifacts = all_artifacts.len();
-        let pending_uploads = total_artifacts - uploaded_artifacts;
-
+        let pending_uploads = total_artifacts - artifacts.len();
         if pending_uploads > 0 {
             tracing::debug!(
                 "Skipping {} artifacts without uploaded files (only syncing {} with uploaded files)",
                 pending_uploads,
-                uploaded_artifacts
+                artifacts.len()
             );
         }
 
         if let Some(max_items) = self.max_num_items_per_sync {
-            if all_artifacts.len() > max_items as usize {
+            if artifacts.len() > max_items as usize {
                 tracing::info!(
-                    "Limiting artifacts sync from {} to {} items",
-                    all_artifacts.len(),
+                    "Limiting artifact inserts from {} to {} items",
+                    artifacts.len(),
                     max_items
                 );
-                all_artifacts.truncate(max_items as usize);
+                artifacts.truncate(max_items as usize);
             }
         }
 
-        if all_artifacts.is_empty() {
-            tracing::debug!("No artifacts with uploaded files found for syncing");
+        if artifacts.is_empty() {
+            tracing::debug!("No artifacts with uploaded files found for insertion");
             return Ok(());
         }
 
         // Update artifacts' session_id if their ancestor sessions have remote IDs
         let mut updated_artifacts = Vec::new();
-        for artifact in all_artifacts.iter() {
+        for artifact in artifacts.iter() {
             let mut updated_artifact = artifact.clone();
             if let Some(ancestor_local_id) = &artifact.ancestor_id_local {
-                // Check if the ancestor session has a remote ID
                 if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
                     if let Some(remote_session_id) = session.id {
-                        // Update the artifact's session_id with the remote session ID
                         updated_artifact.session_id = Some(remote_session_id);
                     }
                 }
@@ -998,32 +1009,37 @@ impl SyncEngine {
             updated_artifacts.push(updated_artifact);
         }
 
-        // Use the updated artifacts for syncing
-        let all_artifacts = updated_artifacts;
-
-        tracing::info!("Syncing {} artifacts to remote", all_artifacts.len());
-
-        // Convert to API format
-        let artifacts_for_api: Vec<crate::models::Artifact> = all_artifacts
+        // Convert to API format for insertion
+        let artifacts_for_api: Vec<crate::models::Artifact> = updated_artifacts
             .iter()
-            .map(|artifact| artifact.clone().into())
+            .map(|artifact| {
+                let mut api_artifact: crate::models::Artifact = artifact.clone().into();
+                // Ensure id is None for inserts
+                api_artifact.id = None;
+                // Omit created_at and updated_at to rely on database defaults 
+                api_artifact.created_at = None;
+                api_artifact.updated_at = None;
+                api_artifact
+            })
             .collect();
+
+        tracing::info!("Inserting {} artifacts to remote", artifacts_for_api.len());
 
         let response = match self
             .scout_client
-            .upsert_artifacts_batch(&artifacts_for_api)
+            .create_artifacts_batch(&artifacts_for_api)
             .await
         {
             Ok(response) => response,
             Err(e) => {
                 if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
                     tracing::warn!(
-                        "Critical error in artifacts batch, removing {} entries from local storage: {}",
-                        all_artifacts.len(),
+                        "Critical error in artifacts insert batch, removing {} entries from local storage: {}",
+                        updated_artifacts.len(),
                         e
                     );
 
-                    if let Err(remove_err) = self.remove_items(all_artifacts) {
+                    if let Err(remove_err) = self.remove_items(updated_artifacts) {
                         tracing::error!("Failed to remove artifact entries: {}", remove_err);
                     }
                     return Ok(());
@@ -1034,19 +1050,126 @@ impl SyncEngine {
         };
 
         if let Some(remote_artifacts) = response.data {
-            tracing::info!("Successfully synced {} artifacts", remote_artifacts.len());
+            tracing::info!("Successfully inserted {} artifacts", remote_artifacts.len());
+
+            // Update local records with remote IDs
+            let mut updated_locals = Vec::new();
+            for (remote_artifact, original_local) in remote_artifacts.into_iter().zip(updated_artifacts.iter()) {
+                let mut updated_local: ArtifactLocal = remote_artifact.into();
+                updated_local.id_local = original_local.id_local.clone();
+                updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
+                updated_local.has_uploaded_file_to_storage = original_local.has_uploaded_file_to_storage;
+                updated_local.upload_url = original_local.upload_url.clone();
+                updated_local.upload_url_generated_at = original_local.upload_url_generated_at.clone();
+                updated_locals.push(updated_local);
+            }
+
+            self.upsert_items(updated_locals)?;
+        }
+
+        Ok(())
+    }
+
+    /// Processes a batch of artifacts for upsert (existing items with remote IDs)
+    async fn process_artifact_upsert_batch(
+        &mut self,
+        mut artifacts: Vec<ArtifactLocal>,
+    ) -> Result<(), Error> {
+        if artifacts.is_empty() {
+            return Ok(());
+        }
+
+        // Filter to only include artifacts that have uploaded their files to storage
+        let total_artifacts = artifacts.len();
+        artifacts.retain(|artifact| artifact.has_uploaded_file_to_storage);
+
+        let pending_uploads = total_artifacts - artifacts.len();
+        if pending_uploads > 0 {
+            tracing::debug!(
+                "Skipping {} artifacts without uploaded files (only syncing {} with uploaded files)",
+                pending_uploads,
+                artifacts.len()
+            );
+        }
+
+        if let Some(max_items) = self.max_num_items_per_sync {
+            if artifacts.len() > max_items as usize {
+                tracing::info!(
+                    "Limiting artifact upserts from {} to {} items",
+                    artifacts.len(),
+                    max_items
+                );
+                artifacts.truncate(max_items as usize);
+            }
+        }
+
+        if artifacts.is_empty() {
+            tracing::debug!("No artifacts with uploaded files found for upsert");
+            return Ok(());
+        }
+
+        // Update artifacts' session_id if their ancestor sessions have remote IDs
+        let mut updated_artifacts = Vec::new();
+        for artifact in artifacts.iter() {
+            let mut updated_artifact = artifact.clone();
+            if let Some(ancestor_local_id) = &artifact.ancestor_id_local {
+                if let Ok(Some(session)) = self.get_item::<SessionLocal>(ancestor_local_id) {
+                    if let Some(remote_session_id) = session.id {
+                        updated_artifact.session_id = Some(remote_session_id);
+                    }
+                }
+            }
+            updated_artifacts.push(updated_artifact);
+        }
+
+        // Convert to API format for upsert
+        // Filter to ensure all artifacts have remote IDs
+        let artifacts_for_api: Vec<crate::models::Artifact> = updated_artifacts
+            .iter()
+            .filter(|artifact| artifact.id.is_some())
+            .map(|artifact| artifact.clone().into())
+            .collect();
+
+        tracing::info!("Upserting {} artifacts to remote", artifacts_for_api.len());
+
+        let response = match self
+            .scout_client
+            .upsert_artifacts_batch(&artifacts_for_api)
+            .await
+        {
+            Ok(response) => response,
+            Err(e) => {
+                if Self::is_critical_error(&e.to_string()) && self.remove_failed_records {
+                    tracing::warn!(
+                        "Critical error in artifacts upsert batch, removing {} entries from local storage: {}",
+                        updated_artifacts.len(),
+                        e
+                    );
+
+                    if let Err(remove_err) = self.remove_items(updated_artifacts) {
+                        tracing::error!("Failed to remove artifact entries: {}", remove_err);
+                    }
+                    return Ok(());
+                } else {
+                    return Err(e);
+                }
+            }
+        };
+
+        if let Some(remote_artifacts) = response.data {
+            tracing::info!("Successfully upserted {} artifacts", remote_artifacts.len());
 
             // Update local records with remote IDs and data
-            let updated_locals: Vec<ArtifactLocal> = remote_artifacts
-                .into_iter()
-                .zip(all_artifacts.iter())
-                .map(|(remote_artifact, original_local)| {
-                    let mut updated_local: ArtifactLocal = remote_artifact.into();
-                    updated_local.id_local = original_local.id_local.clone();
-                    updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
-                    updated_local
-                })
-                .collect();
+            let mut updated_locals = Vec::new();
+            for (remote_artifact, original_local) in remote_artifacts.into_iter().zip(updated_artifacts.iter()) {
+                let mut updated_local: ArtifactLocal = remote_artifact.into();
+                updated_local.id_local = original_local.id_local.clone();
+                updated_local.ancestor_id_local = original_local.ancestor_id_local.clone();
+                updated_local.has_uploaded_file_to_storage = original_local.has_uploaded_file_to_storage;
+                updated_local.upload_url = original_local.upload_url.clone();
+                updated_local.upload_url_generated_at = original_local.upload_url_generated_at.clone();
+                updated_locals.push(updated_local);
+            }
 
             self.upsert_items(updated_locals)?;
         }

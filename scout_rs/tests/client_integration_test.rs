@@ -2317,7 +2317,10 @@ async fn test_heartbeat_operations() {
     assert!(heartbeats.len() >= 2);
 
     // Verify ordering (newest first)
-    assert_eq!(heartbeats[0].timestamp, timestamp2);
+    assert_eq!(
+        normalize_timestamp(&heartbeats[0].timestamp),
+        normalize_timestamp(&timestamp2)
+    );
 
     // Find both created heartbeats
     let found_hb1 = heartbeats.iter().find(|h| h.id == created_heartbeat1.id);
