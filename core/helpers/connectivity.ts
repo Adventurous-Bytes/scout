@@ -80,67 +80,72 @@ export async function server_get_connectivity_by_device_id(
   return IWebResponse.success(sortedConnectivity).to_compatible();
 }
 
-// Insert a new connectivity record
+// Insert new connectivity records (accepts array for batch operations)
 export async function server_insert_connectivity(
-  connectivity: ConnectivityInsert,
+  connectivity: ConnectivityInsert | ConnectivityInsert[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<IConnectivity | null>> {
+): Promise<IWebResponseCompatible<IConnectivity[]>> {
   const supabase = client || (await newServerClient());
+
+  const connectivityArray = Array.isArray(connectivity)
+    ? connectivity
+    : [connectivity];
 
   const { data, error } = await supabase
     .from("connectivity")
-    .insert([connectivity])
-    .select("*")
-    .single();
+    .insert(connectivityArray)
+    .select("*");
 
   if (error) {
     console.warn("Error inserting connectivity:", error.message);
     return {
       status: EnumWebResponse.ERROR,
       msg: error.message,
-      data: null,
+      data: [],
     };
   }
 
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(data || []).to_compatible();
 }
 
-// Update an existing connectivity record
+// Update existing connectivity records (accepts array for batch operations)
+// Each connectivity record in the array must include an 'id' field
 export async function server_update_connectivity(
-  connectivityId: number,
-  updates: ConnectivityUpdate,
+  connectivity: (ConnectivityUpdate & { id: number }) | (ConnectivityUpdate & { id: number })[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<IConnectivity | null>> {
+): Promise<IWebResponseCompatible<IConnectivity[]>> {
   const supabase = client || (await newServerClient());
 
-  // Remove fields that shouldn't be updated
-  const updateData = { ...updates };
-  delete (updateData as any).id;
-  delete (updateData as any).inserted_at;
+  const connectivityArray = Array.isArray(connectivity)
+    ? connectivity
+    : [connectivity];
+  const updatedConnectivity: IConnectivity[] = [];
 
-  const { data, error } = await supabase
-    .from("connectivity")
-    .update(updateData)
-    .eq("id", connectivityId)
-    .select("*")
-    .single();
+  for (const record of connectivityArray) {
+    const { id, ...updateData } = record;
+    // Remove fields that shouldn't be updated
+    delete (updateData as any).inserted_at;
 
-  if (error) {
-    console.warn("Error updating connectivity:", error.message);
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: error.message,
-      data: null,
-    };
+    const { data, error } = await supabase
+      .from("connectivity")
+      .update(updateData)
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.warn("Error updating connectivity:", error.message);
+      return {
+        status: EnumWebResponse.ERROR,
+        msg: error.message,
+        data: [],
+      };
+    }
+
+    if (data) {
+      updatedConnectivity.push(data);
+    }
   }
 
-  if (!data) {
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: "Connectivity record not found or update failed",
-      data: null,
-    };
-  }
-
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(updatedConnectivity).to_compatible();
 }

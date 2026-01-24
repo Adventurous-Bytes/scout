@@ -135,67 +135,68 @@ export async function server_get_events_and_tags_by_session_id(
   return IWebResponse.success(data || []).to_compatible();
 }
 
-// Insert a new session
+// Insert new sessions (accepts array for batch operations)
 export async function server_insert_session(
-  session: SessionInsert,
+  sessions: SessionInsert | SessionInsert[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<ISession | null>> {
+): Promise<IWebResponseCompatible<ISession[]>> {
   const supabase = client || (await newServerClient());
+
+  const sessionsArray = Array.isArray(sessions) ? sessions : [sessions];
 
   const { data, error } = await supabase
     .from("sessions")
-    .insert([session])
-    .select("*")
-    .single();
+    .insert(sessionsArray)
+    .select("*");
 
   if (error) {
-    console.warn("Error inserting session:", error.message);
+    console.warn("Error inserting sessions:", error.message);
     return {
       status: EnumWebResponse.ERROR,
       msg: error.message,
-      data: null,
+      data: [],
     };
   }
 
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(data || []).to_compatible();
 }
 
-// Update an existing session
+// Update existing sessions (accepts array for batch operations)
+// Each session in the array must include an 'id' field
 export async function server_update_session(
-  sessionId: number,
-  updates: SessionUpdate,
+  sessions: (SessionUpdate & { id: number }) | (SessionUpdate & { id: number })[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<ISession | null>> {
+): Promise<IWebResponseCompatible<ISession[]>> {
   const supabase = client || (await newServerClient());
 
-  // Remove fields that shouldn't be updated
-  const updateData = { ...updates };
-  delete (updateData as any).id;
-  delete (updateData as any).inserted_at;
+  const sessionsArray = Array.isArray(sessions) ? sessions : [sessions];
+  const updatedSessions: ISession[] = [];
 
-  const { data, error } = await supabase
-    .from("sessions")
-    .update(updateData)
-    .eq("id", sessionId)
-    .select("*")
-    .single();
+  for (const session of sessionsArray) {
+    const { id, ...updateData } = session;
+    // Remove fields that shouldn't be updated
+    delete (updateData as any).inserted_at;
 
-  if (error) {
-    console.warn("Error updating session:", error.message);
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: error.message,
-      data: null,
-    };
+    const { data, error } = await supabase
+      .from("sessions")
+      .update(updateData)
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.warn("Error updating session:", error.message);
+      return {
+        status: EnumWebResponse.ERROR,
+        msg: error.message,
+        data: [],
+      };
+    }
+
+    if (data) {
+      updatedSessions.push(data);
+    }
   }
 
-  if (!data) {
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: "Session not found or update failed",
-      data: null,
-    };
-  }
-
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(updatedSessions).to_compatible();
 }

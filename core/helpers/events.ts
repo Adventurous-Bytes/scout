@@ -42,67 +42,68 @@ export async function server_get_total_events_by_herd(
   }
 }
 
-// Insert a new event
+// Insert new events (accepts array for batch operations)
 export async function server_insert_event(
-  event: EventInsert,
+  events: EventInsert | EventInsert[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<IEvent | null>> {
+): Promise<IWebResponseCompatible<IEvent[]>> {
   const supabase = client || (await newServerClient());
+
+  const eventsArray = Array.isArray(events) ? events : [events];
 
   const { data, error } = await supabase
     .from("events")
-    .insert([event])
-    .select("*")
-    .single();
+    .insert(eventsArray)
+    .select("*");
 
   if (error) {
-    console.warn("Error inserting event:", error.message);
+    console.warn("Error inserting events:", error.message);
     return {
       status: EnumWebResponse.ERROR,
       msg: error.message,
-      data: null,
+      data: [],
     };
   }
 
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(data || []).to_compatible();
 }
 
-// Update an existing event
+// Update existing events (accepts array for batch operations)
+// Each event in the array must include an 'id' field
 export async function server_update_event(
-  eventId: number,
-  updates: EventUpdate,
+  events: (EventUpdate & { id: number }) | (EventUpdate & { id: number })[],
   client?: SupabaseClient,
-): Promise<IWebResponseCompatible<IEvent | null>> {
+): Promise<IWebResponseCompatible<IEvent[]>> {
   const supabase = client || (await newServerClient());
 
-  // Remove fields that shouldn't be updated
-  const updateData = { ...updates };
-  delete (updateData as any).id;
-  delete (updateData as any).inserted_at;
+  const eventsArray = Array.isArray(events) ? events : [events];
+  const updatedEvents: IEvent[] = [];
 
-  const { data, error } = await supabase
-    .from("events")
-    .update(updateData)
-    .eq("id", eventId)
-    .select("*")
-    .single();
+  for (const event of eventsArray) {
+    const { id, ...updateData } = event;
+    // Remove fields that shouldn't be updated
+    delete (updateData as any).inserted_at;
 
-  if (error) {
-    console.warn("Error updating event:", error.message);
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: error.message,
-      data: null,
-    };
+    const { data, error } = await supabase
+      .from("events")
+      .update(updateData)
+      .eq("id", id)
+      .select("*")
+      .single();
+
+    if (error) {
+      console.warn("Error updating event:", error.message);
+      return {
+        status: EnumWebResponse.ERROR,
+        msg: error.message,
+        data: [],
+      };
+    }
+
+    if (data) {
+      updatedEvents.push(data);
+    }
   }
 
-  if (!data) {
-    return {
-      status: EnumWebResponse.ERROR,
-      msg: "Event not found or update failed",
-      data: null,
-    };
-  }
-
-  return IWebResponse.success(data).to_compatible();
+  return IWebResponse.success(updatedEvents).to_compatible();
 }
