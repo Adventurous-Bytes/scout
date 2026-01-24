@@ -5,7 +5,6 @@ import { createContext, useContext, useMemo, ReactNode, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { Database } from "../types/supabase";
-import { getSupabaseUrl, getSupabaseAnonKey } from "../constants/env";
 
 // Create context for the Supabase client
 const SupabaseContext = createContext<SupabaseClient<Database> | null>(null);
@@ -47,9 +46,13 @@ export interface ScoutRefreshProviderProps {
 
 export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
   // Use refs to store the URL and key to prevent unnecessary recreations
-  // Uses flexible environment variable helper for better PWA compatibility
-  const urlRef = useRef(getSupabaseUrl());
-  const anonKeyRef = useRef(getSupabaseAnonKey());
+  // Assumes Next.js environment variables (NEXT_PUBLIC_*)
+  const urlRef = useRef(
+    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+  );
+  const anonKeyRef = useRef(
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
+  );
 
   // Create a single Supabase client instance that only runs once
   const supabaseClient = useMemo(() => {

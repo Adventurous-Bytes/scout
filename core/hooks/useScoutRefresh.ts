@@ -23,7 +23,6 @@ import { scoutCache } from "../helpers/cache";
 import { EnumDataSource } from "../types/data_source";
 import { createBrowserClient } from "@supabase/ssr";
 import { Database } from "../types/supabase";
-import { getSupabaseUrl, getSupabaseAnonKey } from "../constants/env";
 
 export interface UseScoutRefreshOptions {
   autoRefresh?: boolean;
@@ -67,11 +66,11 @@ export function useScoutRefresh(options: UseScoutRefreshOptions = {}) {
   const refreshInProgressRef = useRef(false);
 
   // Create Supabase client directly to avoid circular dependency
-  // Uses flexible environment variable helper for better PWA compatibility
+  // Assumes Next.js environment variables (NEXT_PUBLIC_*)
   const supabase = useMemo(() => {
     return createBrowserClient<Database>(
-      getSupabaseUrl(),
-      getSupabaseAnonKey(),
+      process.env.NEXT_PUBLIC_SUPABASE_URL || "",
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "",
     );
   }, []);
 
