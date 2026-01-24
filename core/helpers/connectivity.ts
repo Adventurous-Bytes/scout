@@ -6,7 +6,13 @@ import {
   IWebResponse,
   IWebResponseCompatible,
 } from "../types/requests";
-import { IConnectivityWithCoordinates } from "../types/db";
+import {
+  IConnectivityWithCoordinates,
+  IConnectivity,
+  ConnectivityInsert,
+  ConnectivityUpdate,
+} from "../types/db";
+import { SupabaseClient } from "@supabase/supabase-js";
 
 // Get connectivity by session id using RPC function with coordinates
 export async function server_get_connectivity_by_session_id(
@@ -72,4 +78,69 @@ export async function server_get_connectivity_by_device_id(
   });
 
   return IWebResponse.success(sortedConnectivity).to_compatible();
+}
+
+// Insert a new connectivity record
+export async function server_insert_connectivity(
+  connectivity: ConnectivityInsert,
+  client?: SupabaseClient,
+): Promise<IWebResponseCompatible<IConnectivity | null>> {
+  const supabase = client || (await newServerClient());
+
+  const { data, error } = await supabase
+    .from("connectivity")
+    .insert([connectivity])
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("Error inserting connectivity:", error.message);
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: null,
+    };
+  }
+
+  return IWebResponse.success(data).to_compatible();
+}
+
+// Update an existing connectivity record
+export async function server_update_connectivity(
+  connectivityId: number,
+  updates: ConnectivityUpdate,
+  client?: SupabaseClient,
+): Promise<IWebResponseCompatible<IConnectivity | null>> {
+  const supabase = client || (await newServerClient());
+
+  // Remove fields that shouldn't be updated
+  const updateData = { ...updates };
+  delete (updateData as any).id;
+  delete (updateData as any).inserted_at;
+
+  const { data, error } = await supabase
+    .from("connectivity")
+    .update(updateData)
+    .eq("id", connectivityId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("Error updating connectivity:", error.message);
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: null,
+    };
+  }
+
+  if (!data) {
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: "Connectivity record not found or update failed",
+      data: null,
+    };
+  }
+
+  return IWebResponse.success(data).to_compatible();
 }

@@ -5,6 +5,9 @@ import {
   ISessionWithCoordinates,
   ISessionUsageOverTime,
   IEventAndTagsPrettyLocation,
+  ISession,
+  SessionInsert,
+  SessionUpdate,
 } from "../types/db";
 import {
   EnumWebResponse,
@@ -130,4 +133,69 @@ export async function server_get_events_and_tags_by_session_id(
   }
 
   return IWebResponse.success(data || []).to_compatible();
+}
+
+// Insert a new session
+export async function server_insert_session(
+  session: SessionInsert,
+  client?: SupabaseClient,
+): Promise<IWebResponseCompatible<ISession | null>> {
+  const supabase = client || (await newServerClient());
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .insert([session])
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("Error inserting session:", error.message);
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: null,
+    };
+  }
+
+  return IWebResponse.success(data).to_compatible();
+}
+
+// Update an existing session
+export async function server_update_session(
+  sessionId: number,
+  updates: SessionUpdate,
+  client?: SupabaseClient,
+): Promise<IWebResponseCompatible<ISession | null>> {
+  const supabase = client || (await newServerClient());
+
+  // Remove fields that shouldn't be updated
+  const updateData = { ...updates };
+  delete (updateData as any).id;
+  delete (updateData as any).inserted_at;
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .update(updateData)
+    .eq("id", sessionId)
+    .select("*")
+    .single();
+
+  if (error) {
+    console.warn("Error updating session:", error.message);
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: error.message,
+      data: null,
+    };
+  }
+
+  if (!data) {
+    return {
+      status: EnumWebResponse.ERROR,
+      msg: "Session not found or update failed",
+      data: null,
+    };
+  }
+
+  return IWebResponse.success(data).to_compatible();
 }

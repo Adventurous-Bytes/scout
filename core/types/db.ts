@@ -75,6 +75,14 @@ export type VersionsSoftwareInsert =
 export type ArtifactInsert =
   Database["public"]["Tables"]["artifacts"]["Insert"];
 export type PinInsert = Database["public"]["Tables"]["pins"]["Insert"];
+export type SessionInsert = Database["public"]["Tables"]["sessions"]["Insert"];
+export type SessionUpdate = Database["public"]["Tables"]["sessions"]["Update"];
+export type ConnectivityInsert =
+  Database["public"]["Tables"]["connectivity"]["Insert"];
+export type ConnectivityUpdate =
+  Database["public"]["Tables"]["connectivity"]["Update"];
+export type EventInsert = Database["public"]["Tables"]["events"]["Insert"];
+export type EventUpdate = Database["public"]["Tables"]["events"]["Update"];
 
 // Re-export composite types
 export type IEventWithTags =
