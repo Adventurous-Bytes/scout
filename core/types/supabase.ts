@@ -890,6 +890,7 @@ export type Database = {
       }
       versions_software: {
         Row: {
+          broken: boolean
           commit_hash: string | null
           created_at: string
           description: string
@@ -904,6 +905,7 @@ export type Database = {
           version: string
         }
         Insert: {
+          broken?: boolean
           commit_hash?: string | null
           created_at?: string
           description: string
@@ -918,6 +920,7 @@ export type Database = {
           version: string
         }
         Update: {
+          broken?: boolean
           commit_hash?: string | null
           created_at?: string
           description?: string
