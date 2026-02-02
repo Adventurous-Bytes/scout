@@ -76,7 +76,6 @@ pub struct SyncEngine {
     database: Database<'static>,
     max_num_items_per_sync: Option<u64>,
     remove_failed_records: bool,
-    ttl_secs: Option<u64>,
     storage_client: Option<StorageClient>,
 }
 
@@ -123,7 +122,6 @@ impl SyncEngine {
         db_local_path: String,
         max_num_items_per_sync: Option<u64>,
         remove_failed_records: bool,
-        ttl_secs: Option<u64>,
     ) -> Result<Self> {
         // Create database using static models reference
         let database = Builder::new().create(&*MODELS, &db_local_path)?;
@@ -134,7 +132,6 @@ impl SyncEngine {
             database,
             max_num_items_per_sync,
             remove_failed_records,
-            ttl_secs,
             storage_client: None,
         })
     }
@@ -148,7 +145,6 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             false, // Remove failed records disabled by default for safety
-            None,  // TTL disabled by default
         )
     }
 
@@ -164,25 +160,6 @@ impl SyncEngine {
             db_local_path,
             Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
             true, // Remove failed records enabled
-            None, // TTL disabled by default
-        )
-    }
-
-    /// Creates a SyncEngine with TTL-based cleaning enabled
-    /// - 100 items per sync batch
-    /// - Remove failed records disabled (for safety)
-    /// - TTL cleaning enabled with specified duration
-    pub fn with_ttl_cleaning(
-        scout_client: ScoutClient,
-        db_local_path: String,
-        ttl_secs: u64,
-    ) -> Result<Self> {
-        Self::new(
-            scout_client,
-            db_local_path,
-            Some(DEFAULT_MAX_NUM_ITEMS_PER_SYNC),
-            false, // Remove failed records disabled by default for safety
-            Some(ttl_secs),
         )
     }
 
@@ -1332,87 +1309,35 @@ impl SyncEngine {
     }
 
     /// Cleans completed sessions and their descendants from local database
-    /// Uses safe cleaning (timestamp_end + all descendants synced) OR TTL-based cleaning
+    /// Uses safe cleaning: timestamp_end set and all descendants synced
     pub async fn clean(&mut self) -> Result<(), Error> {
         tracing::info!("Starting clean operation for sessions");
 
         let r = self.database.r_transaction()?;
         let mut sessions_to_clean = Vec::new();
-        let mut ttl_sessions_to_clean = Vec::new();
 
-        // Calculate TTL cutoff time if configured
-        let ttl_cutoff_timestamp = if let Some(ttl_secs) = self.ttl_secs {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map_err(|e| Error::msg(format!("System time error: {}", e)))?
-                .as_secs();
-            Some(now - ttl_secs)
-        } else {
-            None
-        };
-
-        // Find sessions to clean
         for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
             if let Ok(session) = raw_session {
-                let mut should_clean_safely = false;
-                let mut should_clean_by_ttl = false;
-
-                // Safe cleaning criteria: completed + all descendants synced
                 if let (Some(_end_time_str), Some(_remote_id)) =
                     (&session.timestamp_end, session.id)
                 {
                     if self.session_descendants_have_remote_ids(&session, &r)? {
-                        should_clean_safely = true;
+                        sessions_to_clean.push(session);
                     }
-                }
-
-                // TTL cleaning criteria: older than TTL regardless of sync status
-                if let Some(cutoff) = ttl_cutoff_timestamp {
-                    if let Ok(session_timestamp) = self.parse_timestamp(&session.timestamp_start) {
-                        if session_timestamp < cutoff {
-                            should_clean_by_ttl = true;
-                        }
-                    }
-                }
-
-                if should_clean_safely {
-                    sessions_to_clean.push(session);
-                } else if should_clean_by_ttl {
-                    ttl_sessions_to_clean.push(session);
                 }
             }
         }
         drop(r);
 
-        let total_to_clean = sessions_to_clean.len() + ttl_sessions_to_clean.len();
-
-        if total_to_clean == 0 {
+        if sessions_to_clean.is_empty() {
             tracing::debug!("No sessions found for cleaning");
             return Ok(());
         }
 
-        tracing::info!(
-            "Found {} sessions to clean ({} safe, {} TTL-based)",
-            total_to_clean,
-            sessions_to_clean.len(),
-            ttl_sessions_to_clean.len()
-        );
+        tracing::info!("Found {} sessions to clean", sessions_to_clean.len());
 
-        // Clean safely completed sessions
         for session in sessions_to_clean {
             self.clean_session_and_descendants(&session).await?;
-        }
-
-        // Clean TTL-expired sessions (potentially with data loss warning)
-        if !ttl_sessions_to_clean.is_empty() {
-            tracing::warn!(
-                "TTL cleaning {} sessions - this may result in data loss for unsynced data",
-                ttl_sessions_to_clean.len()
-            );
-            for session in ttl_sessions_to_clean {
-                self.clean_session_and_descendants(&session).await?;
-            }
         }
 
         Ok(())
@@ -2524,26 +2449,6 @@ impl SyncEngine {
             || error_lower.contains("new row violates row-level security policy")
             || error_lower.contains("all object keys must match")
     }
-
-    /// Parses a timestamp string to Unix timestamp
-    fn parse_timestamp(&self, timestamp_str: &str) -> Result<u64, Error> {
-        use chrono::{DateTime, Utc};
-
-        let parsed = DateTime::parse_from_rfc3339(timestamp_str)
-            .or_else(|_| {
-                // Try alternative format if RFC3339 fails
-                DateTime::parse_from_str(timestamp_str, "%Y-%m-%dT%H:%M:%SZ")
-                    .map(|dt| dt.with_timezone(&Utc).fixed_offset())
-            })
-            .map_err(|e| {
-                Error::msg(format!(
-                    "Failed to parse timestamp '{}': {}",
-                    timestamp_str, e
-                ))
-            })?;
-
-        Ok(parsed.timestamp() as u64)
-    }
 }
 
 #[cfg(test)]
@@ -2604,7 +2509,7 @@ mod tests {
         let database_config = DatabaseConfig::from_env()
             .map_err(|e| Error::msg(format!("System time error: {}", e)))?;
         let scout_client = ScoutClient::new(database_config);
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -2640,7 +2545,7 @@ mod tests {
             "Client identification failed - check SCOUT_DEVICE_API_KEY and database connection",
         );
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -3364,7 +3269,7 @@ mod tests {
         let mut scout_client = ScoutClient::new(invalid_config);
         scout_client.identify().await?; // This should fail
 
-        let sync_engine = SyncEngine::new(scout_client, db_path, None, false, None)?;
+        let sync_engine = SyncEngine::new(scout_client, db_path, None, false)?;
 
         // Initialize database with a simple transaction to ensure it's properly set up
         {
@@ -4332,102 +4237,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_ttl_cleaning_functionality() -> Result<()> {
-        setup_test_env();
-
-        let database_config =
-            DatabaseConfig::from_env().expect("Failed to create database config from environment");
-        let client = ScoutClient::new(database_config);
-
-        let temp_db = format!(
-            "/tmp/scout_test_ttl_{}.db",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-
-        // Create sync engine with 1 second TTL for testing
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, false, Some(1))?;
-
-        let device_id = std::env::var("SCOUT_DEVICE_ID")
-            .expect("SCOUT_DEVICE_ID required")
-            .parse()
-            .expect("SCOUT_DEVICE_ID must be valid integer");
-
-        // Create an old session (2 seconds ago)
-        let mut old_session = SessionLocal::default();
-        old_session.set_id_local("old_session_ttl_test".to_string());
-        old_session.device_id = device_id;
-        old_session.timestamp_start = {
-            use chrono::{Duration, Utc};
-            (Utc::now() - Duration::seconds(2))
-                .format("%Y-%m-%dT%H:%M:%SZ")
-                .to_string()
-        };
-        old_session.software_version = "ttl_test".to_string();
-        old_session.altitude_max = 100.0;
-        old_session.altitude_min = 50.0;
-        old_session.altitude_average = 75.0;
-        old_session.velocity_max = 25.0;
-        old_session.velocity_min = 10.0;
-        old_session.velocity_average = 15.0;
-        old_session.distance_total = 1000.0;
-        old_session.distance_max_from_start = 500.0;
-
-        // Create a new session (current time)
-        let mut new_session = SessionLocal::default();
-        new_session.set_id_local("new_session_ttl_test".to_string());
-        new_session.device_id = device_id;
-        new_session.timestamp_start = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        new_session.software_version = "ttl_test".to_string();
-        new_session.altitude_max = 150.0;
-        new_session.altitude_min = 80.0;
-        new_session.altitude_average = 115.0;
-        new_session.velocity_max = 30.0;
-        new_session.velocity_min = 15.0;
-        new_session.velocity_average = 22.0;
-        new_session.distance_total = 1500.0;
-        new_session.distance_max_from_start = 750.0;
-
-        // Insert both sessions
-        sync_engine.upsert_items(vec![old_session, new_session])?;
-
-        // Verify both sessions exist
-        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 2);
-
-        // Run clean operation - should remove old session due to TTL
-        sync_engine.clean().await?;
-
-        // Verify only new session remains (old session removed by TTL)
-        assert_eq!(sync_engine.get_table_count::<SessionLocal>()?, 1);
-
-        // Verify the remaining session is the new one
-        let remaining_sessions: Vec<SessionLocal> = {
-            let r = sync_engine.database.r_transaction()?;
-            let mut sessions = Vec::new();
-            for raw_session in r.scan().primary::<SessionLocal>()?.all()? {
-                if let Ok(session) = raw_session {
-                    sessions.push(session);
-                }
-            }
-            sessions
-        };
-
-        assert_eq!(remaining_sessions.len(), 1);
-        assert_eq!(
-            remaining_sessions[0].id_local,
-            Some("new_session_ttl_test".to_string())
-        );
-
-        // Clean up
-        let _ = std::fs::remove_file(&temp_db);
-
-        println!("✅ Test passed: TTL cleaning removes old sessions correctly");
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_remove_failed_records_functionality() -> Result<()> {
         setup_test_env();
 
@@ -4444,7 +4253,7 @@ mod tests {
         );
 
         // Create sync engine with remove_failed_records enabled for testing
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true, None)?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
@@ -4509,7 +4318,7 @@ mod tests {
         );
 
         // Create sync engine with remove_failed_records enabled for testing
-        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true, None)?;
+        let mut sync_engine = SyncEngine::new(client, temp_db.clone(), None, true)?;
 
         let device_id = std::env::var("SCOUT_DEVICE_ID")
             .expect("SCOUT_DEVICE_ID required")
