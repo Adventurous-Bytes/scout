@@ -1,0 +1,37 @@
+---
+title: Health metrics
+description: Table for device health metrics (CPU, memory, storage, etc.); one row per metric per timestamp
+---
+| Column Name | Data Type | Constraints |
+|-------------|-----------|-------------|
+| id | bigint | NOT NULL (generated) |
+| timestamp | timestamp with time zone | NOT NULL |
+| device_id | bigint | NOT NULL |
+| source | text | |
+| metric_name | text | NOT NULL |
+| value | double precision | NOT NULL |
+| unit | text | |
+| created_at | timestamp with time zone | DEFAULT clock_timestamp() NOT NULL |
+
+## Indexes
+
+- `idx_health_metrics_lookup` on `(device_id, metric_name, timestamp DESC)` for device lookups and time-ordered queries.
+
+## Foreign keys
+
+- `device_id` → `devices(id)` ON UPDATE CASCADE ON DELETE CASCADE
+
+## Security policies (RLS)
+
+Row Level Security is enabled:
+
+- **Read**: Device API key for this device, or approved gateway device for same herd, or user with view role on the device’s herd
+- **Create / Update / Delete**: Same as read but with edit role (device key, gateway for herd, or user edit role)
+
+## Related function
+
+- `get_health_metrics_summary(p_device_id bigint, p_lookback_minutes integer DEFAULT 60)` — returns per-metric min, max, avg, and count over the lookback window. Uses SECURITY INVOKER (RLS applies).
+
+## Metric names
+
+Use snake_case; add new metrics by using new `metric_name` values (no migration). Examples: `cpu_usage_percent`, `memory_usage_percent`, `storage_used_gb`, `disk_usage_percent`, `cpu_temperature_c`, `uptime_seconds`.

@@ -51,6 +51,11 @@ erDiagram
         bigint device_id FK
     }
     
+    health_metrics {
+        bigint id PK
+        bigint device_id FK
+    }
+    
     artifacts {
         bigint id PK
         bigint session_id FK
@@ -141,6 +146,7 @@ erDiagram
     devices ||--o{ events : produces
     devices ||--o{ connectivity : reports
     devices ||--o{ heartbeats : sends
+    devices ||--o{ health_metrics : reports
     devices ||--o{ artifacts : stores
     devices ||--o{ parts : has
     
@@ -160,7 +166,7 @@ erDiagram
 
 - **Users** create and manage **Herds**, **Devices**, and **Pins**
 - **Herds** contain multiple **Devices** and define access permissions
-- **Devices** generate **Sessions**, **Events**, and **Connectivity** data
+- **Devices** generate **Sessions**, **Events**, **Connectivity**, and **Health metrics** data
 - **Events** can contain **Tags** for object detection results
 - **Zones** trigger automated **Actions** for spatial monitoring
 - **Parts** are validated by **Certificates** for device compliance

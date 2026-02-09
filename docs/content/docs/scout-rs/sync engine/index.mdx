@@ -18,6 +18,8 @@ The sync engine maintains a strict hierarchical sync order to preserve data inte
 
 This order ensures that parent entities are synced before their children, preventing foreign key constraint violations.
 
+**Health metrics** are device-level and are not part of the sync engine hierarchy.
+
 ## Key Features
 
 - **Batch Operations**: Efficiently syncs multiple items in single requests
