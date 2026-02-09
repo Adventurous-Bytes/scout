@@ -383,6 +383,47 @@ export type Database = {
           },
         ]
       }
+      health_metrics: {
+        Row: {
+          created_at: string
+          device_id: number
+          id: number
+          metric_name: string
+          source: string | null
+          timestamp: string
+          unit: string | null
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          device_id: number
+          id?: number
+          metric_name: string
+          source?: string | null
+          timestamp: string
+          unit?: string | null
+          value: number
+        }
+        Update: {
+          created_at?: string
+          device_id?: number
+          id?: number
+          metric_name?: string
+          source?: string | null
+          timestamp?: string
+          unit?: string | null
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "health_metrics_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       heartbeats: {
         Row: {
           created_at: string
