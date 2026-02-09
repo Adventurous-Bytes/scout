@@ -1,3 +1,4 @@
+pub mod health_metric;
 pub mod v1;
 pub mod v2;
 pub mod v3;
@@ -32,6 +33,7 @@ pub mod data {
     pub type Zone = super::v1::Zone;
     pub type Action = super::v1::Action;
     pub type Heartbeat = super::v1::Heartbeat;
+    pub type HealthMetric = super::health_metric::HealthMetric;
 
     // Re-export versioned modules for direct access
     pub use super::{v1, v2, v3, v4};

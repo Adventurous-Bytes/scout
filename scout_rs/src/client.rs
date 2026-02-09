@@ -1407,4 +1407,83 @@ impl ScoutClient {
 
         Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
     }
+
+    // ===== HEALTH METRICS =====
+
+    /// Creates a single health metric row (device_id, timestamp, metric_name, value, optional source/unit).
+    pub async fn create_health_metric(
+        &mut self,
+        metric: &HealthMetric,
+    ) -> Result<ResponseScout<HealthMetric>> {
+        let db_client = self.get_db_client()?;
+        let result = db_client.insert("health_metrics", metric).await?;
+        Self::handle_insert_result(result)
+    }
+
+    /// Creates multiple health metrics in a batch.
+    pub async fn create_health_metrics_batch(
+        &mut self,
+        metrics: &[HealthMetric],
+    ) -> Result<ResponseScout<Vec<HealthMetric>>> {
+        let db_client = self.get_db_client()?;
+        if metrics.is_empty() {
+            return Ok(ResponseScout::new(
+                ResponseScoutStatus::Success,
+                Some(Vec::new()),
+            ));
+        }
+        let result = db_client.insert_bulk("health_metrics", metrics).await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, Some(result)))
+    }
+
+    /// Gets health metrics for a device, newest first. Optional limit.
+    pub async fn get_health_metrics(
+        &mut self,
+        device_id: i64,
+        limit: Option<u32>,
+    ) -> Result<ResponseScout<Vec<HealthMetric>>> {
+        let db_client = self.get_db_client()?;
+        let results = db_client
+            .query(|client| {
+                let q = client
+                    .from("health_metrics")
+                    .select("*")
+                    .eq("device_id", device_id.to_string())
+                    .order("timestamp.desc");
+                match limit {
+                    Some(n) => q.limit(n as usize),
+                    None => q,
+                }
+            })
+            .await?;
+        Ok(Self::handle_query_result(results))
+    }
+
+    /// Updates a health metric by id (partial update; only non-None fields applied).
+    pub async fn update_health_metric(
+        &mut self,
+        id: i64,
+        metric: &HealthMetric,
+    ) -> Result<ResponseScout<HealthMetric>> {
+        let db_client = self.get_db_client()?;
+        let result = db_client
+            .update(metric, |client| client.from("health_metrics").eq("id", id.to_string()))
+            .await?;
+        if result.is_empty() {
+            return Ok(ResponseScout::new(ResponseScoutStatus::Failure, None));
+        }
+        Ok(ResponseScout::new(
+            ResponseScoutStatus::Success,
+            result.into_iter().next(),
+        ))
+    }
+
+    /// Deletes a health metric by id.
+    pub async fn delete_health_metric(&mut self, id: i64) -> Result<ResponseScout<()>> {
+        let db_client = self.get_db_client()?;
+        db_client
+            .delete(|client| client.from("health_metrics").eq("id", id.to_string()))
+            .await?;
+        Ok(ResponseScout::new(ResponseScoutStatus::Success, None))
+    }
 }
