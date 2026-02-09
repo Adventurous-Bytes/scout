@@ -6,6 +6,7 @@ export * from "./devices";
 export * from "./email";
 export * from "./events";
 export * from "./gps";
+export * from "./health_metrics";
 export * from "./heartbeats";
 export * from "./herds";
 export * from "./location";

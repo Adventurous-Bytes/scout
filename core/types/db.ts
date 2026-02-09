@@ -38,6 +38,9 @@ export type IPart = Database["public"]["Tables"]["parts"]["Row"];
 export type IVersionsSoftware =
   Database["public"]["Tables"]["versions_software"]["Row"];
 export type IArtifact = Database["public"]["Tables"]["artifacts"]["Row"];
+export type IHealthMetric = Database["public"]["Tables"]["health_metrics"]["Row"];
+export type IHealthMetricSummaryRow =
+  Database["public"]["Functions"]["get_health_metrics_summary"]["Returns"][number];
 
 // Compound type for artifacts with signed media URL
 export type IArtifactWithMediaUrl = IArtifact & {

@@ -3830,6 +3830,37 @@ end;$$;
 ALTER FUNCTION "public"."get_events_with_tags_for_herd"("herd_id_caller" bigint, "offset_caller" bigint, "limit_caller" bigint) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer DEFAULT 60) RETURNS TABLE("metric_name" "text", "min_value" double precision, "max_value" double precision, "avg_value" double precision, "count" bigint)
+    LANGUAGE "plpgsql"
+    SET "search_path" TO ''
+    AS $$
+BEGIN
+  IF p_lookback_minutes <= 0 THEN
+    RAISE EXCEPTION 'Lookback minutes must be positive, got %', p_lookback_minutes;
+  END IF;
+
+  RETURN QUERY
+  SELECT
+    hm.metric_name,
+    min(hm.value)::double precision,
+    max(hm.value)::double precision,
+    avg(hm.value)::double precision,
+    count(*)::bigint
+  FROM public.health_metrics hm
+  WHERE hm.device_id = p_device_id
+    AND hm.timestamp >= (now() - (p_lookback_minutes || ' minutes')::interval)
+  GROUP BY hm.metric_name;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) OWNER TO "postgres";
+
+
+COMMENT ON FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) IS 'Returns per-metric min/max/avg/count for a device over a lookback window. SECURITY INVOKER so RLS on health_metrics applies.';
+
+
+
 CREATE OR REPLACE FUNCTION "public"."get_herd_uptime_summary"("p_herd_id" bigint, "p_device_types" "public"."device_type"[] DEFAULT ARRAY['radio_mesh_base_station'::"public"."device_type", 'radio_mesh_base_station_gateway'::"public"."device_type"], "p_lookback_minutes" integer DEFAULT 60, "p_window_minutes" integer DEFAULT 2) RETURNS TABLE("total_devices" integer, "online_devices" integer, "offline_devices" integer, "overall_uptime_percentage" integer, "average_heartbeat_interval" numeric, "total_heartbeats" bigint)
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO ''
@@ -9321,6 +9352,13 @@ GRANT ALL ON FUNCTION "public"."get_events_infinite_by_herd"("herd_id_caller" bi
 GRANT ALL ON FUNCTION "public"."get_events_with_tags_for_herd"("herd_id_caller" bigint, "offset_caller" bigint, "limit_caller" bigint) TO "anon";
 GRANT ALL ON FUNCTION "public"."get_events_with_tags_for_herd"("herd_id_caller" bigint, "offset_caller" bigint, "limit_caller" bigint) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."get_events_with_tags_for_herd"("herd_id_caller" bigint, "offset_caller" bigint, "limit_caller" bigint) TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) TO "anon";
+GRANT ALL ON FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) TO "authenticated";
+GRANT ALL ON FUNCTION "public"."get_health_metrics_summary"("p_device_id" bigint, "p_lookback_minutes" integer) TO "service_role";
 
 
 

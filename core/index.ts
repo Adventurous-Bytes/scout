@@ -39,6 +39,7 @@ export * from "./helpers/zones";
 export * from "./helpers/storage";
 export * from "./helpers/eventUtils";
 export * from "./helpers/cache";
+export * from "./helpers/health_metrics";
 export * from "./helpers/heartbeats";
 export * from "./helpers/providers";
 export * from "./helpers/operators";

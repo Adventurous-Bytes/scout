@@ -1457,6 +1457,16 @@ export type Database = {
           isSetofReturn: true
         }
       }
+      get_health_metrics_summary: {
+        Args: { p_device_id: number; p_lookback_minutes?: number }
+        Returns: {
+          avg_value: number
+          count: number
+          max_value: number
+          metric_name: string
+          min_value: number
+        }[]
+      }
       get_herd_uptime_summary: {
         Args: {
           p_device_types?: Database["public"]["Enums"]["device_type"][]
