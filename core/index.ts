@@ -44,6 +44,7 @@ export * from "./helpers/heartbeats";
 export * from "./helpers/providers";
 export * from "./helpers/operators";
 export * from "./helpers/versions_software";
+export * from "./helpers/versions_software_server";
 export * from "./helpers/parts";
 
 // Hooks

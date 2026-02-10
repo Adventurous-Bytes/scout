@@ -22,5 +22,6 @@ export * from "./cache";
 export * from "./operators";
 export * from "./parts";
 export * from "./versions_software";
+export * from "./versions_software_server";
 export * from "./artifacts";
 export * from "./pins";

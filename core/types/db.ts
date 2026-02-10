@@ -47,6 +47,11 @@ export type IArtifactWithMediaUrl = IArtifact & {
   media_url?: string | null;
 };
 
+// Compound type for versions_software with signed build artifact URL
+export type IVersionsSoftwareWithBuildUrl = IVersionsSoftware & {
+  build_artifact_url?: string | null;
+};
+
 // Session summary data structure
 export interface ISessionSummary {
   total_session_time_minutes: number;
