@@ -938,6 +938,7 @@ export type Database = {
           hyperlink: string | null
           id: number
           min: boolean
+          path_build_artifact: string | null
           pre: boolean
           stable: boolean
           system: string
@@ -953,6 +954,7 @@ export type Database = {
           hyperlink?: string | null
           id?: number
           min?: boolean
+          path_build_artifact?: string | null
           pre?: boolean
           stable?: boolean
           system: string
@@ -968,6 +970,7 @@ export type Database = {
           hyperlink?: string | null
           id?: number
           min?: boolean
+          path_build_artifact?: string | null
           pre?: boolean
           stable?: boolean
           system?: string
