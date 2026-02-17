@@ -11,22 +11,29 @@ import { IHealthMetric, IHealthMetricSummaryRow } from "../types/db";
 export async function server_get_health_metrics(
   device_id: number,
   options: {
-    lookbackMinutes: number;
+    lookbackSeconds: number;
     maxCount: number;
+    timestampAnchor?: string | null;
     source?: string | null;
     metricName?: string | null;
   }
 ): Promise<IWebResponseCompatible<IHealthMetric[]>> {
   const supabase = await newServerClient();
-  const since = new Date(
-    Date.now() - options.lookbackMinutes * 60 * 1000
-  ).toISOString();
+  const lookbackMs = options.lookbackSeconds * 1000;
+  const anchorMs =
+    options.timestampAnchor != null && options.timestampAnchor !== ""
+      ? new Date(options.timestampAnchor).getTime()
+      : Date.now();
+  const startMs = anchorMs - lookbackMs;
+  const startISO = new Date(startMs).toISOString();
+  const endISO = new Date(anchorMs).toISOString();
 
   let query = supabase
     .from("health_metrics")
     .select("*")
     .eq("device_id", device_id)
-    .gte("timestamp", since)
+    .gte("timestamp", startISO)
+    .lt("timestamp", endISO)
     .order("timestamp", { ascending: false })
     .limit(options.maxCount);
 
