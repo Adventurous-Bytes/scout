@@ -1,6 +1,9 @@
 "use client";
 
-import { useScoutRefresh } from "../hooks/useScoutRefresh";
+import {
+  useScoutRefresh,
+  type UseScoutRefreshOptions,
+} from "../hooks/useScoutRefresh";
 import { createContext, useContext, useMemo, ReactNode, useRef } from "react";
 import { createBrowserClient } from "@supabase/ssr";
 import { SupabaseClient } from "@supabase/supabase-js";
@@ -40,11 +43,14 @@ export function useConnectionStatus() {
   return connectionStatus;
 }
 
-export interface ScoutRefreshProviderProps {
+export interface ScoutRefreshProviderProps extends UseScoutRefreshOptions {
   children: ReactNode;
 }
 
-export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
+export function ScoutRefreshProvider({
+  children,
+  ...refreshOptions
+}: ScoutRefreshProviderProps) {
   // Use refs to store the URL and key to prevent unnecessary recreations
   // Assumes Next.js environment variables (NEXT_PUBLIC_*)
   const urlRef = useRef(
@@ -59,7 +65,7 @@ export function ScoutRefreshProvider({ children }: ScoutRefreshProviderProps) {
     console.log("[ScoutRefreshProvider] Creating Supabase client");
     return createBrowserClient<Database>(urlRef.current, anonKeyRef.current);
   }, []); // Empty dependency array ensures this only runs once
-  useScoutRefresh();
+  useScoutRefresh(refreshOptions);
 
   // // Log connection status changes for debugging
   // if (connectionStatus.lastError) {
