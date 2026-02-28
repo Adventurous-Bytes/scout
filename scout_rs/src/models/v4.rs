@@ -2,17 +2,14 @@ use native_db::{native_db, ToKey};
 use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
 
-// Re-export all unchanged models from v3
-pub use super::v3::{Artifact, ArtifactLocal};
-
-// Re-export all unchanged models from v2
-pub use super::v2::{Operator, OperatorLocal};
+// Re-export from v2 (Artifact v2, Event v2, Operator)
+pub use super::v2::{Artifact, ArtifactLocal, Event, EventLocal, Operator, OperatorLocal};
 
 // Re-export all unchanged models from v1
 pub use super::v1::{
-    Action, AncestorLocal, Device, DevicePrettyLocation, DeviceType, Event, EventLocal, Heartbeat,
-    Herd, Layer, MediaType, Plan, PlanInsert, PlanType, ResponseScout, ResponseScoutStatus,
-    Session, SessionLocal, Syncable, Tag, TagLocal, TagObservationType, Zone,
+    Action, AncestorLocal, Device, DevicePrettyLocation, DeviceType, Heartbeat, Herd, Layer,
+    MediaType, Plan, PlanInsert, PlanType, ResponseScout, ResponseScoutStatus, Session, SessionLocal,
+    Syncable, Tag, TagLocal, TagObservationType, Zone,
 };
 
 // ===== CONNECTIVITY V4 WITH OPTIONAL MODE FIELD =====
@@ -464,3 +461,4 @@ impl From<super::v1::Connectivity> for Connectivity {
         }
     }
 }
+

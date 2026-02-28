@@ -3334,6 +3334,8 @@ async fn test_minimal_artifact_sync_debug_impl(cleanup: &TestCleanup) {
         has_uploaded_file_to_storage: true,          // Mark as uploaded so it will be synced
         upload_url: None,
         upload_url_generated_at: None,
+        embedding_qwen_vl_2b: None,
+        embedding_vertex_mm_01: None,
     };
 
     println!("🔧 Created minimal artifact:");

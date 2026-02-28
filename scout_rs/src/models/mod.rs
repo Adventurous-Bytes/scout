@@ -1,4 +1,5 @@
 pub mod health_metric;
+pub mod serde_helpers;
 pub mod v1;
 pub mod v2;
 pub mod v3;
@@ -14,8 +15,8 @@ pub mod data {
     pub type Connectivity = super::v4::Connectivity;
     pub type OperatorLocal = super::v2::OperatorLocal; // New model in v2
     pub type Operator = super::v2::Operator; // New model in v2
-    pub type ArtifactLocal = super::v3::ArtifactLocal; // New model in v3
-    pub type Artifact = super::v3::Artifact; // Updated in v3
+    pub type ArtifactLocal = super::v2::ArtifactLocal; // Artifact v2 (id 19) in v2.rs
+    pub type Artifact = super::v2::Artifact;
 
     // Other models that haven't changed stay at v1
     pub type Device = super::v1::Device;
@@ -23,8 +24,8 @@ pub mod data {
     pub type Herd = super::v1::Herd;
     pub type SessionLocal = super::v1::SessionLocal;
     pub type Session = super::v1::Session;
-    pub type EventLocal = super::v1::EventLocal;
-    pub type Event = super::v1::Event;
+    pub type EventLocal = super::v2::EventLocal; // Event v2 with embeddings
+    pub type Event = super::v2::Event;
     pub type TagLocal = super::v1::TagLocal;
     pub type Tag = super::v1::Tag;
     pub type Plan = super::v1::Plan;

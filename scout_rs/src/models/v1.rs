@@ -620,6 +620,223 @@ impl Artifact {
     }
 }
 
+// ===== ARTIFACT ID 19 VERSION 1 (same module as other v1 models) =====
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[native_model(id = 19, version = 1)]
+#[native_db]
+pub struct ArtifactLocalV1 {
+    pub id: Option<i64>,
+    #[primary_key]
+    pub id_local: Option<String>,
+    #[secondary_key]
+    pub ancestor_id_local: Option<String>,
+    pub created_at: Option<String>,
+    pub file_path: String,
+    #[secondary_key]
+    pub session_id: Option<i64>,
+    pub timestamp_observation: Option<String>,
+    pub modality: Option<String>,
+    pub device_id: i64,
+    pub updated_at: Option<String>,
+    pub timestamp_observation_end: String,
+    pub has_uploaded_file_to_storage: bool,
+    pub upload_url: Option<String>,
+    pub upload_url_generated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArtifactV1 {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    pub file_path: String,
+    pub session_id: Option<i64>,
+    pub timestamp_observation: Option<String>,
+    pub modality: Option<String>,
+    pub device_id: i64,
+    pub updated_at: Option<String>,
+    pub timestamp_observation_end: String,
+}
+
+impl Default for ArtifactLocalV1 {
+    fn default() -> Self {
+        use chrono::Utc;
+        Self {
+            id: None,
+            id_local: None,
+            ancestor_id_local: None,
+            created_at: None,
+            file_path: String::new(),
+            session_id: None,
+            timestamp_observation: None,
+            modality: None,
+            device_id: 0,
+            updated_at: None,
+            timestamp_observation_end: Utc::now().to_rfc3339(),
+            has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
+        }
+    }
+}
+
+impl Syncable for ArtifactLocalV1 {
+    fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    fn set_id(&mut self, id: i64) {
+        self.id = Some(id);
+    }
+
+    fn id_local(&self) -> Option<String> {
+        self.id_local.clone()
+    }
+
+    fn set_id_local(&mut self, id_local: String) {
+        self.id_local = Some(id_local);
+    }
+}
+
+impl AncestorLocal for ArtifactLocalV1 {
+    fn ancestor_id_local(&self) -> Option<String> {
+        self.ancestor_id_local.clone()
+    }
+
+    fn set_ancestor_id_local(&mut self, ancestor_id_local: String) {
+        self.ancestor_id_local = Some(ancestor_id_local);
+    }
+}
+
+impl From<ArtifactLocalV1> for ArtifactV1 {
+    fn from(local: ArtifactLocalV1) -> Self {
+        ArtifactV1 {
+            id: local.id,
+            created_at: local.created_at,
+            file_path: local.file_path,
+            session_id: local.session_id,
+            timestamp_observation: local.timestamp_observation,
+            modality: local.modality,
+            device_id: local.device_id,
+            updated_at: local.updated_at,
+            timestamp_observation_end: local.timestamp_observation_end,
+        }
+    }
+}
+
+impl From<ArtifactV1> for ArtifactLocalV1 {
+    fn from(artifact: ArtifactV1) -> Self {
+        ArtifactLocalV1 {
+            id: artifact.id,
+            id_local: None,
+            ancestor_id_local: None,
+            created_at: artifact.created_at,
+            file_path: artifact.file_path,
+            session_id: artifact.session_id,
+            timestamp_observation: artifact.timestamp_observation,
+            modality: artifact.modality,
+            device_id: artifact.device_id,
+            updated_at: artifact.updated_at,
+            timestamp_observation_end: artifact.timestamp_observation_end,
+            has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
+        }
+    }
+}
+
+impl ArtifactV1 {
+    pub fn new(
+        file_path: String,
+        session_id: Option<i64>,
+        device_id: i64,
+        modality: Option<String>,
+        timestamp_observation: Option<String>,
+    ) -> Self {
+        use chrono::Utc;
+        Self {
+            id: None,
+            created_at: None,
+            file_path,
+            session_id,
+            timestamp_observation,
+            modality,
+            device_id,
+            updated_at: None,
+            timestamp_observation_end: Utc::now().to_rfc3339(),
+        }
+    }
+}
+
+impl ArtifactLocalV1 {
+    pub fn new(
+        file_path: String,
+        session_id: Option<i64>,
+        device_id: i64,
+        modality: Option<String>,
+        timestamp_observation: Option<String>,
+    ) -> Self {
+        use chrono::Utc;
+        Self {
+            id: None,
+            id_local: None,
+            ancestor_id_local: None,
+            created_at: None,
+            file_path,
+            session_id,
+            timestamp_observation,
+            modality,
+            device_id,
+            updated_at: None,
+            timestamp_observation_end: Utc::now().to_rfc3339(),
+            has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
+        }
+    }
+}
+
+// Migration from legacy Artifact (id 4) to Artifact id 19 version 1
+impl From<Artifact> for ArtifactLocalV1 {
+    fn from(legacy: Artifact) -> Self {
+        use chrono::Utc;
+        Self {
+            id: legacy.id,
+            id_local: legacy.id_local,
+            ancestor_id_local: legacy.ancestor_id_local,
+            created_at: legacy.created_at,
+            file_path: legacy.file_path,
+            session_id: legacy.session_id,
+            timestamp_observation: legacy.timestamp_observation,
+            modality: None,
+            device_id: 0,
+            updated_at: None,
+            timestamp_observation_end: Utc::now().to_rfc3339(),
+            has_uploaded_file_to_storage: false,
+            upload_url: None,
+            upload_url_generated_at: None,
+        }
+    }
+}
+
+impl From<Artifact> for ArtifactV1 {
+    fn from(legacy: Artifact) -> Self {
+        use chrono::Utc;
+        Self {
+            id: legacy.id,
+            created_at: legacy.created_at,
+            file_path: legacy.file_path,
+            session_id: legacy.session_id,
+            timestamp_observation: legacy.timestamp_observation,
+            modality: None,
+            device_id: 0,
+            updated_at: None,
+            timestamp_observation_end: Utc::now().to_rfc3339(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[native_model(id = 15, version = 1)]
 #[native_db]
