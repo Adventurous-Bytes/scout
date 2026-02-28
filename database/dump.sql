@@ -99,6 +99,13 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA "extensions";
 
 
 
+CREATE EXTENSION IF NOT EXISTS "vector" WITH SCHEMA "extensions";
+
+
+
+
+
+
 CREATE TYPE "public"."app_permission" AS ENUM (
     'herds.delete',
     'events.delete'
@@ -3012,7 +3019,9 @@ CREATE TABLE IF NOT EXISTS "public"."artifacts" (
     "modality" "text",
     "device_id" bigint NOT NULL,
     "updated_at" timestamp with time zone DEFAULT "now"(),
-    "timestamp_observation_end" timestamp with time zone DEFAULT "now"() NOT NULL
+    "timestamp_observation_end" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "embedding_qwen_vl_2b" "extensions"."vector"(2000),
+    "embedding_vertex_mm_01" "extensions"."vector"(1408)
 );
 
 
@@ -5004,7 +5013,9 @@ CREATE TABLE IF NOT EXISTS "public"."events" (
     "location" "extensions"."geography"(Point,4326) DEFAULT '0101000020E610000000000000000000000000000000000000'::"extensions"."geography",
     "earthranger_url" "text",
     "file_path" "text",
-    "session_id" bigint
+    "session_id" bigint,
+    "embedding_qwen_vl_2b" "extensions"."vector"(2000),
+    "embedding_vertex_mm_01" "extensions"."vector"(1408)
 );
 
 
@@ -6815,6 +6826,51 @@ GRANT USAGE ON SCHEMA "public" TO "supabase_auth_admin";
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."tags" TO "anon";
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."tags" TO "authenticated";
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."tags" TO "service_role";
@@ -6836,6 +6892,303 @@ GRANT ALL ON TYPE "public"."event_and_tags_pretty_location" TO "service_role";
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."actions" TO "anon";
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."actions" TO "authenticated";
 GRANT SELECT,INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,UPDATE ON TABLE "public"."actions" TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9531,6 +9884,18 @@ GRANT ALL ON FUNCTION "public"."test_connectivity_trigger_bypass_rls"() TO "serv
 GRANT ALL ON FUNCTION "public"."update_updated_at_column"() TO "anon";
 GRANT ALL ON FUNCTION "public"."update_updated_at_column"() TO "authenticated";
 GRANT ALL ON FUNCTION "public"."update_updated_at_column"() TO "service_role";
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

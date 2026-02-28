@@ -57,6 +57,8 @@ export type Database = {
         Row: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
@@ -68,6 +70,8 @@ export type Database = {
         Insert: {
           created_at?: string
           device_id: number
+          embedding_qwen_vl_2b?: string | null
+          embedding_vertex_mm_01?: string | null
           file_path: string
           id?: number
           modality?: string | null
@@ -79,6 +83,8 @@ export type Database = {
         Update: {
           created_at?: string
           device_id?: number
+          embedding_qwen_vl_2b?: string | null
+          embedding_vertex_mm_01?: string | null
           file_path?: string
           id?: number
           modality?: string | null
@@ -322,6 +328,8 @@ export type Database = {
           altitude: number
           device_id: number
           earthranger_url: string | null
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string | null
           heading: number
           id: number
@@ -338,6 +346,8 @@ export type Database = {
           altitude?: number
           device_id: number
           earthranger_url?: string | null
+          embedding_qwen_vl_2b?: string | null
+          embedding_vertex_mm_01?: string | null
           file_path?: string | null
           heading?: number
           id?: number
@@ -354,6 +364,8 @@ export type Database = {
           altitude?: number
           device_id?: number
           earthranger_url?: string | null
+          embedding_qwen_vl_2b?: string | null
+          embedding_vertex_mm_01?: string | null
           file_path?: string | null
           heading?: number
           id?: number
@@ -1205,6 +1217,8 @@ export type Database = {
         Returns: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
@@ -1225,6 +1239,8 @@ export type Database = {
         Returns: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
@@ -1249,6 +1265,8 @@ export type Database = {
         Returns: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
@@ -1274,6 +1292,8 @@ export type Database = {
         Returns: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
@@ -1299,6 +1319,8 @@ export type Database = {
         Returns: {
           created_at: string
           device_id: number
+          embedding_qwen_vl_2b: string | null
+          embedding_vertex_mm_01: string | null
           file_path: string
           id: number
           modality: string | null
